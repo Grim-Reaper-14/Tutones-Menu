@@ -31,6 +31,7 @@ add_library(TutonesMenu SHARED
     src/render/Renderer.cpp
 
     src/ui/Input.cpp
+    src/ui/TutonesMenu.cpp
 )
 
 target_include_directories(TutonesMenu PRIVATE
@@ -87,6 +88,9 @@ source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR}/src PREFIX "Source" FILES
     src/render/Renderer.cpp
     src/render/Renderer.hpp
     src/render/RendererStatus.hpp
+    src/render/d3d12/FrameContext.hpp
     src/ui/Input.cpp
     src/ui/Input.hpp
+    src/ui/TutonesMenu.cpp
+    src/ui/TutonesMenu.hpp
 )
