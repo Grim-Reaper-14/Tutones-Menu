@@ -2,11 +2,16 @@
 
 #include "Input.hpp"
 #include "../core/logging/Logger.hpp"
+#include "../../byte_array.h"
 
 #include <imgui.h>
 
-#include <array>
 #include <algorithm>
+#include <array>
+#include <cfloat>
+#include <initializer_list>
+#include <string>
+#include <unordered_map>
 
 namespace Tutones::UI
 {
@@ -14,137 +19,263 @@ namespace Tutones::UI
     {
         struct CategoryEntry final
         {
-            const char* glyph;
+            const char* icon;
             const char* name;
+            std::array<const char*, 3> items;
         };
 
         constexpr std::array<CategoryEntry, 5> Categories{{
-            {"H", "Home"},
-            {"P", "Player"},
-            {"V", "Vehicle"},
-            {"W", "World"},
-            {"S", "Settings"},
+            {"B", "Home",     {{"Overview", "Quick Actions", "Diagnostics"}}},
+            {"C", "Player",   {{"General", "Movement", "Appearance"}}},
+            {"D", "Vehicle",  {{"General", "Paint", "Modifications"}}},
+            {"E", "World",    {{"General", "Time & Weather", "Teleport"}}},
+            {"F", "Settings", {{"General", "Theme", "Logging"}}},
         }};
 
-        constexpr std::array<std::array<const char*, 4>, 5> CategoryItems{{
-            {{"Overview", "Quick Actions", "Favorites", "Diagnostics"}},
-            {{"Player Options", "Health & Armor", "Movement", "Appearance"}},
-            {{"Vehicle Options", "Spawner", "Paint", "Modifications"}},
-            {{"World Options", "Time & Weather", "Teleport", "Environment"}},
-            {{"Menu", "Theme", "Input", "Logging"}},
-        }};
-
-        constexpr std::array<const char*, 5> CategoryDescriptions{{
-            "Runtime overview and quick access to Tutones systems.",
-            "Player feature foundation. Native-backed options connect next.",
-            "Vehicle control and customization, including the paint pipeline.",
-            "World, time, weather, teleport, and environment controls.",
-            "Tutones appearance, controls, diagnostics, and logging.",
-        }};
-
+        constexpr float MenuWidth = 730.0f;
+        constexpr float MenuHeight = 460.0f;
+        constexpr float LeftPanelWidth = 210.0f;
+        constexpr float IconRailWidth = 47.0f;
         constexpr ImVec4 Accent{147.0f / 255.0f, 190.0f / 255.0f, 66.0f / 255.0f, 1.0f};
-        constexpr float HeaderHeight = 48.0f;
-        constexpr float NavWidth = 70.0f;
-        constexpr float CategoryWidth = 188.0f;
 
-        ImU32 Color(unsigned char r, unsigned char g, unsigned char b, unsigned char a = 255) noexcept
+        ImFont* g_Medium{};
+        ImFont* g_Bold{};
+        ImFont* g_TabIcons{};
+        ImFont* g_Logo{};
+        ImFont* g_TabTitle{};
+        ImFont* g_TabTitleIcon{};
+        ImFont* g_SubtabTitle{};
+        ImGuiContext* g_FontContext{};
+
+        struct TabAnimation final
+        {
+            float elementOpacity{};
+            float rectOpacity{};
+            float textOpacity{};
+        };
+
+        std::unordered_map<ImGuiID, TabAnimation> g_TabAnimations;
+        std::unordered_map<ImGuiID, TabAnimation> g_SubtabAnimations;
+
+        ImVec2 Offset(const ImVec2& point, float x, float y) noexcept
+        {
+            return ImVec2(point.x + x, point.y + y);
+        }
+
+        ImU32 Color(int r, int g, int b, int a = 255) noexcept
         {
             return IM_COL32(r, g, b, a);
         }
 
-        bool RailButton(const char* id, const char* glyph, const char* tooltip, bool selected) noexcept
+        float Animate(float current, float target, float speed) noexcept
         {
-            const ImVec2 size{46.0f, 42.0f};
+            const float delta = ImGui::GetIO().DeltaTime;
+            const float amount = std::clamp(speed * (1.0f - delta), 0.0f, 1.0f);
+            return current + ((target - current) * amount);
+        }
+
+        ImFont* FontOrDefault(ImFont* font) noexcept
+        {
+            return font ? font : ImGui::GetFont();
+        }
+
+        bool EnsureOriginalFonts() noexcept
+        {
+            auto* context = ImGui::GetCurrentContext();
+            if (!context)
+                return false;
+
+            if (g_FontContext == context && g_Medium && g_Bold && g_TabIcons)
+                return true;
+
+            g_FontContext = context;
+            g_Medium = nullptr;
+            g_Bold = nullptr;
+            g_TabIcons = nullptr;
+            g_Logo = nullptr;
+            g_TabTitle = nullptr;
+            g_TabTitleIcon = nullptr;
+            g_SubtabTitle = nullptr;
+            g_TabAnimations.clear();
+            g_SubtabAnimations.clear();
+
+            auto& io = ImGui::GetIO();
+            ImFontConfig config{};
+            config.FontDataOwnedByAtlas = false;
+
+            g_Medium = io.Fonts->AddFontFromMemoryTTF(
+                PTRootUIMedium,
+                static_cast<int>(sizeof(PTRootUIMedium)),
+                15.0f,
+                &config);
+            g_Bold = io.Fonts->AddFontFromMemoryTTF(
+                PTRootUIBold,
+                static_cast<int>(sizeof(PTRootUIBold)),
+                15.0f,
+                &config);
+            g_TabIcons = io.Fonts->AddFontFromMemoryTTF(
+                clarityfont,
+                static_cast<int>(sizeof(clarityfont)),
+                15.0f,
+                &config);
+            g_Logo = io.Fonts->AddFontFromMemoryTTF(
+                clarityfont,
+                static_cast<int>(sizeof(clarityfont)),
+                21.0f,
+                &config);
+            g_TabTitle = io.Fonts->AddFontFromMemoryTTF(
+                PTRootUIBold,
+                static_cast<int>(sizeof(PTRootUIBold)),
+                19.0f,
+                &config);
+            g_TabTitleIcon = io.Fonts->AddFontFromMemoryTTF(
+                clarityfont,
+                static_cast<int>(sizeof(clarityfont)),
+                18.0f,
+                &config);
+            g_SubtabTitle = io.Fonts->AddFontFromMemoryTTF(
+                PTRootUIBold,
+                static_cast<int>(sizeof(PTRootUIBold)),
+                15.0f,
+                &config);
+
+            if (!g_Medium)
+                g_Medium = io.Fonts->AddFontDefault();
+            if (!g_Bold) g_Bold = g_Medium;
+            if (!g_TabIcons) g_TabIcons = g_Medium;
+            if (!g_Logo) g_Logo = g_TabIcons;
+            if (!g_TabTitle) g_TabTitle = g_Bold;
+            if (!g_TabTitleIcon) g_TabTitleIcon = g_TabIcons;
+            if (!g_SubtabTitle) g_SubtabTitle = g_Bold;
+
+            io.FontDefault = g_Medium;
+
+            if (g_Medium && g_Bold && g_TabIcons)
+            {
+                TUTONES_LOG_INFO("ui.fonts", "Loaded original Tutones embedded menu fonts and icon font");
+                return true;
+            }
+
+            TUTONES_LOG_WARN("ui.fonts", "Original Tutones embedded fonts were incomplete; using ImGui fallback fonts");
+            return g_Medium != nullptr;
+        }
+
+        bool OriginalTabButton(const char* id, const char* icon, bool selected, const ImVec2& localPos) noexcept
+        {
+            ImGui::SetCursorPos(localPos);
             const ImVec2 min = ImGui::GetCursorScreenPos();
+            const ImVec2 size{31.0f, 31.0f};
             const ImVec2 max{min.x + size.x, min.y + size.y};
+            const ImGuiID itemId = ImGui::GetID(id);
 
             const bool pressed = ImGui::InvisibleButton(id, size);
             const bool hovered = ImGui::IsItemHovered();
+
+            auto& anim = g_TabAnimations[itemId];
+            anim.elementOpacity = Animate(anim.elementOpacity, selected ? 0.04f : hovered ? 0.01f : 0.0f, 0.07f);
+            anim.rectOpacity = Animate(anim.rectOpacity, selected ? 1.0f : 0.0f, 0.15f);
+            anim.textOpacity = Animate(anim.textOpacity, selected ? 1.0f : hovered ? 0.5f : 0.3f, 0.07f);
+
             auto* draw = ImGui::GetWindowDrawList();
+            draw->AddRectFilled(min, max, ImGui::GetColorU32(ImVec4(1.0f, 1.0f, 1.0f, anim.elementOpacity)), 3.0f);
 
-            if (selected || hovered)
-                draw->AddRectFilled(min, max, Color(255, 255, 255, selected ? 12 : 6), 4.0f);
-
-            if (selected)
-            {
-                draw->AddRectFilled(
-                    ImVec2(max.x - 3.0f, min.y + 9.0f),
-                    ImVec2(max.x, max.y - 9.0f),
-                    ImGui::GetColorU32(Accent),
-                    3.0f);
-            }
-
-            const auto textSize = ImGui::CalcTextSize(glyph);
+            ImFont* font = FontOrDefault(g_TabIcons);
+            const ImVec2 textSize = font->CalcTextSizeA(15.0f, FLT_MAX, 0.0f, icon);
             draw->AddText(
+                font,
+                15.0f,
                 ImVec2(min.x + (size.x - textSize.x) * 0.5f, min.y + (size.y - textSize.y) * 0.5f),
-                selected ? Color(245, 245, 245) : Color(155, 155, 160),
-                glyph);
+                ImGui::GetColorU32(ImVec4(1.0f, 1.0f, 1.0f, anim.textOpacity)),
+                icon);
 
-            if (hovered)
-            {
-                ImGui::BeginTooltip();
-                ImGui::TextUnformatted(tooltip);
-                ImGui::EndTooltip();
-            }
+            draw->AddRectFilled(
+                ImVec2(max.x + 4.0f, min.y + 6.0f),
+                ImVec2(max.x + 8.0f, max.y - 6.0f),
+                ImGui::GetColorU32(ImVec4(Accent.x, Accent.y, Accent.z, anim.rectOpacity)),
+                4.0f);
 
             return pressed;
         }
 
-        bool Subtab(const char* id, const char* label, bool selected) noexcept
+        bool OriginalSubtabButton(const char* id, const char* label, bool selected, const ImVec2& localPos) noexcept
         {
-            const float width = std::max(40.0f, ImGui::GetContentRegionAvail().x - 16.0f);
-            const ImVec2 size{width, 34.0f};
+            ImGui::SetCursorPos(localPos);
             const ImVec2 min = ImGui::GetCursorScreenPos();
+            const ImVec2 size{145.0f, 32.0f};
             const ImVec2 max{min.x + size.x, min.y + size.y};
+            const ImGuiID itemId = ImGui::GetID(id);
 
             const bool pressed = ImGui::InvisibleButton(id, size);
             const bool hovered = ImGui::IsItemHovered();
+
+            auto& anim = g_SubtabAnimations[itemId];
+            anim.elementOpacity = Animate(anim.elementOpacity, selected ? 0.04f : 0.0f, 0.09f);
+            anim.rectOpacity = Animate(anim.rectOpacity, selected ? 1.0f : 0.0f, 0.20f);
+            anim.textOpacity = Animate(anim.textOpacity, selected ? 1.0f : 0.3f, 0.07f);
+
             auto* draw = ImGui::GetWindowDrawList();
+            draw->AddRectFilled(min, max, ImGui::GetColorU32(ImVec4(1.0f, 1.0f, 1.0f, anim.elementOpacity)), 3.0f);
 
-            if (selected || hovered)
-                draw->AddRectFilled(min, max, Color(255, 255, 255, selected ? 11 : 5), 4.0f);
-
-            if (selected)
-            {
-                draw->AddRectFilled(
-                    ImVec2(max.x - 3.0f, min.y + 8.0f),
-                    ImVec2(max.x, max.y - 8.0f),
-                    ImGui::GetColorU32(Accent),
-                    3.0f);
-            }
-
-            const auto textSize = ImGui::CalcTextSize(label);
+            ImFont* font = FontOrDefault(g_Medium);
+            const ImVec2 textSize = font->CalcTextSizeA(15.0f, FLT_MAX, 0.0f, label);
             draw->AddText(
-                ImVec2(min.x + 12.0f, min.y + (size.y - textSize.y) * 0.5f),
-                selected ? Color(240, 240, 242) : Color(148, 148, 154),
+                font,
+                15.0f,
+                ImVec2(min.x + 15.0f, min.y + (size.y - textSize.y) * 0.5f),
+                ImGui::GetColorU32(ImVec4(1.0f, 1.0f, 1.0f, anim.textOpacity)),
                 label);
 
+            draw->AddRectFilled(
+                ImVec2(max.x + 5.0f, min.y + 9.0f),
+                ImVec2(max.x + 8.0f, max.y - 9.0f),
+                ImGui::GetColorU32(ImVec4(Accent.x, Accent.y, Accent.z, anim.rectOpacity)),
+                4.0f);
+
             return pressed;
         }
 
-        void StatusCard(const char* id, const char* title, const char* value, const char* detail, bool active = true) noexcept
+        void DrawPanel(
+            ImDrawList* draw,
+            const ImVec2& windowPos,
+            const ImVec2& localPos,
+            const ImVec2& size,
+            const char* title,
+            std::initializer_list<const char*> lines) noexcept
         {
-            const ImVec2 min = ImGui::GetCursorScreenPos();
-            const ImVec2 size{ImGui::GetContentRegionAvail().x, 66.0f};
+            const ImVec2 min = Offset(windowPos, localPos.x, localPos.y);
             const ImVec2 max{min.x + size.x, min.y + size.y};
 
-            ImGui::InvisibleButton(id, size);
-            auto* draw = ImGui::GetWindowDrawList();
-            draw->AddRectFilled(min, max, Color(29, 29, 32), 5.0f);
-            draw->AddRect(min, max, Color(255, 255, 255, 10), 5.0f);
-            draw->AddRectFilled(
-                ImVec2(min.x, min.y + 12.0f),
-                ImVec2(min.x + 3.0f, max.y - 12.0f),
-                active ? ImGui::GetColorU32(Accent) : Color(105, 105, 110),
-                3.0f);
+            draw->AddRectFilled(min, max, Color(24, 24, 26), 4.0f);
+            draw->AddRect(min, max, Color(255, 255, 255, 8), 4.0f);
+            draw->AddLine(Offset(min, 1.0f, 32.0f), ImVec2(max.x - 1.0f, min.y + 32.0f), Color(255, 255, 255, 8));
 
-            draw->AddText(ImVec2(min.x + 14.0f, min.y + 11.0f), Color(228, 228, 230), title);
-            const auto valueSize = ImGui::CalcTextSize(value);
             draw->AddText(
-                ImVec2(max.x - valueSize.x - 14.0f, min.y + 11.0f),
-                active ? ImGui::GetColorU32(Accent) : Color(135, 135, 140),
-                value);
-            draw->AddText(ImVec2(min.x + 14.0f, min.y + 38.0f), Color(125, 125, 132), detail);
+                FontOrDefault(g_Bold),
+                15.0f,
+                Offset(min, 16.0f, 9.0f),
+                ImGui::GetColorU32(Accent),
+                title);
+
+            float y = min.y + 49.0f;
+            for (const char* line : lines)
+            {
+                if (!line || line[0] == '\0')
+                {
+                    y += 10.0f;
+                    continue;
+                }
+
+                draw->AddText(
+                    FontOrDefault(g_Medium),
+                    14.0f,
+                    ImVec2(min.x + 16.0f, y),
+                    Color(188, 188, 193),
+                    line);
+                y += 22.0f;
+
+                if (y > max.y - 18.0f)
+                    break;
+            }
         }
     }
 
@@ -158,7 +289,8 @@ namespace Tutones::UI
     {
         m_Category = 0;
         m_Item = 0;
-        TUTONES_LOG_DEBUG("ui", "Tutones menu navigation state reset");
+        static_cast<void>(EnsureOriginalFonts());
+        TUTONES_LOG_DEBUG("ui", "Tutones navigation reset to original menu layout");
     }
 
     void TutonesMenu::ProcessInput() noexcept
@@ -167,29 +299,29 @@ namespace Tutones::UI
         if (actions == 0)
             return;
 
-        constexpr std::size_t itemCount = CategoryItems.front().size();
+        constexpr std::size_t itemCount = 3;
 
         if ((actions & ToMask(InputAction::Up)) != 0)
         {
             m_Item = (m_Item == 0) ? itemCount - 1 : m_Item - 1;
-            TUTONES_LOG_DEBUG("ui", "Menu selection moved up");
+            TUTONES_LOG_DEBUG("ui", "Original menu subtab moved up");
         }
         if ((actions & ToMask(InputAction::Down)) != 0)
         {
             m_Item = (m_Item + 1) % itemCount;
-            TUTONES_LOG_DEBUG("ui", "Menu selection moved down");
+            TUTONES_LOG_DEBUG("ui", "Original menu subtab moved down");
         }
         if ((actions & ToMask(InputAction::Left)) != 0)
         {
             m_Category = (m_Category == 0) ? Categories.size() - 1 : m_Category - 1;
             m_Item = 0;
-            TUTONES_LOG_DEBUG("ui", "Menu category moved left");
+            TUTONES_LOG_DEBUG("ui", "Original menu category moved left");
         }
         if ((actions & ToMask(InputAction::Right)) != 0)
         {
             m_Category = (m_Category + 1) % Categories.size();
             m_Item = 0;
-            TUTONES_LOG_DEBUG("ui", "Menu category moved right");
+            TUTONES_LOG_DEBUG("ui", "Original menu category moved right");
         }
         if ((actions & ToMask(InputAction::Back)) != 0)
         {
@@ -207,118 +339,137 @@ namespace Tutones::UI
         }
         if ((actions & ToMask(InputAction::Select)) != 0)
         {
-            TUTONES_LOG_DEBUG("ui", "Menu Select received");
+            std::string message("Menu Select: ");
+            message += Categories[m_Category].name;
+            message += " / ";
+            message += Categories[m_Category].items[m_Item];
+            TUTONES_LOG_DEBUG("ui", message);
         }
     }
 
     void TutonesMenu::RenderNavigationRail() noexcept
     {
-        ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(16.0f / 255.0f, 16.0f / 255.0f, 18.0f / 255.0f, 1.0f));
-        ImGui::BeginChild("##tutones_nav", ImVec2(NavWidth, 0.0f), false, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
-
-        ImGui::SetCursorPosY(17.0f);
         for (std::size_t i = 0; i < Categories.size(); ++i)
         {
-            ImGui::SetCursorPosX(12.0f);
             ImGui::PushID(static_cast<int>(i));
-            if (RailButton("##category", Categories[i].glyph, Categories[i].name, i == m_Category))
+            const ImVec2 localPos{8.0f, 56.0f + static_cast<float>(i) * 36.0f};
+            if (OriginalTabButton("##original_tab", Categories[i].icon, i == m_Category, localPos))
             {
                 m_Category = i;
                 m_Item = 0;
-                TUTONES_LOG_DEBUG("ui.mouse", "Menu category selected with mouse");
+                TUTONES_LOG_DEBUG("ui.mouse", "Original menu category selected with mouse");
             }
             ImGui::PopID();
-            ImGui::Dummy(ImVec2(0.0f, 5.0f));
         }
-
-        const auto pos = ImGui::GetWindowPos();
-        const auto size = ImGui::GetWindowSize();
-        ImGui::GetWindowDrawList()->AddLine(
-            ImVec2(pos.x + size.x - 1.0f, pos.y),
-            ImVec2(pos.x + size.x - 1.0f, pos.y + size.y),
-            Color(255, 255, 255, 9));
-
-        ImGui::EndChild();
-        ImGui::PopStyleColor();
     }
 
     void TutonesMenu::RenderCategoryRail() noexcept
     {
-        ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(20.0f / 255.0f, 20.0f / 255.0f, 22.0f / 255.0f, 1.0f));
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(14.0f, 17.0f));
-        ImGui::BeginChild("##tutones_categories", ImVec2(CategoryWidth, 0.0f), false, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+        const ImVec2 windowPos = ImGui::GetWindowPos();
+        auto* draw = ImGui::GetWindowDrawList();
 
-        ImGui::TextColored(Accent, "%s", Categories[m_Category].name);
-        ImGui::Dummy(ImVec2(0.0f, 8.0f));
+        draw->AddText(
+            FontOrDefault(g_SubtabTitle),
+            15.0f,
+            Offset(windowPos, 72.0f, 60.0f),
+            Color(255, 255, 255, 102),
+            "MAIN");
 
-        for (std::size_t i = 0; i < CategoryItems[m_Category].size(); ++i)
+        for (std::size_t i = 0; i < Categories[m_Category].items.size(); ++i)
         {
             ImGui::PushID(static_cast<int>(i));
-            if (Subtab("##subtab", CategoryItems[m_Category][i], i == m_Item))
+            const ImVec2 localPos{57.0f, 86.0f + static_cast<float>(i) * 35.0f};
+            if (OriginalSubtabButton("##original_subtab", Categories[m_Category].items[i], i == m_Item, localPos))
             {
                 m_Item = i;
-                TUTONES_LOG_DEBUG("ui.mouse", "Menu subtab selected with mouse");
+                TUTONES_LOG_DEBUG("ui.mouse", "Original menu subtab selected with mouse");
             }
             ImGui::PopID();
-            ImGui::Dummy(ImVec2(0.0f, 4.0f));
         }
 
-        const auto pos = ImGui::GetWindowPos();
-        const auto size = ImGui::GetWindowSize();
-        auto* draw = ImGui::GetWindowDrawList();
-        draw->AddLine(
-            ImVec2(pos.x + size.x - 1.0f, pos.y),
-            ImVec2(pos.x + size.x - 1.0f, pos.y + size.y),
-            Color(255, 255, 255, 9));
-        draw->AddText(ImVec2(pos.x + 14.0f, pos.y + size.y - 48.0f), Color(95, 95, 101), "NUM8/2  MOVE");
-        draw->AddText(ImVec2(pos.x + 14.0f, pos.y + size.y - 30.0f), Color(95, 95, 101), "NUM5 SELECT   NUM0 BACK");
-
-        ImGui::EndChild();
-        ImGui::PopStyleVar();
-        ImGui::PopStyleColor();
+        draw->AddText(
+            FontOrDefault(g_Medium),
+            12.0f,
+            Offset(windowPos, 64.0f, 397.0f),
+            Color(110, 110, 116),
+            "NUM8/2  MOVE");
+        draw->AddText(
+            FontOrDefault(g_Medium),
+            12.0f,
+            Offset(windowPos, 64.0f, 416.0f),
+            Color(110, 110, 116),
+            "NUM5 SELECT");
+        draw->AddText(
+            FontOrDefault(g_Medium),
+            12.0f,
+            Offset(windowPos, 64.0f, 435.0f),
+            Color(110, 110, 116),
+            "NUM0 BACK");
     }
 
     void TutonesMenu::RenderContent() noexcept
     {
-        ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(24.0f / 255.0f, 24.0f / 255.0f, 26.0f / 255.0f, 1.0f));
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(22.0f, 19.0f));
-        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(8.0f, 10.0f));
-        ImGui::BeginChild("##tutones_content", ImVec2(0.0f, 0.0f), false, ImGuiWindowFlags_NoScrollbar);
+        const ImVec2 windowPos = ImGui::GetWindowPos();
+        auto* draw = ImGui::GetWindowDrawList();
+        const char* selected = Categories[m_Category].items[m_Item];
 
-        ImGui::TextDisabled("%s  /  %s", Categories[m_Category].name, CategoryItems[m_Category][m_Item]);
-        ImGui::Dummy(ImVec2(0.0f, 2.0f));
-        ImGui::TextColored(ImVec4(0.95f, 0.95f, 0.96f, 1.0f), "%s", CategoryItems[m_Category][m_Item]);
-        ImGui::TextDisabled("%s", CategoryDescriptions[m_Category]);
-        ImGui::Dummy(ImVec2(0.0f, 10.0f));
+        switch (m_Category)
+        {
+        case 0:
+            DrawPanel(draw, windowPos, ImVec2(226.0f, 16.0f), ImVec2(240.0f, 300.0f), "Runtime",
+                {"Tutones Menu", "D3D12 renderer online", "Primary swap chain pinned", "DIRECT queue captured", "WndProc routing active", "Mouse capture active"});
+            DrawPanel(draw, windowPos, ImVec2(476.0f, 16.0f), ImVec2(240.0f, 240.0f), "Navigation",
+                {"F4  open / close", "NUM8 / NUM2  up / down", "NUM4 / NUM6  categories", "NUM5  select", "NUM0  back"});
+            DrawPanel(draw, windowPos, ImVec2(226.0f, 332.0f), ImVec2(240.0f, 114.0f), "Selected",
+                {selected});
+            DrawPanel(draw, windowPos, ImVec2(476.0f, 272.0f), ImVec2(240.0f, 174.0f), "Logging",
+                {"Hook logging active", "Render logging active", "Input logging active", "UI logging active"});
+            break;
 
-        if (m_Category == 0 || m_Category == 4)
-        {
-            StatusCard("##hook", "Hook Layer", "ONLINE", "Present + ResizeBuffers + ExecuteCommandLists");
-            ImGui::Dummy(ImVec2(0.0f, 6.0f));
-            StatusCard("##renderer", "Renderer", "D3D12", "Primary swap chain + DIRECT queue captured");
-            ImGui::Dummy(ImVec2(0.0f, 6.0f));
-            StatusCard("##input", "Input", "CAPTURED", "F4 + numpad + mouse routed only to Tutones while open");
-            ImGui::Dummy(ImVec2(0.0f, 6.0f));
-            StatusCard("##logging", "Logging", "ACTIVE", "Lifecycle, hook, render, input, and UI diagnostics");
-        }
-        else if (m_Category == 2)
-        {
-            StatusCard("##vehicle-runtime", "Vehicle Runtime", "NEXT", "Vehicle detection and native runtime are the next feature layer", false);
-            ImGui::Dummy(ImVec2(0.0f, 6.0f));
-            StatusCard("##vehicle-paint", "Paint Pipeline", "PLANNED", "Normal, Metallic, Pearlescent, Matte, Metal, Chrome, Worn, Chameleon", false);
-            ImGui::Dummy(ImVec2(0.0f, 6.0f));
-            StatusCard("##vehicle-wheels", "Wheel Paint", "PLANNED", "Normal + Chameleon wheel color support", false);
-        }
-        else
-        {
-            StatusCard("##feature-foundation", "Feature Foundation", "READY", "UI, renderer, input capture, config, filesystem, and logging are live");
-            ImGui::Dummy(ImVec2(0.0f, 6.0f));
-            StatusCard("##runtime-next", "Game Runtime", "NEXT", "Native/game infrastructure will populate this category", false);
-        }
+        case 1:
+            DrawPanel(draw, windowPos, ImVec2(226.0f, 16.0f), ImVec2(240.0f, 300.0f), "Player",
+                {"Player runtime placeholder", "Native runtime comes next", "Feature state will live here", "No fake game writes enabled"});
+            DrawPanel(draw, windowPos, ImVec2(476.0f, 16.0f), ImVec2(240.0f, 240.0f), "Current",
+                {selected, "Input routing validated", "D3D12 overlay validated"});
+            DrawPanel(draw, windowPos, ImVec2(226.0f, 332.0f), ImVec2(240.0f, 114.0f), "Status",
+                {"Foundation ready"});
+            DrawPanel(draw, windowPos, ImVec2(476.0f, 272.0f), ImVec2(240.0f, 174.0f), "Next",
+                {"Game runtime", "Native invoker", "Player state access"});
+            break;
 
-        ImGui::EndChild();
-        ImGui::PopStyleVar(2);
-        ImGui::PopStyleColor();
+        case 2:
+            DrawPanel(draw, windowPos, ImVec2(226.0f, 16.0f), ImVec2(240.0f, 300.0f), "Vehicle",
+                {"Vehicle detection next", "Current vehicle state", "Model / handle tracking", "Safe ownership checks"});
+            DrawPanel(draw, windowPos, ImVec2(476.0f, 16.0f), ImVec2(240.0f, 240.0f), "Paint",
+                {"Normal", "Metallic / Pearlescent", "Matte / Metal / Chrome", "Worn", "Chameleon"});
+            DrawPanel(draw, windowPos, ImVec2(226.0f, 332.0f), ImVec2(240.0f, 114.0f), "Selected",
+                {selected});
+            DrawPanel(draw, windowPos, ImVec2(476.0f, 272.0f), ImVec2(240.0f, 174.0f), "Wheels",
+                {"Normal wheel paint", "Chameleon wheel paint", "Runtime integration pending"});
+            break;
+
+        case 3:
+            DrawPanel(draw, windowPos, ImVec2(226.0f, 16.0f), ImVec2(240.0f, 300.0f), "World",
+                {"World runtime placeholder", "Time and weather", "Teleport foundation", "Environment controls"});
+            DrawPanel(draw, windowPos, ImVec2(476.0f, 16.0f), ImVec2(240.0f, 240.0f), "Current",
+                {selected, "UI only until native runtime"});
+            DrawPanel(draw, windowPos, ImVec2(226.0f, 332.0f), ImVec2(240.0f, 114.0f), "Status",
+                {"Foundation ready"});
+            DrawPanel(draw, windowPos, ImVec2(476.0f, 272.0f), ImVec2(240.0f, 174.0f), "Next",
+                {"Native world access", "Safe state reads", "Feature implementation"});
+            break;
+
+        default:
+            DrawPanel(draw, windowPos, ImVec2(226.0f, 16.0f), ImVec2(240.0f, 300.0f), "Settings",
+                {"Tutones Menu", "Original UI restored", "D3D12 backend injected", "F4 toggle", "NUM0 is Back"});
+            DrawPanel(draw, windowPos, ImVec2(476.0f, 16.0f), ImVec2(240.0f, 240.0f), "Theme",
+                {"Charcoal panels", "Green 147 / 190 / 66", "Original icon font", "730 x 460 layout"});
+            DrawPanel(draw, windowPos, ImVec2(226.0f, 332.0f), ImVec2(240.0f, 114.0f), "Selected",
+                {selected});
+            DrawPanel(draw, windowPos, ImVec2(476.0f, 272.0f), ImVec2(240.0f, 174.0f), "Logging",
+                {"Lifecycle", "Hook / renderer", "Input / UI", "File logging"});
+            break;
+        }
     }
 
     void TutonesMenu::Render() noexcept
@@ -326,61 +477,84 @@ namespace Tutones::UI
         if (!Input::Get().IsMenuOpen())
             return;
 
-        ProcessInput();
-        if (!Input::Get().IsMenuOpen())
+        if (!EnsureOriginalFonts())
             return;
 
-        auto& io = ImGui::GetIO();
-        io.ConfigFlags &= ~ImGuiConfigFlags_NavEnableKeyboard;
-        io.MouseDrawCursor = true;
+        ProcessInput();
 
-        auto& style = ImGui::GetStyle();
-        style.WindowRounding = 7.0f;
-        style.ChildRounding = 0.0f;
-        style.FrameRounding = 4.0f;
-        style.WindowBorderSize = 1.0f;
+        const ImGuiViewport* viewport = ImGui::GetMainViewport();
+        const ImVec2 center{
+            viewport->Pos.x + viewport->Size.x * 0.5f,
+            viewport->Pos.y + viewport->Size.y * 0.5f,
+        };
 
-        const auto* viewport = ImGui::GetMainViewport();
-        ImGui::SetNextWindowPos(viewport->GetCenter(), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
-        ImGui::SetNextWindowSize(ImVec2(900.0f, 560.0f), ImGuiCond_Always);
+        ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+        ImGui::SetNextWindowSize(ImVec2(MenuWidth, MenuHeight), ImGuiCond_Always);
 
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
-        ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(15.0f / 255.0f, 15.0f / 255.0f, 17.0f / 255.0f, 0.99f));
-        ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(52.0f / 255.0f, 52.0f / 255.0f, 57.0f / 255.0f, 1.0f));
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 4.0f);
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+        ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(18.0f / 255.0f, 18.0f / 255.0f, 20.0f / 255.0f, 1.0f));
 
         constexpr ImGuiWindowFlags flags =
             ImGuiWindowFlags_NoDecoration |
-            ImGuiWindowFlags_NoResize |
-            ImGuiWindowFlags_NoMove |
             ImGuiWindowFlags_NoSavedSettings |
             ImGuiWindowFlags_NoScrollbar |
-            ImGuiWindowFlags_NoScrollWithMouse;
+            ImGuiWindowFlags_NoScrollWithMouse |
+            ImGuiWindowFlags_NoNavInputs |
+            ImGuiWindowFlags_NoNavFocus;
 
-        if (ImGui::Begin("##TutonesMenuRoot", nullptr, flags))
+        if (ImGui::Begin("Tutones Menu##original", nullptr, flags))
         {
-            const auto pos = ImGui::GetWindowPos();
-            const auto size = ImGui::GetWindowSize();
+            const ImVec2 pos = ImGui::GetWindowPos();
+            const ImVec2 size = ImGui::GetWindowSize();
             auto* draw = ImGui::GetWindowDrawList();
 
-            draw->AddRectFilled(pos, ImVec2(pos.x + size.x, pos.y + HeaderHeight), Color(18, 18, 20), 7.0f, ImDrawFlags_RoundCornersTop);
-            draw->AddLine(
-                ImVec2(pos.x, pos.y + HeaderHeight),
-                ImVec2(pos.x + size.x, pos.y + HeaderHeight),
-                Color(255, 255, 255, 10));
-            draw->AddText(ImVec2(pos.x + 18.0f, pos.y + 16.0f), ImGui::GetColorU32(Accent), "TUTONES");
-            draw->AddText(ImVec2(pos.x + 79.0f, pos.y + 16.0f), Color(228, 228, 231), "MENU");
-            draw->AddText(ImVec2(pos.x + size.x - 83.0f, pos.y + 16.0f), Color(100, 100, 106), "F4  CLOSE");
+            draw->AddRectFilled(
+                pos,
+                ImVec2(pos.x + LeftPanelWidth, pos.y + size.y),
+                Color(24, 24, 26),
+                4.0f);
 
-            ImGui::SetCursorPos(ImVec2(0.0f, HeaderHeight));
+            draw->AddLine(Offset(pos, LeftPanelWidth, 2.0f), Offset(pos, LeftPanelWidth, size.y - 2.0f), Color(255, 255, 255, 8));
+            draw->AddLine(Offset(pos, IconRailWidth, 2.0f), Offset(pos, IconRailWidth, size.y - 2.0f), Color(255, 255, 255, 8));
+            draw->AddLine(Offset(pos, 2.0f, 47.0f), Offset(pos, IconRailWidth, 47.0f), Color(255, 255, 255, 8));
+            draw->AddLine(Offset(pos, 63.0f, 47.0f), Offset(pos, 195.0f, 47.0f), Color(255, 255, 255, 8));
+
+            draw->AddText(
+                FontOrDefault(g_Logo),
+                21.0f,
+                Offset(pos, 14.0f, 12.0f),
+                ImGui::GetColorU32(Accent),
+                "A");
+
+            draw->AddText(
+                FontOrDefault(g_TabTitleIcon),
+                18.0f,
+                Offset(pos, 65.0f, 14.0f),
+                ImGui::GetColorU32(Accent),
+                Categories[m_Category].icon);
+
+            draw->AddText(
+                FontOrDefault(g_TabTitle),
+                19.0f,
+                Offset(pos, 93.0f, 15.0f),
+                Color(255, 255, 255),
+                Categories[m_Category].name);
+
+            draw->AddRect(
+                Offset(pos, 1.0f, 1.0f),
+                ImVec2(pos.x + size.x - 1.0f, pos.y + size.y - 1.0f),
+                Color(255, 255, 255, 8),
+                4.0f);
+
             RenderNavigationRail();
-            ImGui::SameLine(0.0f, 0.0f);
             RenderCategoryRail();
-            ImGui::SameLine(0.0f, 0.0f);
             RenderContent();
         }
-        ImGui::End();
 
-        ImGui::PopStyleColor(2);
-        ImGui::PopStyleVar();
+        ImGui::End();
+        ImGui::PopStyleColor();
+        ImGui::PopStyleVar(3);
     }
 }
