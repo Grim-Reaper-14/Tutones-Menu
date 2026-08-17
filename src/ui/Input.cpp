@@ -3,8 +3,53 @@
 #include "../core/logging/Logger.hpp"
 #include "../hooking/Win32Hook.hpp"
 
+#include <imgui.h>
+#include <imgui_impl_win32.h>
+
+extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND window, UINT message, WPARAM wParam, LPARAM lParam);
+
 namespace Tutones::UI
 {
+    namespace
+    {
+        bool IsMouseMessage(UINT message) noexcept
+        {
+            switch (message)
+            {
+            case WM_MOUSEMOVE:
+            case WM_MOUSELEAVE:
+            case WM_LBUTTONDOWN:
+            case WM_LBUTTONUP:
+            case WM_RBUTTONDOWN:
+            case WM_RBUTTONUP:
+            case WM_MBUTTONDOWN:
+            case WM_MBUTTONUP:
+            case WM_XBUTTONDOWN:
+            case WM_XBUTTONUP:
+            case WM_MOUSEWHEEL:
+            case WM_MOUSEHWHEEL:
+                return true;
+            default:
+                return false;
+            }
+        }
+
+        bool IsKeyboardMessage(UINT message) noexcept
+        {
+            switch (message)
+            {
+            case WM_KEYDOWN:
+            case WM_KEYUP:
+            case WM_SYSKEYDOWN:
+            case WM_SYSKEYUP:
+            case WM_CHAR:
+                return true;
+            default:
+                return false;
+            }
+        }
+    }
+
     Input& Input::Get() noexcept
     {
         static Input instance;
@@ -60,6 +105,9 @@ namespace Tutones::UI
         if (previous == open)
             return;
 
+        if (!open)
+            m_PendingActions.store(0, std::memory_order_release);
+
         TUTONES_LOG_INFO("input", open ? "Tutones menu opened" : "Tutones menu closed");
     }
 
@@ -94,87 +142,69 @@ namespace Tutones::UI
         return false;
     }
 
-    bool Input::HandleWindowMessage(HWND, UINT message, WPARAM wParam, LPARAM lParam) noexcept
+    bool Input::HandleWindowMessage(HWND window, UINT message, WPARAM wParam, LPARAM lParam) noexcept
     {
         auto& input = Get();
         if (!input.IsInitialized())
             return false;
 
-        if (message != WM_KEYDOWN && message != WM_SYSKEYDOWN)
-            return false;
+        bool imguiHandled = false;
+        if (ImGui::GetCurrentContext())
+            imguiHandled = ImGui_ImplWin32_WndProcHandler(window, message, wParam, lParam) != 0;
 
-        if (IsRepeat(lParam))
-            return IsMenuKey(wParam) && input.IsMenuOpen();
-
-        switch (wParam)
+        if (message == WM_KEYDOWN || message == WM_SYSKEYDOWN)
         {
-        case VK_F4:
-            input.ToggleMenu();
-            return true;
+            if (IsRepeat(lParam))
+                return IsMenuKey(wParam) && input.IsMenuOpen();
 
-        case VK_NUMPAD8:
-            if (input.IsMenuOpen())
+            switch (wParam)
             {
-                input.Queue(InputAction::Up, "Up");
+            case VK_F4:
+                input.ToggleMenu();
                 return true;
+
+            case VK_NUMPAD8:
+                if (input.IsMenuOpen()) { input.Queue(InputAction::Up, "Up"); return true; }
+                break;
+            case VK_NUMPAD2:
+                if (input.IsMenuOpen()) { input.Queue(InputAction::Down, "Down"); return true; }
+                break;
+            case VK_NUMPAD4:
+                if (input.IsMenuOpen()) { input.Queue(InputAction::Left, "Left"); return true; }
+                break;
+            case VK_NUMPAD6:
+                if (input.IsMenuOpen()) { input.Queue(InputAction::Right, "Right"); return true; }
+                break;
+            case VK_NUMPAD5:
+                if (input.IsMenuOpen()) { input.Queue(InputAction::Select, "Select"); return true; }
+                break;
+            case VK_NUMPAD0:
+                if (input.IsMenuOpen()) { input.Queue(InputAction::Back, "Back"); return true; }
+                break;
+            case VK_BACK:
+                if (input.IsMenuOpen())
+                    TUTONES_LOG_TRACE("input", "Backspace ignored as menu Back; NUM0 remains the only Back binding");
+                break;
+            default:
+                break;
             }
-            break;
-
-        case VK_NUMPAD2:
-            if (input.IsMenuOpen())
-            {
-                input.Queue(InputAction::Down, "Down");
-                return true;
-            }
-            break;
-
-        case VK_NUMPAD4:
-            if (input.IsMenuOpen())
-            {
-                input.Queue(InputAction::Left, "Left");
-                return true;
-            }
-            break;
-
-        case VK_NUMPAD6:
-            if (input.IsMenuOpen())
-            {
-                input.Queue(InputAction::Right, "Right");
-                return true;
-            }
-            break;
-
-        case VK_NUMPAD5:
-            if (input.IsMenuOpen())
-            {
-                input.Queue(InputAction::Select, "Select");
-                return true;
-            }
-            break;
-
-        case VK_NUMPAD0:
-            if (input.IsMenuOpen())
-            {
-                input.Queue(InputAction::Back, "Back");
-                return true;
-            }
-            break;
-
-        case VK_BACK:
-            if (input.IsMenuOpen())
-                TUTONES_LOG_TRACE("input", "Backspace ignored; menu Back is NUM0 only");
-            break;
-
-        default:
-            break;
         }
 
-        return false;
+        if (!input.IsMenuOpen() || !ImGui::GetCurrentContext())
+            return false;
+
+        const auto& io = ImGui::GetIO();
+        if (IsMouseMessage(message))
+            return imguiHandled || io.WantCaptureMouse;
+        if (IsKeyboardMessage(message))
+            return imguiHandled || io.WantCaptureKeyboard;
+
+        return imguiHandled;
     }
 
     bool Input::IsRepeat(LPARAM lParam) noexcept
     {
-        return (lParam & (1ll << 30)) != 0;
+        return (static_cast<std::uint64_t>(lParam) & (1ull << 30)) != 0;
     }
 
     bool Input::IsMenuKey(WPARAM key) noexcept
