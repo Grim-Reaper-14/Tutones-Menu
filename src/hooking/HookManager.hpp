@@ -34,6 +34,10 @@ namespace Tutones::Hooking
         [[nodiscard]] ResizeBuffersFn OriginalResizeBuffers() const noexcept;
         [[nodiscard]] ExecuteCommandListsFn OriginalExecuteCommandLists() const noexcept;
 
+        bool TrySetPrimarySwapChain(IDXGISwapChain* swapChain) noexcept;
+        [[nodiscard]] bool IsPrimarySwapChain(IDXGISwapChain* swapChain) const noexcept;
+        [[nodiscard]] IDXGISwapChain* PrimarySwapChain() const noexcept;
+
         void SetCommandQueue(ID3D12CommandQueue* queue) noexcept;
         [[nodiscard]] ID3D12CommandQueue* CommandQueue() const noexcept;
 
@@ -57,6 +61,7 @@ namespace Tutones::Hooking
         PresentFn m_OriginalPresent{};
         ResizeBuffersFn m_OriginalResizeBuffers{};
         ExecuteCommandListsFn m_OriginalExecuteCommandLists{};
+        std::atomic<IDXGISwapChain*> m_PrimarySwapChain{nullptr};
         std::atomic<ID3D12CommandQueue*> m_CommandQueue{nullptr};
 
         void* m_PresentTarget{};
