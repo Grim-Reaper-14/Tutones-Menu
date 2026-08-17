@@ -8,6 +8,7 @@ namespace Tutones::Hooking
     {
         NotInitialized,
         Initializing,
+        Ready,
         Installed,
         Failed,
         ShuttingDown,
@@ -20,6 +21,7 @@ namespace Tutones::Hooking
         {
         case HookStatus::NotInitialized: return "NotInitialized";
         case HookStatus::Initializing: return "Initializing";
+        case HookStatus::Ready: return "Ready";
         case HookStatus::Installed: return "Installed";
         case HookStatus::Failed: return "Failed";
         case HookStatus::ShuttingDown: return "ShuttingDown";
