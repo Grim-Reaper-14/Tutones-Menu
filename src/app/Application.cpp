@@ -16,11 +16,18 @@ namespace Tutones::App
     bool Application::Initialize(const std::filesystem::path& moduleDirectory)
     {
         if (m_Running)
+        {
+            TUTONES_LOG_TRACE("app", "Application initialize requested while already running");
             return true;
+        }
+
+        if (moduleDirectory.empty())
+            return false;
 
         if (!Core::Services::Get().Initialize(moduleDirectory))
             return false;
 
+        TUTONES_LOG_INFO("app", "Core services ready; starting renderer bootstrap");
         if (!Render::Renderer::Get().Initialize())
         {
             TUTONES_LOG_ERROR("app", "Renderer bootstrap failed");
@@ -28,9 +35,20 @@ namespace Tutones::App
             return false;
         }
 
-        if (!Hooking::HookManager::Get().Initialize() || !Hooking::HookManager::Get().Install())
+        TUTONES_LOG_INFO("app", "Renderer bootstrap ready; initializing hook backend");
+        if (!Hooking::HookManager::Get().Initialize())
         {
-            TUTONES_LOG_ERROR("app", "D3D12 hook bootstrap failed");
+            TUTONES_LOG_ERROR("app", "Hook backend initialization failed");
+            Hooking::HookManager::Get().Shutdown();
+            Render::Renderer::Get().Shutdown();
+            Core::Services::Get().Shutdown();
+            return false;
+        }
+
+        TUTONES_LOG_INFO("app", "Hook backend ready; installing D3D12/DXGI hooks");
+        if (!Hooking::HookManager::Get().Install())
+        {
+            TUTONES_LOG_ERROR("app", "D3D12/DXGI hook installation failed");
             Hooking::HookManager::Get().Shutdown();
             Render::Renderer::Get().Shutdown();
             Core::Services::Get().Shutdown();
@@ -38,6 +56,7 @@ namespace Tutones::App
         }
 
         TUTONES_LOG_INFO("app", "Tutones Menu application initialized with D3D12 hooks");
+        TUTONES_LOG_DEBUG("app", "Runtime is waiting for primary render window, swap chain, and live DIRECT queue capture");
         m_Running = true;
         return true;
     }
@@ -45,15 +64,23 @@ namespace Tutones::App
     void Application::Shutdown() noexcept
     {
         if (!m_Running)
+        {
+            TUTONES_LOG_TRACE("app", "Application shutdown requested while not running");
             return;
+        }
 
         TUTONES_LOG_INFO("app", "Tutones Menu application shutting down");
 
-        // Stop callbacks before releasing renderer-owned D3D12 objects.
+        TUTONES_LOG_DEBUG("app", "Stopping hook callbacks before renderer teardown");
         Hooking::HookManager::Get().Shutdown();
+
+        TUTONES_LOG_DEBUG("app", "Hook layer stopped; shutting down renderer");
         Render::Renderer::Get().Shutdown();
-        Core::Services::Get().Shutdown();
+
+        TUTONES_LOG_DEBUG("app", "Renderer stopped; shutting down core services");
         m_Running = false;
+        TUTONES_LOG_INFO("app", "Application runtime stopped; shutting down core services");
+        Core::Services::Get().Shutdown();
     }
 
     bool Application::IsRunning() const noexcept
