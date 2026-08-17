@@ -4,6 +4,7 @@
 #include "../core/logging/Logger.hpp"
 #include "../hooking/HookManager.hpp"
 #include "../render/Renderer.hpp"
+#include "../ui/Input.hpp"
 
 namespace Tutones::App
 {
@@ -55,7 +56,18 @@ namespace Tutones::App
             return false;
         }
 
-        TUTONES_LOG_INFO("app", "Tutones Menu application initialized with D3D12 hooks");
+        TUTONES_LOG_INFO("app", "Hook layer ready; initializing menu input routing");
+        if (!UI::Input::Get().Initialize())
+        {
+            TUTONES_LOG_ERROR("app", "Menu input initialization failed");
+            UI::Input::Get().Shutdown();
+            Hooking::HookManager::Get().Shutdown();
+            Render::Renderer::Get().Shutdown();
+            Core::Services::Get().Shutdown();
+            return false;
+        }
+
+        TUTONES_LOG_INFO("app", "Tutones Menu application initialized with D3D12 hooks and Win32 input routing");
         TUTONES_LOG_DEBUG("app", "Runtime is waiting for primary render window, swap chain, and live DIRECT queue capture");
         m_Running = true;
         return true;
@@ -70,6 +82,9 @@ namespace Tutones::App
         }
 
         TUTONES_LOG_INFO("app", "Tutones Menu application shutting down");
+
+        TUTONES_LOG_DEBUG("app", "Stopping Win32 menu input routing");
+        UI::Input::Get().Shutdown();
 
         TUTONES_LOG_DEBUG("app", "Stopping hook callbacks before renderer teardown");
         Hooking::HookManager::Get().Shutdown();
