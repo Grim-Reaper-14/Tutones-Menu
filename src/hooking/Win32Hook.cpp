@@ -10,9 +10,29 @@ namespace Tutones::Hooking
         return instance;
     }
 
+    bool Win32Hook::IsValidPrimaryWindow(HWND window) noexcept
+    {
+        if (!window || !::IsWindow(window) || !::IsWindowVisible(window))
+            return false;
+
+        if (::GetAncestor(window, GA_ROOT) != window)
+            return false;
+
+        DWORD processId{};
+        ::GetWindowThreadProcessId(window, &processId);
+        if (processId != ::GetCurrentProcessId())
+            return false;
+
+        RECT client{};
+        if (!::GetClientRect(window, &client))
+            return false;
+
+        return (client.right - client.left) > 0 && (client.bottom - client.top) > 0;
+    }
+
     bool Win32Hook::Attach(HWND window) noexcept
     {
-        if (!window)
+        if (!IsValidPrimaryWindow(window))
             return false;
 
         std::scoped_lock lock(m_Mutex);
@@ -22,16 +42,14 @@ namespace Tutones::Hooking
         if (currentWindow == window && currentOriginal)
             return true;
 
-        if (currentWindow && currentOriginal && ::IsWindow(currentWindow))
+        if (currentWindow && currentOriginal)
         {
-            ::SetWindowLongPtrW(
-                currentWindow,
-                GWLP_WNDPROC,
-                reinterpret_cast<LONG_PTR>(currentOriginal));
-        }
+            if (::IsWindow(currentWindow))
+                return false;
 
-        m_Window.store(nullptr, std::memory_order_release);
-        m_OriginalProc.store(nullptr, std::memory_order_release);
+            m_Window.store(nullptr, std::memory_order_release);
+            m_OriginalProc.store(nullptr, std::memory_order_release);
+        }
 
         ::SetLastError(ERROR_SUCCESS);
         const auto previous = reinterpret_cast<WNDPROC>(::SetWindowLongPtrW(
@@ -47,7 +65,7 @@ namespace Tutones::Hooking
 
         m_OriginalProc.store(previous, std::memory_order_release);
         m_Window.store(window, std::memory_order_release);
-        TUTONES_LOG_INFO("hook", "Win32 WndProc hook installed");
+        TUTONES_LOG_INFO("hook", "Pinned Win32 hook to primary render window");
         return true;
     }
 
@@ -74,6 +92,11 @@ namespace Tutones::Hooking
     {
         return m_Window.load(std::memory_order_acquire) != nullptr &&
             m_OriginalProc.load(std::memory_order_acquire) != nullptr;
+    }
+
+    bool Win32Hook::IsPrimaryWindow(HWND window) const noexcept
+    {
+        return window && m_Window.load(std::memory_order_acquire) == window;
     }
 
     HWND Win32Hook::Window() const noexcept
