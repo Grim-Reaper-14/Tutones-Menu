@@ -3,13 +3,11 @@
 #include <Windows.h>
 
 #include <chrono>
-#include <cstdio>
 #include <ctime>
 #include <fstream>
 #include <iomanip>
 #include <iostream>
 #include <sstream>
-#include <thread>
 
 namespace Tutones::Core::Logging
 {
@@ -38,6 +36,16 @@ namespace Tutones::Core::Logging
             return stream.str();
         }
 
+        std::string FormatRecord(const LogRecord& record)
+        {
+            std::ostringstream stream;
+            stream << '[' << FormatTimestamp(record.unixMilliseconds) << "] [#" << record.sequence
+                   << "] [T" << record.threadId << "] [" << ToString(record.level)
+                   << "] [" << record.category << "] " << record.message
+                   << " (" << record.file << ':' << record.line << " " << record.function << ")";
+            return stream.str();
+        }
+
         class ConsoleSink final : public ILogSink
         {
         public:
@@ -45,16 +53,11 @@ namespace Tutones::Core::Logging
             {
                 try
                 {
-                    const auto line = '[' + FormatTimestamp(record.unixMilliseconds) + "] [T" +
-                        std::to_string(record.threadId) + "] [" + std::string(ToString(record.level)) +
-                        "] [" + record.category + "] " + record.message;
-                    std::cout << line << '\n';
+                    std::cout << FormatRecord(record) << '\n';
                     if (record.level >= LogLevel::Warning)
                         std::cout.flush();
                 }
-                catch (...)
-                {
-                }
+                catch (...) {}
             }
 
             void Flush() noexcept override
@@ -70,13 +73,10 @@ namespace Tutones::Core::Logging
             {
                 try
                 {
-                    std::string line = '[' + FormatTimestamp(record.unixMilliseconds) + "] [" +
-                        std::string(ToString(record.level)) + "] [" + record.category + "] " + record.message + '\n';
+                    const auto line = FormatRecord(record) + '\n';
                     ::OutputDebugStringA(line.c_str());
                 }
-                catch (...)
-                {
-                }
+                catch (...) {}
             }
 
             void Flush() noexcept override {}
@@ -100,26 +100,22 @@ namespace Tutones::Core::Logging
                     if (!m_Stream.is_open())
                         return;
 
-                    const auto line = '[' + FormatTimestamp(record.unixMilliseconds) + "] [T" +
-                        std::to_string(record.threadId) + "] [" + std::string(ToString(record.level)) +
-                        "] [" + record.category + "] " + record.message;
-                    m_Stream << line << '\n';
+                    m_Stream << FormatRecord(record) << '\n';
 
                     if (record.level >= LogLevel::Error || (m_Config.flushOnWarningOrHigher && record.level >= LogLevel::Warning))
                         m_Stream.flush();
 
                     if (m_Config.maxFileBytes > 0)
                     {
-                        const auto currentSize = std::filesystem::exists(m_Config.filePath)
-                            ? std::filesystem::file_size(m_Config.filePath)
+                        std::error_code ec;
+                        const auto currentSize = std::filesystem::exists(m_Config.filePath, ec)
+                            ? std::filesystem::file_size(m_Config.filePath, ec)
                             : 0;
-                        if (currentSize >= m_Config.maxFileBytes)
+                        if (!ec && currentSize >= m_Config.maxFileBytes)
                             Rotate();
                     }
                 }
-                catch (...)
-                {
-                }
+                catch (...) {}
             }
 
             void Flush() noexcept override
@@ -134,12 +130,11 @@ namespace Tutones::Core::Logging
                 {
                     if (m_Config.filePath.empty())
                         return;
-                    std::filesystem::create_directories(m_Config.filePath.parent_path());
+                    if (!m_Config.filePath.parent_path().empty())
+                        std::filesystem::create_directories(m_Config.filePath.parent_path());
                     m_Stream.open(m_Config.filePath, std::ios::out | std::ios::app);
                 }
-                catch (...)
-                {
-                }
+                catch (...) {}
             }
 
             void Rotate() noexcept
@@ -151,23 +146,18 @@ namespace Tutones::Core::Logging
 
                     const auto base = m_Config.filePath;
                     const auto maxFiles = m_Config.maxFiles > 0 ? m_Config.maxFiles : 1;
-
                     for (std::size_t i = maxFiles; i > 0; --i)
                     {
-                        const auto source = i == 1 ? base : base.string() + '.' + std::to_string(i - 1);
-                        const auto target = base.string() + '.' + std::to_string(i);
+                        const auto source = i == 1 ? base : std::filesystem::path(base.string() + '.' + std::to_string(i - 1));
+                        const auto target = std::filesystem::path(base.string() + '.' + std::to_string(i));
                         std::error_code ec;
+                        std::filesystem::remove(target, ec);
                         if (std::filesystem::exists(source, ec))
-                        {
-                            std::filesystem::remove(target, ec);
                             std::filesystem::rename(source, target, ec);
-                        }
                     }
                     Open();
                 }
-                catch (...)
-                {
-                }
+                catch (...) {}
             }
 
             LoggerConfig m_Config;
@@ -235,16 +225,12 @@ namespace Tutones::Core::Logging
         m_Sinks.clear();
     }
 
-    void Logger::Write(
-        LogLevel level,
-        std::string_view category,
-        std::string_view message,
-        const std::source_location& location) noexcept
+    void Logger::Write(LogLevel level, std::string_view category, std::string_view message, const std::source_location& location) noexcept
     {
         try
         {
             std::scoped_lock lock(m_Mutex);
-            if (level < m_Config.minimumLevel || level == LogLevel::Off || !m_Initialized)
+            if (!m_Initialized || level < m_Config.minimumLevel || level == LogLevel::Off)
                 return;
 
             LogRecord record;
@@ -267,9 +253,7 @@ namespace Tutones::Core::Logging
                     if (sink)
                         sink->Flush();
         }
-        catch (...)
-        {
-        }
+        catch (...) {}
     }
 
     void Logger::Flush() noexcept
