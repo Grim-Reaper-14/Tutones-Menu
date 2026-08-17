@@ -29,6 +29,8 @@ add_library(TutonesMenu SHARED
     src/hooking/Win32Hook.cpp
 
     src/render/Renderer.cpp
+
+    src/ui/Input.cpp
 )
 
 target_include_directories(TutonesMenu PRIVATE
@@ -85,4 +87,6 @@ source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR}/src PREFIX "Source" FILES
     src/render/Renderer.cpp
     src/render/Renderer.hpp
     src/render/RendererStatus.hpp
+    src/ui/Input.cpp
+    src/ui/Input.hpp
 )
