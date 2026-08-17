@@ -4,7 +4,7 @@
 #include "LogRecord.hpp"
 #include "LogSink.hpp"
 
-#include <chrono>
+#include <cstdint>
 #include <filesystem>
 #include <memory>
 #include <mutex>
@@ -21,7 +21,6 @@ namespace Tutones::Core::Logging
         bool consoleEnabled{true};
         bool debuggerEnabled{true};
         bool fileEnabled{true};
-        bool asynchronous{false};
         bool flushOnWarningOrHigher{true};
         std::filesystem::path filePath{};
         std::uintmax_t maxFileBytes{8 * 1024 * 1024};
@@ -83,15 +82,6 @@ namespace Tutones::Core::Logging
     inline Category Log(std::string_view category)
     {
         return Category(category);
-    }
-
-    namespace Detail
-    {
-        void WriteFormatted(
-            LogLevel level,
-            std::string_view category,
-            std::string_view message,
-            const std::source_location& location) noexcept;
     }
 }
 
