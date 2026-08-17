@@ -25,11 +25,11 @@ namespace Tutones::UI
         };
 
         constexpr std::array<CategoryEntry, 5> Categories{{
-            {"B", "Home",     {{"Overview", "Quick Actions", "Diagnostics"}}},
+            {"B", "Home",     {{"Overview", "Quick Actions", "Favorites"}}},
             {"C", "Player",   {{"General", "Movement", "Appearance"}}},
             {"D", "Vehicle",  {{"General", "Paint", "Modifications"}}},
             {"E", "World",    {{"General", "Time & Weather", "Teleport"}}},
-            {"F", "Settings", {{"General", "Theme", "Logging"}}},
+            {"F", "Settings", {{"General", "Theme", "Controls"}}},
         }};
 
         constexpr float MenuWidth = 730.0f;
@@ -304,24 +304,24 @@ namespace Tutones::UI
         if ((actions & ToMask(InputAction::Up)) != 0)
         {
             m_Item = (m_Item == 0) ? itemCount - 1 : m_Item - 1;
-            TUTONES_LOG_DEBUG("ui", "Original menu subtab moved up");
+            TUTONES_LOG_DEBUG("ui", "Menu subtab moved up");
         }
         if ((actions & ToMask(InputAction::Down)) != 0)
         {
             m_Item = (m_Item + 1) % itemCount;
-            TUTONES_LOG_DEBUG("ui", "Original menu subtab moved down");
+            TUTONES_LOG_DEBUG("ui", "Menu subtab moved down");
         }
         if ((actions & ToMask(InputAction::Left)) != 0)
         {
             m_Category = (m_Category == 0) ? Categories.size() - 1 : m_Category - 1;
             m_Item = 0;
-            TUTONES_LOG_DEBUG("ui", "Original menu category moved left");
+            TUTONES_LOG_DEBUG("ui", "Menu category moved left");
         }
         if ((actions & ToMask(InputAction::Right)) != 0)
         {
             m_Category = (m_Category + 1) % Categories.size();
             m_Item = 0;
-            TUTONES_LOG_DEBUG("ui", "Original menu category moved right");
+            TUTONES_LOG_DEBUG("ui", "Menu category moved right");
         }
         if ((actions & ToMask(InputAction::Back)) != 0)
         {
@@ -357,7 +357,7 @@ namespace Tutones::UI
             {
                 m_Category = i;
                 m_Item = 0;
-                TUTONES_LOG_DEBUG("ui.mouse", "Original menu category selected with mouse");
+                TUTONES_LOG_DEBUG("ui.mouse", "Menu category selected with mouse");
             }
             ImGui::PopID();
         }
@@ -382,7 +382,7 @@ namespace Tutones::UI
             if (OriginalSubtabButton("##original_subtab", Categories[m_Category].items[i], i == m_Item, localPos))
             {
                 m_Item = i;
-                TUTONES_LOG_DEBUG("ui.mouse", "Original menu subtab selected with mouse");
+                TUTONES_LOG_DEBUG("ui.mouse", "Menu subtab selected with mouse");
             }
             ImGui::PopID();
         }
@@ -392,19 +392,19 @@ namespace Tutones::UI
             12.0f,
             Offset(windowPos, 64.0f, 397.0f),
             Color(110, 110, 116),
-            "NUM8/2  MOVE");
+            "ARROWS  MOVE");
         draw->AddText(
             FontOrDefault(g_Medium),
             12.0f,
             Offset(windowPos, 64.0f, 416.0f),
             Color(110, 110, 116),
-            "NUM5 SELECT");
+            "ENTER  SELECT");
         draw->AddText(
             FontOrDefault(g_Medium),
             12.0f,
             Offset(windowPos, 64.0f, 435.0f),
             Color(110, 110, 116),
-            "NUM0 BACK");
+            "ESC  BACK");
     }
 
     void TutonesMenu::RenderContent() noexcept
@@ -416,58 +416,58 @@ namespace Tutones::UI
         switch (m_Category)
         {
         case 0:
-            DrawPanel(draw, windowPos, ImVec2(226.0f, 16.0f), ImVec2(240.0f, 300.0f), "Runtime",
-                {"Tutones Menu", "D3D12 renderer online", "Primary swap chain pinned", "DIRECT queue captured", "WndProc routing active", "Mouse capture active"});
-            DrawPanel(draw, windowPos, ImVec2(476.0f, 16.0f), ImVec2(240.0f, 240.0f), "Navigation",
-                {"F4  open / close", "NUM8 / NUM2  up / down", "NUM4 / NUM6  categories", "NUM5  select", "NUM0  back"});
+            DrawPanel(draw, windowPos, ImVec2(226.0f, 16.0f), ImVec2(240.0f, 300.0f), "Tutones Menu",
+                {"Player options", "Vehicle customization", "World controls", "Menu settings", "Mouse + keyboard control"});
+            DrawPanel(draw, windowPos, ImVec2(476.0f, 16.0f), ImVec2(240.0f, 240.0f), "Controls",
+                {"F4  open / close", "Arrow keys  navigate", "Enter  select", "Escape  back", "Mouse  point / click"});
             DrawPanel(draw, windowPos, ImVec2(226.0f, 332.0f), ImVec2(240.0f, 114.0f), "Selected",
                 {selected});
-            DrawPanel(draw, windowPos, ImVec2(476.0f, 272.0f), ImVec2(240.0f, 174.0f), "Logging",
-                {"Hook logging active", "Render logging active", "Input logging active", "UI logging active"});
+            DrawPanel(draw, windowPos, ImVec2(476.0f, 272.0f), ImVec2(240.0f, 174.0f), "Favorites",
+                {"Quick access slots", "Pinned options", "Recent selections", "Custom shortcuts"});
             break;
 
         case 1:
             DrawPanel(draw, windowPos, ImVec2(226.0f, 16.0f), ImVec2(240.0f, 300.0f), "Player",
-                {"Player runtime placeholder", "Native runtime comes next", "Feature state will live here", "No fake game writes enabled"});
-            DrawPanel(draw, windowPos, ImVec2(476.0f, 16.0f), ImVec2(240.0f, 240.0f), "Current",
-                {selected, "Input routing validated", "D3D12 overlay validated"});
-            DrawPanel(draw, windowPos, ImVec2(226.0f, 332.0f), ImVec2(240.0f, 114.0f), "Status",
-                {"Foundation ready"});
-            DrawPanel(draw, windowPos, ImVec2(476.0f, 272.0f), ImVec2(240.0f, 174.0f), "Next",
-                {"Game runtime", "Native invoker", "Player state access"});
+                {"Health", "Armor", "Wanted level", "Invincibility", "Visibility", "Player model"});
+            DrawPanel(draw, windowPos, ImVec2(476.0f, 16.0f), ImVec2(240.0f, 240.0f), "Movement",
+                {"Run speed", "Swim speed", "Super jump", "No ragdoll", "Movement options"});
+            DrawPanel(draw, windowPos, ImVec2(226.0f, 332.0f), ImVec2(240.0f, 114.0f), "Selected",
+                {selected});
+            DrawPanel(draw, windowPos, ImVec2(476.0f, 272.0f), ImVec2(240.0f, 174.0f), "Appearance",
+                {"Visibility", "Model", "Outfit", "Appearance options"});
             break;
 
         case 2:
             DrawPanel(draw, windowPos, ImVec2(226.0f, 16.0f), ImVec2(240.0f, 300.0f), "Vehicle",
-                {"Vehicle detection next", "Current vehicle state", "Model / handle tracking", "Safe ownership checks"});
+                {"Repair vehicle", "Clean vehicle", "Flip upright", "Vehicle options", "Spawner", "Current vehicle"});
             DrawPanel(draw, windowPos, ImVec2(476.0f, 16.0f), ImVec2(240.0f, 240.0f), "Paint",
-                {"Normal", "Metallic / Pearlescent", "Matte / Metal / Chrome", "Worn", "Chameleon"});
+                {"Primary / Secondary", "Normal / Metallic", "Pearlescent / Matte", "Metal / Chrome / Worn", "Chameleon"});
             DrawPanel(draw, windowPos, ImVec2(226.0f, 332.0f), ImVec2(240.0f, 114.0f), "Selected",
                 {selected});
-            DrawPanel(draw, windowPos, ImVec2(476.0f, 272.0f), ImVec2(240.0f, 174.0f), "Wheels",
-                {"Normal wheel paint", "Chameleon wheel paint", "Runtime integration pending"});
+            DrawPanel(draw, windowPos, ImVec2(476.0f, 272.0f), ImVec2(240.0f, 174.0f), "Modifications",
+                {"Wheels", "Engine", "Brakes", "Transmission", "Suspension"});
             break;
 
         case 3:
             DrawPanel(draw, windowPos, ImVec2(226.0f, 16.0f), ImVec2(240.0f, 300.0f), "World",
-                {"World runtime placeholder", "Time and weather", "Teleport foundation", "Environment controls"});
-            DrawPanel(draw, windowPos, ImVec2(476.0f, 16.0f), ImVec2(240.0f, 240.0f), "Current",
-                {selected, "UI only until native runtime"});
-            DrawPanel(draw, windowPos, ImVec2(226.0f, 332.0f), ImVec2(240.0f, 114.0f), "Status",
-                {"Foundation ready"});
-            DrawPanel(draw, windowPos, ImVec2(476.0f, 272.0f), ImVec2(240.0f, 174.0f), "Next",
-                {"Native world access", "Safe state reads", "Feature implementation"});
+                {"Time", "Weather", "Blackout", "Environment", "World options"});
+            DrawPanel(draw, windowPos, ImVec2(476.0f, 16.0f), ImVec2(240.0f, 240.0f), "Time & Weather",
+                {"Clock", "Freeze time", "Weather type", "Weather transition"});
+            DrawPanel(draw, windowPos, ImVec2(226.0f, 332.0f), ImVec2(240.0f, 114.0f), "Selected",
+                {selected});
+            DrawPanel(draw, windowPos, ImVec2(476.0f, 272.0f), ImVec2(240.0f, 174.0f), "Teleport",
+                {"Waypoint", "Saved locations", "Interior locations", "Custom coordinates"});
             break;
 
         default:
-            DrawPanel(draw, windowPos, ImVec2(226.0f, 16.0f), ImVec2(240.0f, 300.0f), "Settings",
-                {"Tutones Menu", "Original UI restored", "D3D12 backend injected", "F4 toggle", "NUM0 is Back"});
+            DrawPanel(draw, windowPos, ImVec2(226.0f, 16.0f), ImVec2(240.0f, 300.0f), "Menu",
+                {"F4 toggle", "Mouse control", "Keyboard control", "Menu preferences", "Window behavior"});
             DrawPanel(draw, windowPos, ImVec2(476.0f, 16.0f), ImVec2(240.0f, 240.0f), "Theme",
-                {"Charcoal panels", "Green 147 / 190 / 66", "Original icon font", "730 x 460 layout"});
+                {"Charcoal layout", "Green accent", "Original icon font", "Original 730 x 460 design"});
             DrawPanel(draw, windowPos, ImVec2(226.0f, 332.0f), ImVec2(240.0f, 114.0f), "Selected",
                 {selected});
-            DrawPanel(draw, windowPos, ImVec2(476.0f, 272.0f), ImVec2(240.0f, 174.0f), "Logging",
-                {"Lifecycle", "Hook / renderer", "Input / UI", "File logging"});
+            DrawPanel(draw, windowPos, ImVec2(476.0f, 272.0f), ImVec2(240.0f, 174.0f), "Controls",
+                {"Arrow keys", "Enter", "Escape", "Mouse", "F4"});
             break;
         }
     }
