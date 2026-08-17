@@ -4,6 +4,7 @@
 
 #include <chrono>
 #include <ctime>
+#include <filesystem>
 #include <fstream>
 #include <iomanip>
 #include <iostream>
@@ -13,6 +14,13 @@ namespace Tutones::Core::Logging
 {
     namespace
     {
+        constexpr std::size_t TimeWidth = 12;
+        constexpr std::size_t SequenceWidth = 7;
+        constexpr std::size_t ThreadWidth = 8;
+        constexpr std::size_t LevelWidth = 9;
+        constexpr std::size_t CategoryWidth = 16;
+        constexpr std::string_view RowSeparator = "----------------------------------------------------------------\n";
+
         std::uint64_t CurrentThreadId() noexcept
         {
             return static_cast<std::uint64_t>(::GetCurrentThreadId());
@@ -31,19 +39,62 @@ namespace Tutones::Core::Logging
             localtime_s(&local, &time);
 
             std::ostringstream stream;
-            stream << std::put_time(&local, "%Y-%m-%d %H:%M:%S")
+            stream << std::put_time(&local, "%H:%M:%S")
                    << '.' << std::setw(3) << std::setfill('0') << (milliseconds % 1000);
             return stream.str();
         }
 
-        std::string FormatRecord(const LogRecord& record)
+        std::string PadLeft(std::string value, std::size_t width)
+        {
+            if (value.size() < width)
+                value.insert(value.begin(), width - value.size(), ' ');
+            return value;
+        }
+
+        std::string PadRight(std::string value, std::size_t width)
+        {
+            if (value.size() > width)
+                value.resize(width);
+            else if (value.size() < width)
+                value.append(width - value.size(), ' ');
+            return value;
+        }
+
+        std::string FormatConsoleRecord(const LogRecord& record)
+        {
+            std::ostringstream stream;
+            stream << PadRight(FormatTimestamp(record.unixMilliseconds), TimeWidth) << " | "
+                   << PadLeft("#" + std::to_string(record.sequence), SequenceWidth) << " | "
+                   << PadLeft("T" + std::to_string(record.threadId), ThreadWidth) << " | "
+                   << PadRight(std::string(ToString(record.level)), LevelWidth) << " | "
+                   << PadRight(std::string(record.category), CategoryWidth) << " | "
+                   << record.message;
+            return stream.str();
+        }
+
+        std::string FormatDetailedRecord(const LogRecord& record)
         {
             std::ostringstream stream;
             stream << '[' << FormatTimestamp(record.unixMilliseconds) << "] [#" << record.sequence
                    << "] [T" << record.threadId << "] [" << ToString(record.level)
                    << "] [" << record.category << "] " << record.message
-                   << " (" << record.file << ':' << record.line << " " << record.function << ")";
+                   << " (" << record.file << ':' << record.line << " " << record.function << ')';
             return stream.str();
+        }
+
+        void PrintBanner()
+        {
+            std::cout
+                << '\n'
+                << "=======================================================================\n"
+                << "                           TUTONES MENU\n"
+                << "=======================================================================\n"
+                << PadRight("TIME", TimeWidth) << " | "
+                << PadRight("SEQ", SequenceWidth) << " | "
+                << PadRight("THREAD", ThreadWidth) << " | "
+                << PadRight("LEVEL", LevelWidth) << " | "
+                << PadRight("CATEGORY", CategoryWidth) << " | MESSAGE\n"
+                << RowSeparator;
         }
 
         class ConsoleSink final : public ILogSink
@@ -53,7 +104,7 @@ namespace Tutones::Core::Logging
             {
                 try
                 {
-                    std::cout << FormatRecord(record) << '\n';
+                    std::cout << FormatConsoleRecord(record) << '\n' << RowSeparator;
                     if (record.level >= LogLevel::Warning)
                         std::cout.flush();
                 }
@@ -73,7 +124,7 @@ namespace Tutones::Core::Logging
             {
                 try
                 {
-                    const auto line = FormatRecord(record) + '\n';
+                    const auto line = FormatDetailedRecord(record) + '\n';
                     ::OutputDebugStringA(line.c_str());
                 }
                 catch (...) {}
@@ -100,7 +151,7 @@ namespace Tutones::Core::Logging
                     if (!m_Stream.is_open())
                         return;
 
-                    m_Stream << FormatRecord(record) << '\n';
+                    m_Stream << FormatDetailedRecord(record) << '\n';
 
                     if (record.level >= LogLevel::Error || (m_Config.flushOnWarningOrHigher && record.level >= LogLevel::Warning))
                         m_Stream.flush();
@@ -178,7 +229,10 @@ namespace Tutones::Core::Logging
         m_Sinks.clear();
 
         if (config.consoleEnabled)
+        {
             m_Sinks.emplace_back(std::make_shared<ConsoleSink>());
+            PrintBanner();
+        }
         if (config.debuggerEnabled)
             m_Sinks.emplace_back(std::make_shared<DebuggerSink>());
         if (config.fileEnabled && !config.filePath.empty())
