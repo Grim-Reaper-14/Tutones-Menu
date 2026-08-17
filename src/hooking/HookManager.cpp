@@ -105,8 +105,7 @@ namespace Tutones::Hooking
             }
             TUTONES_LOG_TRACE("hook.d3d12", "Probe window created");
 
-            const auto deviceResult = ::D3D12CreateDevice(nullptr, D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&probe.device));
-            if (FAILED(deviceResult))
+            if (FAILED(::D3D12CreateDevice(nullptr, D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&probe.device))))
             {
                 TUTONES_LOG_ERROR("hook.d3d12", "D3D12CreateDevice failed for hook probe");
                 return false;
@@ -223,7 +222,10 @@ namespace Tutones::Hooking
             }
 
             CallbackGuard callback(hooks);
-            if (callback.entered && hooks.IsPrimarySwapChain(swapChain))
+            const bool primary = callback.entered && hooks.IsPrimarySwapChain(swapChain);
+            auto& renderer = Render::Renderer::Get();
+
+            if (primary && renderer.IsInitialized())
             {
                 std::string message("Primary swap chain resizing to ");
                 message += std::to_string(width);
@@ -231,11 +233,21 @@ namespace Tutones::Hooking
                 message += std::to_string(height);
                 message += ", buffers=";
                 message += std::to_string(bufferCount);
-                TUTONES_LOG_DEBUG("hook.resize", message);
-                Render::Renderer::Get().OnResize(width, height);
+                TUTONES_LOG_INFO("hook.resize", message);
+                renderer.BeforeResize();
             }
 
-            return original(swapChain, bufferCount, width, height, format, swapChainFlags);
+            const auto result = original(swapChain, bufferCount, width, height, format, swapChainFlags);
+
+            if (primary && renderer.IsInitialized())
+            {
+                if (SUCCEEDED(result))
+                    renderer.AfterResize(width, height);
+                else
+                    TUTONES_LOG_ERROR("hook.resize", "Original ResizeBuffers failed after renderer resources were released");
+            }
+
+            return result;
         }
 
         void __stdcall ExecuteCommandListsDetour(ID3D12CommandQueue* queue, unsigned int count,
