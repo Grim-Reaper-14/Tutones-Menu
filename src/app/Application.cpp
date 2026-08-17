@@ -4,6 +4,7 @@
 #include "../core/logging/Logger.hpp"
 #include "../hooking/HookManager.hpp"
 #include "../render/Renderer.hpp"
+#include "../runtime/GameRuntime.hpp"
 #include "../ui/Input.hpp"
 
 namespace Tutones::App
@@ -56,19 +57,31 @@ namespace Tutones::App
             return false;
         }
 
-        TUTONES_LOG_INFO("app", "Hook layer ready; initializing menu input routing");
-        if (!UI::Input::Get().Initialize())
+        TUTONES_LOG_INFO("app", "Render hooks ready; initializing GTA Enhanced game runtime");
+        if (!Runtime::GameRuntime::Get().Initialize())
         {
-            TUTONES_LOG_ERROR("app", "Menu input initialization failed");
-            UI::Input::Get().Shutdown();
+            TUTONES_LOG_ERROR("app", "GTA Enhanced game runtime initialization failed");
+            Runtime::GameRuntime::Get().Shutdown();
             Hooking::HookManager::Get().Shutdown();
             Render::Renderer::Get().Shutdown();
             Core::Services::Get().Shutdown();
             return false;
         }
 
-        TUTONES_LOG_INFO("app", "Tutones Menu application initialized with D3D12 hooks and Win32 input routing");
-        TUTONES_LOG_DEBUG("app", "Runtime is waiting for primary render window, swap chain, and live DIRECT queue capture");
+        TUTONES_LOG_INFO("app", "Game runtime ready; initializing menu input routing");
+        if (!UI::Input::Get().Initialize())
+        {
+            TUTONES_LOG_ERROR("app", "Menu input initialization failed");
+            UI::Input::Get().Shutdown();
+            Runtime::GameRuntime::Get().Shutdown();
+            Hooking::HookManager::Get().Shutdown();
+            Render::Renderer::Get().Shutdown();
+            Core::Services::Get().Shutdown();
+            return false;
+        }
+
+        TUTONES_LOG_INFO("app", "Tutones Menu application initialized with render, input, and GTA native runtime layers");
+        TUTONES_LOG_DEBUG("app", "Runtime is waiting for primary render state and the first GTA script-thread tick");
         m_Running = true;
         return true;
     }
@@ -86,7 +99,10 @@ namespace Tutones::App
         TUTONES_LOG_DEBUG("app", "Stopping Win32 menu input routing");
         UI::Input::Get().Shutdown();
 
-        TUTONES_LOG_DEBUG("app", "Stopping hook callbacks before renderer teardown");
+        TUTONES_LOG_DEBUG("app", "Stopping GTA script/native runtime before MinHook teardown");
+        Runtime::GameRuntime::Get().Shutdown();
+
+        TUTONES_LOG_DEBUG("app", "Stopping render hook callbacks before renderer teardown");
         Hooking::HookManager::Get().Shutdown();
 
         TUTONES_LOG_DEBUG("app", "Hook layer stopped; shutting down renderer");

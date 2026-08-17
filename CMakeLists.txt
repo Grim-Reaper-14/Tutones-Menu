@@ -25,10 +25,18 @@ add_library(TutonesMenu SHARED
     src/core/filesystem/FileSystem.cpp
     src/core/logging/Logger.cpp
 
+    src/game/GamePointers.cpp
+    src/game/GameState.cpp
+    src/game/memory/ModuleView.cpp
+    src/game/memory/PatternScanner.cpp
+    src/game/native/NativeRegistry.cpp
+
     src/hooking/HookManager.cpp
     src/hooking/Win32Hook.cpp
 
     src/render/Renderer.cpp
+
+    src/runtime/GameRuntime.cpp
 
     src/ui/Input.cpp
     src/ui/TutonesMenu.cpp
@@ -80,6 +88,20 @@ source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR}/src PREFIX "Source" FILES
     src/core/logging/LogSink.hpp
     src/core/logging/Logger.cpp
     src/core/logging/Logger.hpp
+    src/game/GamePointers.cpp
+    src/game/GamePointers.hpp
+    src/game/GameState.cpp
+    src/game/GameState.hpp
+    src/game/Natives.hpp
+    src/game/memory/ModuleView.cpp
+    src/game/memory/ModuleView.hpp
+    src/game/memory/PatternScanner.cpp
+    src/game/memory/PatternScanner.hpp
+    src/game/native/NativeCallContext.hpp
+    src/game/native/NativeInvoker.hpp
+    src/game/native/NativeRegistry.cpp
+    src/game/native/NativeRegistry.hpp
+    src/game/types/ScriptTypes.hpp
     src/hooking/HookManager.cpp
     src/hooking/HookManager.hpp
     src/hooking/HookStatus.hpp
@@ -89,6 +111,8 @@ source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR}/src PREFIX "Source" FILES
     src/render/Renderer.hpp
     src/render/RendererStatus.hpp
     src/render/d3d12/FrameContext.hpp
+    src/runtime/GameRuntime.cpp
+    src/runtime/GameRuntime.hpp
     src/ui/Input.cpp
     src/ui/Input.hpp
     src/ui/TutonesMenu.cpp

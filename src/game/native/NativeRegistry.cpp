@@ -1,0 +1,161 @@
+#include "NativeRegistry.hpp"
+
+#include "../../core/logging/Logger.hpp"
+
+#include <array>
+#include <cstddef>
+#include <cstdint>
+#include <string>
+
+namespace Tutones::Game::Native
+{
+    namespace
+    {
+        struct NativeDescriptor final
+        {
+            NativeHash hash;
+            const char* name;
+        };
+
+        constexpr std::array<NativeDescriptor, static_cast<std::size_t>(NativeId::Count)> Descriptors{{
+            {0xD80958FC74E988A6ull, "PLAYER_PED_ID"},
+            {0x7239B21A38F536BAull, "DOES_ENTITY_EXIST"},
+            {0x9F47B058362C84B5ull, "GET_ENTITY_MODEL"},
+            {0x997ABD671D25CA0Bull, "IS_PED_IN_ANY_VEHICLE"},
+            {0x9A9112A0FE9A4713ull, "GET_VEHICLE_PED_IS_IN"},
+        }};
+
+        struct NativeProgram final
+        {
+            std::byte pad00[0x2C]{};
+            std::uint32_t nativeCount{};
+            std::byte pad30[0x10]{};
+            NativeHandler* nativeEntrypoints{};
+            std::byte pad48[0x38]{};
+        };
+
+        static_assert(offsetof(NativeProgram, nativeCount) == 0x2C);
+        static_assert(offsetof(NativeProgram, nativeEntrypoints) == 0x40);
+        static_assert(sizeof(NativeProgram) == 0x80);
+
+        bool IsExecutableAddress(std::uintptr_t address) noexcept
+        {
+            if (address == 0)
+                return false;
+
+            MEMORY_BASIC_INFORMATION memory{};
+            if (::VirtualQuery(reinterpret_cast<const void*>(address), &memory, sizeof(memory)) != sizeof(memory))
+                return false;
+            if (memory.State != MEM_COMMIT || (memory.Protect & PAGE_GUARD) != 0 || memory.Protect == PAGE_NOACCESS)
+                return false;
+
+            switch (memory.Protect & 0xFF)
+            {
+            case PAGE_EXECUTE:
+            case PAGE_EXECUTE_READ:
+            case PAGE_EXECUTE_READWRITE:
+            case PAGE_EXECUTE_WRITECOPY:
+                return true;
+            default:
+                return false;
+            }
+        }
+    }
+
+    NativeRegistry& NativeRegistry::Get() noexcept
+    {
+        static NativeRegistry instance;
+        return instance;
+    }
+
+    bool NativeRegistry::Initialize(InitNativeTablesFn initNativeTables) noexcept
+    {
+        if (m_Ready.load(std::memory_order_acquire))
+            return true;
+
+        if (!initNativeTables)
+        {
+            TUTONES_LOG_ERROR("game.native", "Native registry received a null InitNativeTables pointer");
+            return false;
+        }
+
+        if (!CanInvokeOnCurrentThread())
+        {
+            TUTONES_LOG_ERROR("game.native", "Native table initialization attempted outside the GTA script thread");
+            return false;
+        }
+
+        TUTONES_LOG_INFO("game.native", "Initializing focused GTA Enhanced native handler table");
+
+        std::array<std::uint64_t, Descriptors.size()> slots{};
+        for (std::size_t i = 0; i < Descriptors.size(); ++i)
+            slots[i] = Descriptors[i].hash;
+
+        NativeProgram program{};
+        program.nativeCount = static_cast<std::uint32_t>(slots.size());
+        program.nativeEntrypoints = reinterpret_cast<NativeHandler*>(slots.data());
+
+        initNativeTables(&program);
+
+        for (std::size_t i = 0; i < slots.size(); ++i)
+        {
+            const auto address = static_cast<std::uintptr_t>(slots[i]);
+            if (!IsExecutableAddress(address))
+            {
+                std::string message("Native handler resolution failed for ");
+                message += Descriptors[i].name;
+                TUTONES_LOG_ERROR("game.native", message);
+                Shutdown();
+                return false;
+            }
+            m_Handlers[i] = reinterpret_cast<NativeHandler>(address);
+        }
+
+        m_Ready.store(true, std::memory_order_release);
+        TUTONES_LOG_INFO("game.native", "GTA Enhanced native handlers cached successfully");
+        return true;
+    }
+
+    void NativeRegistry::Shutdown() noexcept
+    {
+        m_Ready.store(false, std::memory_order_release);
+        m_Handlers.fill(nullptr);
+        m_GameThreadId.store(0, std::memory_order_release);
+    }
+
+    void NativeRegistry::MarkGameThread(DWORD threadId) noexcept
+    {
+        const auto previous = m_GameThreadId.exchange(threadId, std::memory_order_acq_rel);
+        if (previous == 0 && threadId != 0)
+            TUTONES_LOG_INFO("game.native", "GTA script thread identified for native execution");
+    }
+
+    bool NativeRegistry::IsReady() const noexcept
+    {
+        return m_Ready.load(std::memory_order_acquire);
+    }
+
+    bool NativeRegistry::CanInvokeOnCurrentThread() const noexcept
+    {
+        const auto gameThread = m_GameThreadId.load(std::memory_order_acquire);
+        return gameThread != 0 && gameThread == ::GetCurrentThreadId();
+    }
+
+    NativeHandler NativeRegistry::Handler(NativeId id) const noexcept
+    {
+        const auto index = static_cast<std::size_t>(id);
+        return index < m_Handlers.size() ? m_Handlers[index] : nullptr;
+    }
+
+    const char* NativeRegistry::Name(NativeId id) const noexcept
+    {
+        const auto index = static_cast<std::size_t>(id);
+        return index < Descriptors.size() ? Descriptors[index].name : "UNKNOWN_NATIVE";
+    }
+
+    NativeHash NativeRegistry::Hash(NativeId id) const noexcept
+    {
+        const auto index = static_cast<std::size_t>(id);
+        return index < Descriptors.size() ? Descriptors[index].hash : 0;
+    }
+}

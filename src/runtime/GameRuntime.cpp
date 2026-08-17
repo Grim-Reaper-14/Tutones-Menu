@@ -1,0 +1,370 @@
+#include "GameRuntime.hpp"
+
+#include "../core/logging/Logger.hpp"
+#include "../game/GameState.hpp"
+#include "../game/native/NativeRegistry.hpp"
+
+#include <MinHook.h>
+#include <Windows.h>
+
+#include <array>
+#include <chrono>
+#include <exception>
+#include <string>
+#include <thread>
+
+namespace Tutones::Runtime
+{
+    namespace
+    {
+        constexpr std::uint32_t Joaat(const char* text) noexcept
+        {
+            std::uint32_t hash{};
+            while (text && *text)
+            {
+                char c = *text++;
+                if (c >= 'A' && c <= 'Z')
+                    c = static_cast<char>(c - 'A' + 'a');
+
+                hash += static_cast<std::uint8_t>(c);
+                hash += hash << 10;
+                hash ^= hash >> 6;
+            }
+
+            hash += hash << 3;
+            hash ^= hash >> 11;
+            hash += hash << 15;
+            return hash;
+        }
+
+        constexpr std::array<std::uint32_t, 3> PreferredScriptHashes{
+            Joaat("freemode"),
+            Joaat("main_persistent"),
+            Joaat("startup"),
+        };
+
+        class ScriptTlsScope final
+        {
+        public:
+            ScriptTlsScope(Game::Types::TlsContext* tls, Game::Types::ScriptThread* thread) noexcept
+                : m_Tls(tls)
+            {
+                if (!m_Tls || !thread)
+                    return;
+
+                m_PreviousThread = m_Tls->currentScriptThread;
+                m_PreviousActive = m_Tls->scriptThreadActive;
+                m_Tls->currentScriptThread = thread;
+                m_Tls->scriptThreadActive = true;
+                m_Active = true;
+            }
+
+            ~ScriptTlsScope()
+            {
+                if (!m_Active || !m_Tls)
+                    return;
+
+                m_Tls->scriptThreadActive = m_PreviousActive;
+                m_Tls->currentScriptThread = m_PreviousThread;
+            }
+
+            [[nodiscard]] bool IsActive() const noexcept { return m_Active; }
+
+        private:
+            Game::Types::TlsContext* m_Tls{};
+            Game::Types::ScriptThread* m_PreviousThread{};
+            bool m_PreviousActive{};
+            bool m_Active{};
+        };
+
+        std::string MinHookMessage(const char* prefix, MH_STATUS status)
+        {
+            std::string message(prefix);
+            message += ": ";
+            message += MH_StatusToString(status);
+            return message;
+        }
+    }
+
+    GameRuntime& GameRuntime::Get() noexcept
+    {
+        static GameRuntime instance;
+        return instance;
+    }
+
+    bool GameRuntime::Initialize()
+    {
+        bool expected = false;
+        if (!m_Initialized.compare_exchange_strong(expected, true, std::memory_order_acq_rel))
+        {
+            TUTONES_LOG_TRACE("runtime.game", "Game runtime initialize requested while already active");
+            return true;
+        }
+
+        m_ShuttingDown.store(false, std::memory_order_release);
+        m_ActiveCallbacks.store(0, std::memory_order_release);
+        m_GameThreadId.store(0, std::memory_order_release);
+        m_NativeInitAttempted = false;
+        m_LoggedNoScriptThread = false;
+        m_LoggedNoTls = false;
+
+        TUTONES_LOG_INFO("runtime.game", "Initializing GTA Enhanced game-thread runtime");
+
+        auto& pointers = Game::GamePointers::Get();
+        if (!pointers.Resolve())
+        {
+            TUTONES_LOG_ERROR("runtime.game", "GTA Enhanced pointer resolution failed");
+            m_Initialized.store(false, std::memory_order_release);
+            return false;
+        }
+
+        const auto runScriptThreads = pointers.RunScriptThreads();
+        if (!runScriptThreads)
+        {
+            TUTONES_LOG_ERROR("runtime.game", "RunScriptThreads target is unavailable");
+            pointers.Reset();
+            m_Initialized.store(false, std::memory_order_release);
+            return false;
+        }
+
+        m_RunScriptThreadsTarget = reinterpret_cast<void*>(reinterpret_cast<std::uintptr_t>(runScriptThreads));
+        const auto detour = reinterpret_cast<void*>(reinterpret_cast<std::uintptr_t>(&GameRuntime::RunScriptThreadsDetour));
+
+        auto status = MH_CreateHook(
+            m_RunScriptThreadsTarget,
+            detour,
+            reinterpret_cast<void**>(&m_OriginalRunScriptThreads));
+        if (status != MH_OK)
+        {
+            TUTONES_LOG_ERROR("runtime.game", MinHookMessage("Failed to create RunScriptThreads hook", status));
+            pointers.Reset();
+            m_RunScriptThreadsTarget = nullptr;
+            m_Initialized.store(false, std::memory_order_release);
+            return false;
+        }
+
+        status = MH_EnableHook(m_RunScriptThreadsTarget);
+        if (status != MH_OK)
+        {
+            TUTONES_LOG_ERROR("runtime.game", MinHookMessage("Failed to enable RunScriptThreads hook", status));
+            MH_RemoveHook(m_RunScriptThreadsTarget);
+            m_OriginalRunScriptThreads = nullptr;
+            m_RunScriptThreadsTarget = nullptr;
+            pointers.Reset();
+            m_Initialized.store(false, std::memory_order_release);
+            return false;
+        }
+
+        TUTONES_LOG_INFO("runtime.game", "RunScriptThreads hook installed; waiting for first GTA script tick");
+        return true;
+    }
+
+    void GameRuntime::Shutdown() noexcept
+    {
+        if (!m_Initialized.exchange(false, std::memory_order_acq_rel))
+        {
+            TUTONES_LOG_TRACE("runtime.game", "Game runtime shutdown requested while inactive");
+            return;
+        }
+
+        m_ShuttingDown.store(true, std::memory_order_release);
+        TUTONES_LOG_INFO("runtime.game", "Shutting down GTA game-thread runtime");
+
+        if (m_RunScriptThreadsTarget)
+        {
+            const auto status = MH_DisableHook(m_RunScriptThreadsTarget);
+            if (status != MH_OK && status != MH_ERROR_DISABLED)
+                TUTONES_LOG_WARN("runtime.game", MinHookMessage("RunScriptThreads hook disable returned", status));
+        }
+
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+        while (m_ActiveCallbacks.load(std::memory_order_acquire) != 0 && std::chrono::steady_clock::now() < deadline)
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+
+        if (m_ActiveCallbacks.load(std::memory_order_acquire) != 0)
+            TUTONES_LOG_WARN("runtime.game", "Timed out waiting for RunScriptThreads callback drain");
+        else
+            TUTONES_LOG_DEBUG("runtime.game", "RunScriptThreads callbacks drained");
+
+        if (m_RunScriptThreadsTarget)
+        {
+            const auto status = MH_RemoveHook(m_RunScriptThreadsTarget);
+            if (status != MH_OK && status != MH_ERROR_NOT_CREATED)
+                TUTONES_LOG_WARN("runtime.game", MinHookMessage("RunScriptThreads hook removal returned", status));
+        }
+
+        {
+            std::scoped_lock lock(m_TaskMutex);
+            m_Tasks.clear();
+        }
+
+        Game::GameState::Get().Reset();
+        Game::Native::NativeRegistry::Get().Shutdown();
+        Game::GamePointers::Get().Reset();
+
+        m_OriginalRunScriptThreads = nullptr;
+        m_RunScriptThreadsTarget = nullptr;
+        m_GameThreadId.store(0, std::memory_order_release);
+        m_NativeInitAttempted = false;
+        m_LoggedNoScriptThread = false;
+        m_LoggedNoTls = false;
+        m_ShuttingDown.store(false, std::memory_order_release);
+
+        TUTONES_LOG_INFO("runtime.game", "GTA game-thread runtime stopped");
+    }
+
+    bool GameRuntime::IsInitialized() const noexcept
+    {
+        return m_Initialized.load(std::memory_order_acquire);
+    }
+
+    bool GameRuntime::IsOnGameThread() const noexcept
+    {
+        const auto threadId = m_GameThreadId.load(std::memory_order_acquire);
+        return threadId != 0 && threadId == ::GetCurrentThreadId();
+    }
+
+    std::uint32_t GameRuntime::GameThreadId() const noexcept
+    {
+        return m_GameThreadId.load(std::memory_order_acquire);
+    }
+
+    bool GameRuntime::Enqueue(std::function<void()> task)
+    {
+        if (!task || !IsInitialized() || m_ShuttingDown.load(std::memory_order_acquire))
+            return false;
+
+        std::scoped_lock lock(m_TaskMutex);
+        if (m_Tasks.size() >= 256)
+        {
+            TUTONES_LOG_WARN("runtime.game", "Game-thread task queue is full; rejected task");
+            return false;
+        }
+
+        m_Tasks.emplace_back(std::move(task));
+        TUTONES_LOG_TRACE("runtime.game", "Queued task for GTA script thread");
+        return true;
+    }
+
+    bool GameRuntime::RunScriptThreadsDetour(int operationsToExecute) noexcept
+    {
+        auto& runtime = Get();
+        runtime.m_ActiveCallbacks.fetch_add(1, std::memory_order_acq_rel);
+
+        bool result{};
+        if (runtime.m_OriginalRunScriptThreads)
+            result = runtime.m_OriginalRunScriptThreads(operationsToExecute);
+
+        if (!runtime.m_ShuttingDown.load(std::memory_order_acquire))
+            runtime.Tick();
+
+        runtime.m_ActiveCallbacks.fetch_sub(1, std::memory_order_acq_rel);
+        return result;
+    }
+
+    void GameRuntime::Tick() noexcept
+    {
+        const auto currentThread = ::GetCurrentThreadId();
+        const auto previousThread = m_GameThreadId.exchange(currentThread, std::memory_order_acq_rel);
+        if (previousThread == 0)
+            TUTONES_LOG_INFO("runtime.game", "First GTA script tick observed");
+        else if (previousThread != currentThread)
+            TUTONES_LOG_WARN("runtime.game", "RunScriptThreads moved to a different OS thread");
+
+        auto& registry = Game::Native::NativeRegistry::Get();
+        registry.MarkGameThread(currentThread);
+
+        auto* scriptThread = FindExecutionThread();
+        if (!scriptThread)
+        {
+            if (!m_LoggedNoScriptThread)
+            {
+                m_LoggedNoScriptThread = true;
+                TUTONES_LOG_WARN("runtime.game", "No freemode/main_persistent/startup script thread is available yet");
+            }
+            return;
+        }
+        m_LoggedNoScriptThread = false;
+
+        auto* tls = Game::Types::TlsContext::Get();
+        if (!tls)
+        {
+            if (!m_LoggedNoTls)
+            {
+                m_LoggedNoTls = true;
+                TUTONES_LOG_ERROR("runtime.game", "GTA TLS context is unavailable on the script thread");
+            }
+            return;
+        }
+        m_LoggedNoTls = false;
+
+        ScriptTlsScope scope(tls, scriptThread);
+        if (!scope.IsActive())
+            return;
+
+        if (!registry.IsReady() && !m_NativeInitAttempted)
+        {
+            m_NativeInitAttempted = true;
+            if (!registry.Initialize(Game::GamePointers::Get().InitNativeTables()))
+            {
+                TUTONES_LOG_ERROR("runtime.game", "Focused GTA native table failed to initialize");
+                return;
+            }
+            TUTONES_LOG_INFO("runtime.game", "Native execution is ready inside a GTA script context");
+        }
+
+        if (registry.IsReady())
+            Game::GameState::Get().Tick();
+
+        DrainTasks();
+    }
+
+    void GameRuntime::DrainTasks() noexcept
+    {
+        std::deque<std::function<void()>> tasks;
+        {
+            std::scoped_lock lock(m_TaskMutex);
+            if (m_Tasks.empty())
+                return;
+            tasks.swap(m_Tasks);
+        }
+
+        TUTONES_LOG_DEBUG("runtime.game", std::string("Executing game-thread task batch; count=") + std::to_string(tasks.size()));
+        for (auto& task : tasks)
+        {
+            try
+            {
+                task();
+            }
+            catch (const std::exception& exception)
+            {
+                TUTONES_LOG_ERROR("runtime.game", std::string("Game-thread task threw exception: ") + exception.what());
+            }
+            catch (...)
+            {
+                TUTONES_LOG_ERROR("runtime.game", "Game-thread task threw an unknown exception");
+            }
+        }
+    }
+
+    Game::Types::ScriptThread* GameRuntime::FindExecutionThread() const noexcept
+    {
+        const auto* threads = Game::GamePointers::Get().ScriptThreads();
+        if (!threads || !threads->data || threads->size == 0 || threads->size > threads->capacity)
+            return nullptr;
+
+        for (const auto preferredHash : PreferredScriptHashes)
+        {
+            for (std::uint16_t index = 0; index < threads->size; ++index)
+            {
+                auto* thread = threads->data[index];
+                if (!thread || thread->context.threadId == 0)
+                    continue;
+                if (thread->scriptHash == preferredHash)
+                    return thread;
+            }
+        }
+
+        return nullptr;
+    }
+}
