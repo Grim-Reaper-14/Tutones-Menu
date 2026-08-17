@@ -110,9 +110,11 @@ namespace Tutones::UI
         Hooking::Win32Hook::Get().SetMessageHandler(&Input::HandleWindowMessage);
 
         TUTONES_LOG_INFO("input", "Win32 menu input routing initialized");
-        TUTONES_LOG_INFO("input", "Controls: F4 toggle, NUM8 up, NUM2 down, NUM4 left, NUM6 right, NUM5 select, NUM0 back");
-        TUTONES_LOG_DEBUG("input", "Backspace is intentionally not bound to menu Back");
+        TUTONES_LOG_INFO("input", "Controls: F4 toggle, Arrow keys navigate, Enter select, Escape back");
+        TUTONES_LOG_DEBUG("input", "Numpad menu bindings are disabled");
+        TUTONES_LOG_DEBUG("input", "Backspace is not bound to menu Back");
         TUTONES_LOG_DEBUG("input", "Tutones owns mouse, keyboard, and raw input while the menu is open");
+        TUTONES_LOG_INFO("input", "Technical diagnostics are console-only; the menu UI remains feature-focused");
         return true;
     }
 
@@ -208,8 +210,8 @@ namespace Tutones::UI
         if (!input.IsInitialized())
             return false;
 
-        // Tutones command keys are handled before ImGui sees them. This prevents
-        // one numpad press from driving both ImGui navigation and our menu state.
+        // Tutones command keys are handled before ImGui sees them so a single
+        // key press can only update one menu navigation path.
         if (IsKeyDownMessage(message))
         {
             if (wParam == VK_F4)
@@ -225,12 +227,12 @@ namespace Tutones::UI
                 {
                     switch (wParam)
                     {
-                    case VK_NUMPAD8: input.Queue(InputAction::Up, "Up"); break;
-                    case VK_NUMPAD2: input.Queue(InputAction::Down, "Down"); break;
-                    case VK_NUMPAD4: input.Queue(InputAction::Left, "Left"); break;
-                    case VK_NUMPAD6: input.Queue(InputAction::Right, "Right"); break;
-                    case VK_NUMPAD5: input.Queue(InputAction::Select, "Select"); break;
-                    case VK_NUMPAD0: input.Queue(InputAction::Back, "Back"); break;
+                    case VK_UP:     input.Queue(InputAction::Up, "Up"); break;
+                    case VK_DOWN:   input.Queue(InputAction::Down, "Down"); break;
+                    case VK_LEFT:   input.Queue(InputAction::Left, "Left"); break;
+                    case VK_RIGHT:  input.Queue(InputAction::Right, "Right"); break;
+                    case VK_RETURN: input.Queue(InputAction::Select, "Select"); break;
+                    case VK_ESCAPE: input.Queue(InputAction::Back, "Back"); break;
                     default: break;
                     }
                 }
@@ -238,7 +240,10 @@ namespace Tutones::UI
             }
 
             if (wParam == VK_BACK && input.IsMenuOpen())
-                TUTONES_LOG_TRACE("input", "Backspace ignored as menu Back; NUM0 remains the only Back binding");
+            {
+                TUTONES_LOG_TRACE("input", "Backspace ignored as menu Back; Escape is the Back binding");
+                return true;
+            }
         }
 
         if (IsKeyUpMessage(message))
@@ -290,12 +295,12 @@ namespace Tutones::UI
         switch (key)
         {
         case VK_F4:
-        case VK_NUMPAD8:
-        case VK_NUMPAD2:
-        case VK_NUMPAD4:
-        case VK_NUMPAD6:
-        case VK_NUMPAD5:
-        case VK_NUMPAD0:
+        case VK_UP:
+        case VK_DOWN:
+        case VK_LEFT:
+        case VK_RIGHT:
+        case VK_RETURN:
+        case VK_ESCAPE:
             return true;
         default:
             return false;
