@@ -2,6 +2,8 @@
 
 #include "../core/CoreServices.hpp"
 #include "../core/logging/Logger.hpp"
+#include "../hooking/HookManager.hpp"
+#include "../render/Renderer.hpp"
 
 namespace Tutones::App
 {
@@ -19,7 +21,23 @@ namespace Tutones::App
         if (!Core::Services::Get().Initialize(moduleDirectory))
             return false;
 
-        TUTONES_LOG_INFO("app", "Tutones Menu application initialized");
+        if (!Render::Renderer::Get().Initialize())
+        {
+            TUTONES_LOG_ERROR("app", "Renderer bootstrap failed");
+            Core::Services::Get().Shutdown();
+            return false;
+        }
+
+        if (!Hooking::HookManager::Get().Initialize() || !Hooking::HookManager::Get().Install())
+        {
+            TUTONES_LOG_ERROR("app", "D3D12 hook bootstrap failed");
+            Hooking::HookManager::Get().Shutdown();
+            Render::Renderer::Get().Shutdown();
+            Core::Services::Get().Shutdown();
+            return false;
+        }
+
+        TUTONES_LOG_INFO("app", "Tutones Menu application initialized with D3D12 hooks");
         m_Running = true;
         return true;
     }
@@ -30,6 +48,10 @@ namespace Tutones::App
             return;
 
         TUTONES_LOG_INFO("app", "Tutones Menu application shutting down");
+
+        // Stop callbacks before releasing renderer-owned D3D12 objects.
+        Hooking::HookManager::Get().Shutdown();
+        Render::Renderer::Get().Shutdown();
         Core::Services::Get().Shutdown();
         m_Running = false;
     }
