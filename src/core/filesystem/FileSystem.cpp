@@ -4,7 +4,6 @@
 
 #include <fstream>
 #include <iterator>
-#include <mutex>
 
 namespace Tutones::Core::FileSystem
 {
@@ -25,6 +24,14 @@ namespace Tutones::Core::FileSystem
             }
             return module;
         }
+
+        bool ContainsParentTraversal(const std::filesystem::path& path)
+        {
+            for (const auto& component : path)
+                if (component == "..")
+                    return true;
+            return false;
+        }
     }
 
     Service& Service::Get() noexcept
@@ -42,7 +49,6 @@ namespace Tutones::Core::FileSystem
         m_ModuleRoot = std::filesystem::weakly_canonical(moduleDirectory, ec);
         if (ec)
             m_ModuleRoot = std::filesystem::absolute(moduleDirectory, ec);
-
         if (m_ModuleRoot.empty())
             return false;
 
@@ -66,40 +72,25 @@ namespace Tutones::Core::FileSystem
         m_Initialized = false;
     }
 
-    std::filesystem::path Service::ModuleRoot() const
-    {
-        return m_ModuleRoot;
-    }
-
-    std::filesystem::path Service::RootPath(Root root) const
-    {
-        return PathFor(m_ModuleRoot, root);
-    }
+    std::filesystem::path Service::ModuleRoot() const { return m_ModuleRoot; }
+    std::filesystem::path Service::RootPath(Root root) const { return PathFor(m_ModuleRoot, root); }
 
     std::filesystem::path Service::Resolve(Root root, std::filesystem::path relative) const
     {
         if (relative.empty())
             return RootPath(root);
-
-        // Root is explicitly selected by the caller. Do not accept absolute
-        // paths through this helper; callers needing an absolute path can use
-        // the low-level file operations directly.
-        if (relative.is_absolute())
+        if (relative.is_absolute() || ContainsParentTraversal(relative))
             return {};
 
         return RootPath(root) / std::move(relative);
     }
 
-    bool Service::EnsureDirectory(Root root) const noexcept
-    {
-        return EnsureDirectory(RootPath(root));
-    }
+    bool Service::EnsureDirectory(Root root) const noexcept { return EnsureDirectory(RootPath(root)); }
 
     bool Service::EnsureDirectory(const std::filesystem::path& path) const noexcept
     {
         if (path.empty())
             return false;
-
         std::error_code ec;
         if (std::filesystem::exists(path, ec))
             return std::filesystem::is_directory(path, ec);
@@ -134,10 +125,7 @@ namespace Tutones::Core::FileSystem
             output.assign(std::istreambuf_iterator<char>(stream), std::istreambuf_iterator<char>());
             return true;
         }
-        catch (...)
-        {
-            return false;
-        }
+        catch (...) { return false; }
     }
 
     std::string Service::ReadText(const std::filesystem::path& path) const
@@ -159,10 +147,7 @@ namespace Tutones::Core::FileSystem
             stream.write(content.data(), static_cast<std::streamsize>(content.size()));
             return stream.good();
         }
-        catch (...)
-        {
-            return false;
-        }
+        catch (...) { return false; }
     }
 
     bool Service::AppendText(const std::filesystem::path& path, std::string_view content) const noexcept
@@ -177,10 +162,7 @@ namespace Tutones::Core::FileSystem
             stream.write(content.data(), static_cast<std::streamsize>(content.size()));
             return stream.good();
         }
-        catch (...)
-        {
-            return false;
-        }
+        catch (...) { return false; }
     }
 
     bool Service::ReadBinary(const std::filesystem::path& path, std::vector<std::byte>& output) const noexcept
@@ -195,16 +177,12 @@ namespace Tutones::Core::FileSystem
             if (size < 0)
                 return false;
             stream.seekg(0, std::ios::beg);
-
             output.resize(static_cast<std::size_t>(size));
             if (!output.empty())
                 stream.read(reinterpret_cast<char*>(output.data()), static_cast<std::streamsize>(output.size()));
             return stream.good() || stream.eof();
         }
-        catch (...)
-        {
-            return false;
-        }
+        catch (...) { return false; }
     }
 
     bool Service::WriteBinary(const std::filesystem::path& path, std::span<const std::byte> data) const noexcept
@@ -220,10 +198,7 @@ namespace Tutones::Core::FileSystem
                 stream.write(reinterpret_cast<const char*>(data.data()), static_cast<std::streamsize>(data.size()));
             return stream.good();
         }
-        catch (...)
-        {
-            return false;
-        }
+        catch (...) { return false; }
     }
 
     bool Service::Copy(const std::filesystem::path& source, const std::filesystem::path& target, bool overwrite) const noexcept
@@ -237,10 +212,7 @@ namespace Tutones::Core::FileSystem
             std::filesystem::copy(source, target, options, ec);
             return !ec;
         }
-        catch (...)
-        {
-            return false;
-        }
+        catch (...) { return false; }
     }
 
     bool Service::Move(const std::filesystem::path& source, const std::filesystem::path& target, bool overwrite) const noexcept
@@ -255,10 +227,7 @@ namespace Tutones::Core::FileSystem
             std::filesystem::rename(source, target, ec);
             return !ec;
         }
-        catch (...)
-        {
-            return false;
-        }
+        catch (...) { return false; }
     }
 
     bool Service::Remove(const std::filesystem::path& path) const noexcept
@@ -278,25 +247,20 @@ namespace Tutones::Core::FileSystem
     {
         std::vector<std::filesystem::path> result;
         std::error_code ec;
-
         if (!recursive)
         {
             for (const auto& entry : std::filesystem::directory_iterator(directory, ec))
             {
-                if (ec)
-                    break;
-                if (entry.is_regular_file(ec) && !ec)
-                    result.emplace_back(entry.path());
+                if (ec) break;
+                if (entry.is_regular_file(ec) && !ec) result.emplace_back(entry.path());
             }
         }
         else
         {
             for (const auto& entry : std::filesystem::recursive_directory_iterator(directory, ec))
             {
-                if (ec)
-                    break;
-                if (entry.is_regular_file(ec) && !ec)
-                    result.emplace_back(entry.path());
+                if (ec) break;
+                if (entry.is_regular_file(ec) && !ec) result.emplace_back(entry.path());
             }
         }
         return result;
@@ -306,32 +270,24 @@ namespace Tutones::Core::FileSystem
     {
         std::vector<std::filesystem::path> result;
         std::error_code ec;
-
         if (!recursive)
         {
             for (const auto& entry : std::filesystem::directory_iterator(directory, ec))
             {
-                if (ec)
-                    break;
-                if (entry.is_directory(ec) && !ec)
-                    result.emplace_back(entry.path());
+                if (ec) break;
+                if (entry.is_directory(ec) && !ec) result.emplace_back(entry.path());
             }
         }
         else
         {
             for (const auto& entry : std::filesystem::recursive_directory_iterator(directory, ec))
             {
-                if (ec)
-                    break;
-                if (entry.is_directory(ec) && !ec)
-                    result.emplace_back(entry.path());
+                if (ec) break;
+                if (entry.is_directory(ec) && !ec) result.emplace_back(entry.path());
             }
         }
         return result;
     }
 
-    bool Service::IsInitialized() const noexcept
-    {
-        return m_Initialized;
-    }
+    bool Service::IsInitialized() const noexcept { return m_Initialized; }
 }
