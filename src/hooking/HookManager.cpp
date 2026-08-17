@@ -1,5 +1,6 @@
 #include "HookManager.hpp"
 
+#include "Win32Hook.hpp"
 #include "../core/logging/Logger.hpp"
 #include "../render/Renderer.hpp"
 
@@ -8,7 +9,9 @@
 #include <dxgi1_4.h>
 #include <MinHook.h>
 
+#include <chrono>
 #include <string>
+#include <thread>
 
 namespace Tutones::Hooking
 {
@@ -30,6 +33,23 @@ namespace Tutones::Hooking
             message += MH_StatusToString(status);
             return message;
         }
+
+        struct CallbackGuard final
+        {
+            explicit CallbackGuard(HookManager& manager) noexcept
+                : hooks(manager), entered(manager.TryEnterCallback())
+            {
+            }
+
+            ~CallbackGuard()
+            {
+                if (entered)
+                    hooks.LeaveCallback();
+            }
+
+            HookManager& hooks;
+            bool entered{};
+        };
 
         struct ProbeObjects final
         {
@@ -88,7 +108,6 @@ namespace Tutones::Hooking
             queueDesc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
             queueDesc.Priority = D3D12_COMMAND_QUEUE_PRIORITY_NORMAL;
             queueDesc.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE;
-            queueDesc.NodeMask = 0;
 
             if (FAILED(probe.device->CreateCommandQueue(&queueDesc, IID_PPV_ARGS(&probe.queue))))
                 return false;
@@ -100,28 +119,20 @@ namespace Tutones::Hooking
             swapDesc.Width = 100;
             swapDesc.Height = 100;
             swapDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-            swapDesc.Stereo = FALSE;
             swapDesc.SampleDesc.Count = 1;
-            swapDesc.SampleDesc.Quality = 0;
             swapDesc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
             swapDesc.BufferCount = 2;
             swapDesc.Scaling = DXGI_SCALING_STRETCH;
             swapDesc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
             swapDesc.AlphaMode = DXGI_ALPHA_MODE_UNSPECIFIED;
-            swapDesc.Flags = 0;
 
-            if (FAILED(probe.factory->CreateSwapChainForHwnd(
-                    probe.queue,
-                    probe.window,
-                    &swapDesc,
-                    nullptr,
-                    nullptr,
-                    &probe.swapChain)))
-            {
-                return false;
-            }
-
-            return true;
+            return SUCCEEDED(probe.factory->CreateSwapChainForHwnd(
+                probe.queue,
+                probe.window,
+                &swapDesc,
+                nullptr,
+                nullptr,
+                &probe.swapChain));
         }
 
         long __stdcall PresentDetour(IDXGISwapChain* swapChain, unsigned int syncInterval, unsigned int flags)
@@ -131,8 +142,16 @@ namespace Tutones::Hooking
             if (!original)
                 return E_FAIL;
 
+            CallbackGuard callback(hooks);
+            if (!callback.entered)
+                return original(swapChain, syncInterval, flags);
+
             if (swapChain)
             {
+                DXGI_SWAP_CHAIN_DESC desc{};
+                if (SUCCEEDED(swapChain->GetDesc(&desc)) && desc.OutputWindow)
+                    static_cast<void>(Win32Hook::Get().Attach(desc.OutputWindow));
+
                 IDXGISwapChain3* swapChain3{};
                 if (SUCCEEDED(swapChain->QueryInterface(IID_PPV_ARGS(&swapChain3))))
                 {
@@ -167,7 +186,10 @@ namespace Tutones::Hooking
             if (!original)
                 return E_FAIL;
 
-            Render::Renderer::Get().OnResize(width, height);
+            CallbackGuard callback(hooks);
+            if (callback.entered)
+                Render::Renderer::Get().OnResize(width, height);
+
             return original(swapChain, bufferCount, width, height, format, swapChainFlags);
         }
 
@@ -177,7 +199,10 @@ namespace Tutones::Hooking
             ID3D12CommandList* const* commandLists)
         {
             auto& hooks = HookManager::Get();
-            if (queue && !hooks.CommandQueue())
+            const auto original = hooks.OriginalExecuteCommandLists();
+
+            CallbackGuard callback(hooks);
+            if (callback.entered && queue && !hooks.CommandQueue())
             {
                 const auto desc = queue->GetDesc();
                 if (desc.Type == D3D12_COMMAND_LIST_TYPE_DIRECT)
@@ -188,7 +213,7 @@ namespace Tutones::Hooking
                 }
             }
 
-            if (const auto original = hooks.OriginalExecuteCommandLists())
+            if (original)
                 original(queue, count, commandLists);
         }
     }
@@ -201,42 +226,44 @@ namespace Tutones::Hooking
 
     bool HookManager::Initialize() noexcept
     {
-        if (m_Status == HookStatus::Ready || m_Status == HookStatus::Installed)
+        const auto current = m_Status.load(std::memory_order_acquire);
+        if (current == HookStatus::Ready || current == HookStatus::Installed)
             return true;
-        if (m_Status == HookStatus::Initializing)
+        if (current == HookStatus::Initializing)
             return false;
 
-        m_Status = HookStatus::Initializing;
+        m_ShuttingDown.store(false, std::memory_order_release);
+        m_Status.store(HookStatus::Initializing, std::memory_order_release);
         TUTONES_LOG_INFO("hook", "Initializing MinHook backend");
 
         const auto status = ::MH_Initialize();
         if (status != MH_OK && status != MH_ERROR_ALREADY_INITIALIZED)
         {
-            m_Status = HookStatus::Failed;
+            m_Status.store(HookStatus::Failed, std::memory_order_release);
             TUTONES_LOG_ERROR("hook", MhFailure("MH_Initialize", status));
             return false;
         }
 
         m_MinHookInitialized = true;
-        m_Status = HookStatus::Ready;
+        m_Status.store(HookStatus::Ready, std::memory_order_release);
         TUTONES_LOG_INFO("hook", "MinHook backend ready");
         return true;
     }
 
     bool HookManager::Install() noexcept
     {
-        if (m_Status == HookStatus::Installed)
+        if (m_Status.load(std::memory_order_acquire) == HookStatus::Installed)
             return true;
-        if (m_Status != HookStatus::Ready && !Initialize())
+        if (m_Status.load(std::memory_order_acquire) != HookStatus::Ready && !Initialize())
             return false;
 
-        m_Status = HookStatus::Initializing;
+        m_Status.store(HookStatus::Initializing, std::memory_order_release);
         TUTONES_LOG_INFO("hook", "Discovering D3D12 and DXGI hook targets");
 
         ProbeObjects probe;
         if (!CreateProbeObjects(probe))
         {
-            m_Status = HookStatus::Failed;
+            m_Status.store(HookStatus::Failed, std::memory_order_release);
             TUTONES_LOG_ERROR("hook", "Failed to create temporary D3D12 probe objects");
             return false;
         }
@@ -245,7 +272,7 @@ namespace Tutones::Hooking
         auto** queueVTable = *reinterpret_cast<void***>(probe.queue);
         if (!swapVTable || !queueVTable)
         {
-            m_Status = HookStatus::Failed;
+            m_Status.store(HookStatus::Failed, std::memory_order_release);
             TUTONES_LOG_ERROR("hook", "Failed to read D3D12/DXGI virtual tables");
             return false;
         }
@@ -262,7 +289,7 @@ namespace Tutones::Hooking
         {
             TUTONES_LOG_ERROR("hook", MhFailure("Create Present hook", createPresent));
             ResetTargets();
-            m_Status = HookStatus::Failed;
+            m_Status.store(HookStatus::Failed, std::memory_order_release);
             return false;
         }
 
@@ -275,7 +302,7 @@ namespace Tutones::Hooking
             TUTONES_LOG_ERROR("hook", MhFailure("Create ResizeBuffers hook", createResize));
             ::MH_RemoveHook(m_PresentTarget);
             ResetTargets();
-            m_Status = HookStatus::Failed;
+            m_Status.store(HookStatus::Failed, std::memory_order_release);
             return false;
         }
 
@@ -289,7 +316,7 @@ namespace Tutones::Hooking
             ::MH_RemoveHook(m_ResizeBuffersTarget);
             ::MH_RemoveHook(m_PresentTarget);
             ResetTargets();
-            m_Status = HookStatus::Failed;
+            m_Status.store(HookStatus::Failed, std::memory_order_release);
             return false;
         }
 
@@ -303,7 +330,7 @@ namespace Tutones::Hooking
             ::MH_RemoveHook(m_ResizeBuffersTarget);
             ::MH_RemoveHook(m_PresentTarget);
             ResetTargets();
-            m_Status = HookStatus::Failed;
+            m_Status.store(HookStatus::Failed, std::memory_order_release);
             return false;
         }
 
@@ -315,26 +342,34 @@ namespace Tutones::Hooking
             ::MH_RemoveHook(m_ResizeBuffersTarget);
             ::MH_RemoveHook(m_PresentTarget);
             ResetTargets();
-            m_Status = HookStatus::Failed;
+            m_Status.store(HookStatus::Failed, std::memory_order_release);
             return false;
         }
 
-        m_Status = HookStatus::Installed;
+        m_Status.store(HookStatus::Installed, std::memory_order_release);
         TUTONES_LOG_INFO("hook", "D3D12 Present, ResizeBuffers, and ExecuteCommandLists hooks installed");
         return true;
     }
 
     void HookManager::Shutdown() noexcept
     {
-        if (m_Status == HookStatus::Stopped || m_Status == HookStatus::NotInitialized)
+        const auto current = m_Status.load(std::memory_order_acquire);
+        if (current == HookStatus::Stopped || current == HookStatus::NotInitialized)
             return;
 
-        m_Status = HookStatus::ShuttingDown;
+        m_ShuttingDown.store(true, std::memory_order_release);
+        m_Status.store(HookStatus::ShuttingDown, std::memory_order_release);
         TUTONES_LOG_INFO("hook", "D3D12 hook manager shutting down");
 
-        if (m_PresentTarget) ::MH_DisableHook(m_PresentTarget);
-        if (m_ResizeBuffersTarget) ::MH_DisableHook(m_ResizeBuffersTarget);
-        if (m_ExecuteCommandListsTarget) ::MH_DisableHook(m_ExecuteCommandListsTarget);
+        if (m_PresentTarget) ::MH_QueueDisableHook(m_PresentTarget);
+        if (m_ResizeBuffersTarget) ::MH_QueueDisableHook(m_ResizeBuffersTarget);
+        if (m_ExecuteCommandListsTarget) ::MH_QueueDisableHook(m_ExecuteCommandListsTarget);
+        static_cast<void>(::MH_ApplyQueued());
+
+        Win32Hook::Get().SetMessageHandler(nullptr);
+        Win32Hook::Get().Detach();
+
+        static_cast<void>(WaitForCallbacksToDrain());
 
         if (m_PresentTarget) ::MH_RemoveHook(m_PresentTarget);
         if (m_ResizeBuffersTarget) ::MH_RemoveHook(m_ResizeBuffersTarget);
@@ -353,18 +388,23 @@ namespace Tutones::Hooking
             m_MinHookInitialized = false;
         }
 
-        m_Status = HookStatus::Stopped;
-        TUTONES_LOG_INFO("hook", "D3D12 hooks stopped");
+        m_Status.store(HookStatus::Stopped, std::memory_order_release);
+        TUTONES_LOG_INFO("hook", "D3D12 and Win32 hooks stopped");
     }
 
     HookStatus HookManager::Status() const noexcept
     {
-        return m_Status;
+        return m_Status.load(std::memory_order_acquire);
     }
 
     bool HookManager::IsInstalled() const noexcept
     {
-        return m_Status == HookStatus::Installed;
+        return Status() == HookStatus::Installed;
+    }
+
+    bool HookManager::IsShuttingDown() const noexcept
+    {
+        return m_ShuttingDown.load(std::memory_order_acquire);
     }
 
     PresentFn HookManager::OriginalPresent() const noexcept
@@ -384,7 +424,7 @@ namespace Tutones::Hooking
 
     void HookManager::SetCommandQueue(ID3D12CommandQueue* queue) noexcept
     {
-        if (!queue)
+        if (!queue || IsShuttingDown())
             return;
 
         queue->AddRef();
@@ -402,6 +442,39 @@ namespace Tutones::Hooking
     ID3D12CommandQueue* HookManager::CommandQueue() const noexcept
     {
         return m_CommandQueue.load(std::memory_order_acquire);
+    }
+
+    bool HookManager::TryEnterCallback() noexcept
+    {
+        if (IsShuttingDown())
+            return false;
+
+        m_ActiveCallbacks.fetch_add(1, std::memory_order_acq_rel);
+        if (IsShuttingDown())
+        {
+            m_ActiveCallbacks.fetch_sub(1, std::memory_order_acq_rel);
+            return false;
+        }
+
+        return true;
+    }
+
+    void HookManager::LeaveCallback() noexcept
+    {
+        m_ActiveCallbacks.fetch_sub(1, std::memory_order_acq_rel);
+    }
+
+    std::uint32_t HookManager::ActiveCallbacks() const noexcept
+    {
+        return m_ActiveCallbacks.load(std::memory_order_acquire);
+    }
+
+    bool HookManager::WaitForCallbacksToDrain() noexcept
+    {
+        while (ActiveCallbacks() != 0)
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+
+        return true;
     }
 
     void HookManager::ResetTargets() noexcept
