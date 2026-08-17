@@ -150,23 +150,30 @@ namespace Tutones::Hooking
             {
                 DXGI_SWAP_CHAIN_DESC desc{};
                 if (SUCCEEDED(swapChain->GetDesc(&desc)) && desc.OutputWindow)
-                    static_cast<void>(Win32Hook::Get().Attach(desc.OutputWindow));
-
-                IDXGISwapChain3* swapChain3{};
-                if (SUCCEEDED(swapChain->QueryInterface(IID_PPV_ARGS(&swapChain3))))
                 {
-                    auto& renderer = Render::Renderer::Get();
-                    auto* queue = hooks.CommandQueue();
-                    if (queue && !renderer.IsInitialized())
-                        static_cast<void>(renderer.InitializeD3D12(swapChain3, queue));
+                    auto& win32 = Win32Hook::Get();
+                    if (win32.IsPrimaryWindow(desc.OutputWindow) || win32.Attach(desc.OutputWindow))
+                        static_cast<void>(hooks.TrySetPrimarySwapChain(swapChain));
+                }
 
-                    if (renderer.IsInitialized())
+                if (hooks.IsPrimarySwapChain(swapChain))
+                {
+                    IDXGISwapChain3* swapChain3{};
+                    if (SUCCEEDED(swapChain->QueryInterface(IID_PPV_ARGS(&swapChain3))))
                     {
-                        renderer.BeginFrame();
-                        renderer.RenderFrame();
-                    }
+                        auto& renderer = Render::Renderer::Get();
+                        auto* queue = hooks.CommandQueue();
+                        if (queue && !renderer.IsInitialized())
+                            static_cast<void>(renderer.InitializeD3D12(swapChain3, queue));
 
-                    swapChain3->Release();
+                        if (renderer.IsInitialized())
+                        {
+                            renderer.BeginFrame();
+                            renderer.RenderFrame();
+                        }
+
+                        swapChain3->Release();
+                    }
                 }
             }
 
@@ -187,7 +194,7 @@ namespace Tutones::Hooking
                 return E_FAIL;
 
             CallbackGuard callback(hooks);
-            if (callback.entered)
+            if (callback.entered && hooks.IsPrimarySwapChain(swapChain))
                 Render::Renderer::Get().OnResize(width, height);
 
             return original(swapChain, bufferCount, width, height, format, swapChainFlags);
@@ -202,14 +209,14 @@ namespace Tutones::Hooking
             const auto original = hooks.OriginalExecuteCommandLists();
 
             CallbackGuard callback(hooks);
-            if (callback.entered && queue && !hooks.CommandQueue())
+            if (callback.entered && hooks.PrimarySwapChain() && queue && !hooks.CommandQueue())
             {
                 const auto desc = queue->GetDesc();
                 if (desc.Type == D3D12_COMMAND_LIST_TYPE_DIRECT)
                 {
                     hooks.SetCommandQueue(queue);
                     if (hooks.CommandQueue() == queue)
-                        TUTONES_LOG_INFO("hook", "Captured live D3D12 DIRECT command queue");
+                        TUTONES_LOG_INFO("hook", "Captured live D3D12 DIRECT command queue for primary render target");
                 }
             }
 
@@ -281,10 +288,7 @@ namespace Tutones::Hooking
         m_ResizeBuffersTarget = swapVTable[ResizeBuffersVTableIndex];
         m_ExecuteCommandListsTarget = queueVTable[ExecuteCommandListsVTableIndex];
 
-        const auto createPresent = ::MH_CreateHook(
-            m_PresentTarget,
-            reinterpret_cast<void*>(&PresentDetour),
-            reinterpret_cast<void**>(&m_OriginalPresent));
+        const auto createPresent = ::MH_CreateHook(m_PresentTarget, reinterpret_cast<void*>(&PresentDetour), reinterpret_cast<void**>(&m_OriginalPresent));
         if (createPresent != MH_OK)
         {
             TUTONES_LOG_ERROR("hook", MhFailure("Create Present hook", createPresent));
@@ -293,10 +297,7 @@ namespace Tutones::Hooking
             return false;
         }
 
-        const auto createResize = ::MH_CreateHook(
-            m_ResizeBuffersTarget,
-            reinterpret_cast<void*>(&ResizeBuffersDetour),
-            reinterpret_cast<void**>(&m_OriginalResizeBuffers));
+        const auto createResize = ::MH_CreateHook(m_ResizeBuffersTarget, reinterpret_cast<void*>(&ResizeBuffersDetour), reinterpret_cast<void**>(&m_OriginalResizeBuffers));
         if (createResize != MH_OK)
         {
             TUTONES_LOG_ERROR("hook", MhFailure("Create ResizeBuffers hook", createResize));
@@ -306,10 +307,7 @@ namespace Tutones::Hooking
             return false;
         }
 
-        const auto createExecute = ::MH_CreateHook(
-            m_ExecuteCommandListsTarget,
-            reinterpret_cast<void*>(&ExecuteCommandListsDetour),
-            reinterpret_cast<void**>(&m_OriginalExecuteCommandLists));
+        const auto createExecute = ::MH_CreateHook(m_ExecuteCommandListsTarget, reinterpret_cast<void*>(&ExecuteCommandListsDetour), reinterpret_cast<void**>(&m_OriginalExecuteCommandLists));
         if (createExecute != MH_OK)
         {
             TUTONES_LOG_ERROR("hook", MhFailure("Create ExecuteCommandLists hook", createExecute));
@@ -377,6 +375,8 @@ namespace Tutones::Hooking
 
         if (auto* queue = m_CommandQueue.exchange(nullptr, std::memory_order_acq_rel))
             queue->Release();
+        if (auto* swapChain = m_PrimarySwapChain.exchange(nullptr, std::memory_order_acq_rel))
+            swapChain->Release();
 
         ResetTargets();
 
@@ -407,36 +407,49 @@ namespace Tutones::Hooking
         return m_ShuttingDown.load(std::memory_order_acquire);
     }
 
-    PresentFn HookManager::OriginalPresent() const noexcept
+    PresentFn HookManager::OriginalPresent() const noexcept { return m_OriginalPresent; }
+    ResizeBuffersFn HookManager::OriginalResizeBuffers() const noexcept { return m_OriginalResizeBuffers; }
+    ExecuteCommandListsFn HookManager::OriginalExecuteCommandLists() const noexcept { return m_OriginalExecuteCommandLists; }
+
+    bool HookManager::TrySetPrimarySwapChain(IDXGISwapChain* swapChain) noexcept
     {
-        return m_OriginalPresent;
+        if (!swapChain || IsShuttingDown())
+            return false;
+
+        if (IsPrimarySwapChain(swapChain))
+            return true;
+
+        swapChain->AddRef();
+        IDXGISwapChain* expected = nullptr;
+        if (m_PrimarySwapChain.compare_exchange_strong(expected, swapChain, std::memory_order_release, std::memory_order_relaxed))
+        {
+            TUTONES_LOG_INFO("hook", "Pinned primary DXGI render swap chain");
+            return true;
+        }
+
+        swapChain->Release();
+        return expected == swapChain;
     }
 
-    ResizeBuffersFn HookManager::OriginalResizeBuffers() const noexcept
+    bool HookManager::IsPrimarySwapChain(IDXGISwapChain* swapChain) const noexcept
     {
-        return m_OriginalResizeBuffers;
+        return swapChain && m_PrimarySwapChain.load(std::memory_order_acquire) == swapChain;
     }
 
-    ExecuteCommandListsFn HookManager::OriginalExecuteCommandLists() const noexcept
+    IDXGISwapChain* HookManager::PrimarySwapChain() const noexcept
     {
-        return m_OriginalExecuteCommandLists;
+        return m_PrimarySwapChain.load(std::memory_order_acquire);
     }
 
     void HookManager::SetCommandQueue(ID3D12CommandQueue* queue) noexcept
     {
-        if (!queue || IsShuttingDown())
+        if (!queue || !PrimarySwapChain() || IsShuttingDown())
             return;
 
         queue->AddRef();
         ID3D12CommandQueue* expected = nullptr;
-        if (!m_CommandQueue.compare_exchange_strong(
-                expected,
-                queue,
-                std::memory_order_release,
-                std::memory_order_relaxed))
-        {
+        if (!m_CommandQueue.compare_exchange_strong(expected, queue, std::memory_order_release, std::memory_order_relaxed))
             queue->Release();
-        }
     }
 
     ID3D12CommandQueue* HookManager::CommandQueue() const noexcept
@@ -473,7 +486,6 @@ namespace Tutones::Hooking
     {
         while (ActiveCallbacks() != 0)
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
-
         return true;
     }
 
