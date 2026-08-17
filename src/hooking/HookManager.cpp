@@ -177,13 +177,14 @@ namespace Tutones::Hooking
             ID3D12CommandList* const* commandLists)
         {
             auto& hooks = HookManager::Get();
-            if (queue)
+            if (queue && !hooks.CommandQueue())
             {
                 const auto desc = queue->GetDesc();
-                if (desc.Type == D3D12_COMMAND_LIST_TYPE_DIRECT && hooks.CommandQueue() != queue)
+                if (desc.Type == D3D12_COMMAND_LIST_TYPE_DIRECT)
                 {
                     hooks.SetCommandQueue(queue);
-                    TUTONES_LOG_INFO("hook", "Captured live D3D12 DIRECT command queue");
+                    if (hooks.CommandQueue() == queue)
+                        TUTONES_LOG_INFO("hook", "Captured live D3D12 DIRECT command queue");
                 }
             }
 
@@ -292,9 +293,19 @@ namespace Tutones::Hooking
             return false;
         }
 
-        ::MH_QueueEnableHook(m_PresentTarget);
-        ::MH_QueueEnableHook(m_ResizeBuffersTarget);
-        ::MH_QueueEnableHook(m_ExecuteCommandListsTarget);
+        const auto queuePresent = ::MH_QueueEnableHook(m_PresentTarget);
+        const auto queueResize = ::MH_QueueEnableHook(m_ResizeBuffersTarget);
+        const auto queueExecute = ::MH_QueueEnableHook(m_ExecuteCommandListsTarget);
+        if (queuePresent != MH_OK || queueResize != MH_OK || queueExecute != MH_OK)
+        {
+            TUTONES_LOG_ERROR("hook", "Failed to queue one or more D3D12 hooks for enabling");
+            ::MH_RemoveHook(m_ExecuteCommandListsTarget);
+            ::MH_RemoveHook(m_ResizeBuffersTarget);
+            ::MH_RemoveHook(m_PresentTarget);
+            ResetTargets();
+            m_Status = HookStatus::Failed;
+            return false;
+        }
 
         const auto applyStatus = ::MH_ApplyQueued();
         if (applyStatus != MH_OK)
@@ -329,11 +340,8 @@ namespace Tutones::Hooking
         if (m_ResizeBuffersTarget) ::MH_RemoveHook(m_ResizeBuffersTarget);
         if (m_ExecuteCommandListsTarget) ::MH_RemoveHook(m_ExecuteCommandListsTarget);
 
-        if (m_CommandQueue)
-        {
-            m_CommandQueue->Release();
-            m_CommandQueue = nullptr;
-        }
+        if (auto* queue = m_CommandQueue.exchange(nullptr, std::memory_order_acq_rel))
+            queue->Release();
 
         ResetTargets();
 
@@ -376,19 +384,24 @@ namespace Tutones::Hooking
 
     void HookManager::SetCommandQueue(ID3D12CommandQueue* queue) noexcept
     {
-        if (queue == m_CommandQueue)
+        if (!queue)
             return;
 
-        if (queue)
-            queue->AddRef();
-        if (m_CommandQueue)
-            m_CommandQueue->Release();
-        m_CommandQueue = queue;
+        queue->AddRef();
+        ID3D12CommandQueue* expected = nullptr;
+        if (!m_CommandQueue.compare_exchange_strong(
+                expected,
+                queue,
+                std::memory_order_release,
+                std::memory_order_relaxed))
+        {
+            queue->Release();
+        }
     }
 
     ID3D12CommandQueue* HookManager::CommandQueue() const noexcept
     {
-        return m_CommandQueue;
+        return m_CommandQueue.load(std::memory_order_acquire);
     }
 
     void HookManager::ResetTargets() noexcept
