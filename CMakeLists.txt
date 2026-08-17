@@ -26,6 +26,7 @@ add_library(TutonesMenu SHARED
     src/core/logging/Logger.cpp
 
     src/hooking/HookManager.cpp
+    src/hooking/Win32Hook.cpp
 
     src/render/Renderer.cpp
 )
@@ -79,6 +80,8 @@ source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR}/src PREFIX "Source" FILES
     src/hooking/HookManager.cpp
     src/hooking/HookManager.hpp
     src/hooking/HookStatus.hpp
+    src/hooking/Win32Hook.cpp
+    src/hooking/Win32Hook.hpp
     src/render/Renderer.cpp
     src/render/Renderer.hpp
     src/render/RendererStatus.hpp
