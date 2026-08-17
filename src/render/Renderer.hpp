@@ -11,6 +11,8 @@
 #include <mutex>
 #include <vector>
 
+struct ImGui_ImplDX12_InitInfo;
+
 namespace Tutones::Render
 {
     class Renderer final
@@ -46,11 +48,11 @@ namespace Tutones::Render
         void WaitForGpuIdle() noexcept;
 
         static void AllocateSrvDescriptor(
-            struct ImGui_ImplDX12_InitInfo* info,
+            ImGui_ImplDX12_InitInfo* info,
             D3D12_CPU_DESCRIPTOR_HANDLE* cpu,
             D3D12_GPU_DESCRIPTOR_HANDLE* gpu);
         static void FreeSrvDescriptor(
-            struct ImGui_ImplDX12_InitInfo* info,
+            ImGui_ImplDX12_InitInfo* info,
             D3D12_CPU_DESCRIPTOR_HANDLE cpu,
             D3D12_GPU_DESCRIPTOR_HANDLE gpu);
 
