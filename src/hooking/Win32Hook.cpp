@@ -17,14 +17,21 @@ namespace Tutones::Hooking
 
         std::scoped_lock lock(m_Mutex);
 
-        if (m_Window.load(std::memory_order_acquire) == window &&
-            m_OriginalProc.load(std::memory_order_acquire))
-        {
+        const auto currentWindow = m_Window.load(std::memory_order_acquire);
+        const auto currentOriginal = m_OriginalProc.load(std::memory_order_acquire);
+        if (currentWindow == window && currentOriginal)
             return true;
+
+        if (currentWindow && currentOriginal && ::IsWindow(currentWindow))
+        {
+            ::SetWindowLongPtrW(
+                currentWindow,
+                GWLP_WNDPROC,
+                reinterpret_cast<LONG_PTR>(currentOriginal));
         }
 
-        if (m_Window.load(std::memory_order_acquire))
-            Detach();
+        m_Window.store(nullptr, std::memory_order_release);
+        m_OriginalProc.store(nullptr, std::memory_order_release);
 
         ::SetLastError(ERROR_SUCCESS);
         const auto previous = reinterpret_cast<WNDPROC>(::SetWindowLongPtrW(
