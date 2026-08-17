@@ -2,13 +2,14 @@
 
 #include "HookStatus.hpp"
 
+#include <dxgiformat.h>
+
+#include <atomic>
 #include <cstdint>
 
 struct IDXGISwapChain;
 struct ID3D12CommandList;
 struct ID3D12CommandQueue;
-
-enum DXGI_FORMAT : int;
 
 namespace Tutones::Hooking
 {
@@ -47,7 +48,7 @@ namespace Tutones::Hooking
         PresentFn m_OriginalPresent{};
         ResizeBuffersFn m_OriginalResizeBuffers{};
         ExecuteCommandListsFn m_OriginalExecuteCommandLists{};
-        ID3D12CommandQueue* m_CommandQueue{};
+        std::atomic<ID3D12CommandQueue*> m_CommandQueue{nullptr};
 
         void* m_PresentTarget{};
         void* m_ResizeBuffersTarget{};
