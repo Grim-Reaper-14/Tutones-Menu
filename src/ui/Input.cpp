@@ -20,14 +20,19 @@ namespace Tutones::UI
             case WM_MOUSELEAVE:
             case WM_LBUTTONDOWN:
             case WM_LBUTTONUP:
+            case WM_LBUTTONDBLCLK:
             case WM_RBUTTONDOWN:
             case WM_RBUTTONUP:
+            case WM_RBUTTONDBLCLK:
             case WM_MBUTTONDOWN:
             case WM_MBUTTONUP:
+            case WM_MBUTTONDBLCLK:
             case WM_XBUTTONDOWN:
             case WM_XBUTTONUP:
+            case WM_XBUTTONDBLCLK:
             case WM_MOUSEWHEEL:
             case WM_MOUSEHWHEEL:
+            case WM_SETCURSOR:
                 return true;
             default:
                 return false;
@@ -43,10 +48,45 @@ namespace Tutones::UI
             case WM_SYSKEYDOWN:
             case WM_SYSKEYUP:
             case WM_CHAR:
+            case WM_DEADCHAR:
+            case WM_SYSCHAR:
+            case WM_SYSDEADCHAR:
                 return true;
             default:
                 return false;
             }
+        }
+
+        bool IsKeyDownMessage(UINT message) noexcept
+        {
+            return message == WM_KEYDOWN || message == WM_SYSKEYDOWN;
+        }
+
+        bool IsKeyUpMessage(UINT message) noexcept
+        {
+            return message == WM_KEYUP || message == WM_SYSKEYUP;
+        }
+
+        void CenterCursorInGameWindow() noexcept
+        {
+            const auto window = Hooking::Win32Hook::Get().Window();
+            if (!window || !::IsWindow(window))
+                return;
+
+            RECT client{};
+            if (!::GetClientRect(window, &client))
+                return;
+
+            POINT center{
+                (client.left + client.right) / 2,
+                (client.top + client.bottom) / 2,
+            };
+
+            if (!::ClientToScreen(window, &center))
+                return;
+
+            ::SetCursorPos(center.x, center.y);
+            TUTONES_LOG_DEBUG("input.mouse", "Cursor centered on the Tutones menu area");
         }
     }
 
@@ -72,6 +112,7 @@ namespace Tutones::UI
         TUTONES_LOG_INFO("input", "Win32 menu input routing initialized");
         TUTONES_LOG_INFO("input", "Controls: F4 toggle, NUM8 up, NUM2 down, NUM4 left, NUM6 right, NUM5 select, NUM0 back");
         TUTONES_LOG_DEBUG("input", "Backspace is intentionally not bound to menu Back");
+        TUTONES_LOG_DEBUG("input", "Tutones owns mouse, keyboard, and raw input while the menu is open");
         return true;
     }
 
@@ -86,6 +127,10 @@ namespace Tutones::UI
         Hooking::Win32Hook::Get().SetMessageHandler(nullptr);
         m_MenuOpen.store(false, std::memory_order_release);
         m_PendingActions.store(0, std::memory_order_release);
+
+        if (ImGui::GetCurrentContext())
+            ImGui::GetIO().MouseDrawCursor = false;
+
         TUTONES_LOG_INFO("input", "Win32 menu input routing stopped");
     }
 
@@ -105,10 +150,25 @@ namespace Tutones::UI
         if (previous == open)
             return;
 
-        if (!open)
-            m_PendingActions.store(0, std::memory_order_release);
+        m_PendingActions.store(0, std::memory_order_release);
 
-        TUTONES_LOG_INFO("input", open ? "Tutones menu opened" : "Tutones menu closed");
+        if (ImGui::GetCurrentContext())
+        {
+            auto& io = ImGui::GetIO();
+            io.ConfigFlags &= ~ImGuiConfigFlags_NavEnableKeyboard;
+            io.MouseDrawCursor = open;
+        }
+
+        if (open)
+        {
+            ::ReleaseCapture();
+            CenterCursorInGameWindow();
+            TUTONES_LOG_INFO("input", "Tutones menu opened; game mouse/keyboard/raw input capture suspended");
+        }
+        else
+        {
+            TUTONES_LOG_INFO("input", "Tutones menu closed; game input routing restored");
+        }
     }
 
     void Input::ToggleMenu() noexcept
@@ -148,56 +208,74 @@ namespace Tutones::UI
         if (!input.IsInitialized())
             return false;
 
+        // Tutones command keys are handled before ImGui sees them. This prevents
+        // one numpad press from driving both ImGui navigation and our menu state.
+        if (IsKeyDownMessage(message))
+        {
+            if (wParam == VK_F4)
+            {
+                if (!IsRepeat(lParam))
+                    input.ToggleMenu();
+                return true;
+            }
+
+            if (input.IsMenuOpen() && IsMenuKey(wParam))
+            {
+                if (!IsRepeat(lParam))
+                {
+                    switch (wParam)
+                    {
+                    case VK_NUMPAD8: input.Queue(InputAction::Up, "Up"); break;
+                    case VK_NUMPAD2: input.Queue(InputAction::Down, "Down"); break;
+                    case VK_NUMPAD4: input.Queue(InputAction::Left, "Left"); break;
+                    case VK_NUMPAD6: input.Queue(InputAction::Right, "Right"); break;
+                    case VK_NUMPAD5: input.Queue(InputAction::Select, "Select"); break;
+                    case VK_NUMPAD0: input.Queue(InputAction::Back, "Back"); break;
+                    default: break;
+                    }
+                }
+                return true;
+            }
+
+            if (wParam == VK_BACK && input.IsMenuOpen())
+                TUTONES_LOG_TRACE("input", "Backspace ignored as menu Back; NUM0 remains the only Back binding");
+        }
+
+        if (IsKeyUpMessage(message))
+        {
+            if (wParam == VK_F4)
+                return true;
+            if (input.IsMenuOpen() && IsMenuKey(wParam))
+                return true;
+        }
+
+        if (!input.IsMenuOpen())
+            return false;
+
+        // GTA uses raw input in addition to ordinary Win32 keyboard/mouse
+        // messages. Let DefWindowProc perform WM_INPUT cleanup, but do not
+        // forward the raw packet to the game's original WndProc while open.
+        if (message == WM_INPUT)
+        {
+            static std::atomic<bool> loggedRawCapture{false};
+            if (!loggedRawCapture.exchange(true, std::memory_order_acq_rel))
+                TUTONES_LOG_DEBUG("input.raw", "Raw input suppression active while Tutones menu is open");
+
+            static_cast<void>(::DefWindowProcW(window, message, wParam, lParam));
+            return true;
+        }
+
         bool imguiHandled = false;
         if (ImGui::GetCurrentContext())
             imguiHandled = ImGui_ImplWin32_WndProcHandler(window, message, wParam, lParam) != 0;
 
-        if (message == WM_KEYDOWN || message == WM_SYSKEYDOWN)
-        {
-            if (IsRepeat(lParam))
-                return IsMenuKey(wParam) && input.IsMenuOpen();
-
-            switch (wParam)
-            {
-            case VK_F4:
-                input.ToggleMenu();
-                return true;
-
-            case VK_NUMPAD8:
-                if (input.IsMenuOpen()) { input.Queue(InputAction::Up, "Up"); return true; }
-                break;
-            case VK_NUMPAD2:
-                if (input.IsMenuOpen()) { input.Queue(InputAction::Down, "Down"); return true; }
-                break;
-            case VK_NUMPAD4:
-                if (input.IsMenuOpen()) { input.Queue(InputAction::Left, "Left"); return true; }
-                break;
-            case VK_NUMPAD6:
-                if (input.IsMenuOpen()) { input.Queue(InputAction::Right, "Right"); return true; }
-                break;
-            case VK_NUMPAD5:
-                if (input.IsMenuOpen()) { input.Queue(InputAction::Select, "Select"); return true; }
-                break;
-            case VK_NUMPAD0:
-                if (input.IsMenuOpen()) { input.Queue(InputAction::Back, "Back"); return true; }
-                break;
-            case VK_BACK:
-                if (input.IsMenuOpen())
-                    TUTONES_LOG_TRACE("input", "Backspace ignored as menu Back; NUM0 remains the only Back binding");
-                break;
-            default:
-                break;
-            }
-        }
-
-        if (!input.IsMenuOpen() || !ImGui::GetCurrentContext())
-            return false;
-
-        const auto& io = ImGui::GetIO();
+        // The overlay owns pointer and keyboard input while open. Do not rely
+        // on WantCapture* here: GTA must not receive clicks, wheel events, or
+        // menu navigation underneath the Tutones window.
         if (IsMouseMessage(message))
-            return imguiHandled || io.WantCaptureMouse;
+            return true;
         if (IsKeyboardMessage(message))
-            return imguiHandled || io.WantCaptureKeyboard;
+            return true;
 
         return imguiHandled;
     }
