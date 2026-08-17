@@ -28,6 +28,7 @@ namespace Tutones::Hooking
 
         [[nodiscard]] HookStatus Status() const noexcept;
         [[nodiscard]] bool IsInstalled() const noexcept;
+        [[nodiscard]] bool IsShuttingDown() const noexcept;
 
         [[nodiscard]] PresentFn OriginalPresent() const noexcept;
         [[nodiscard]] ResizeBuffersFn OriginalResizeBuffers() const noexcept;
@@ -36,6 +37,10 @@ namespace Tutones::Hooking
         void SetCommandQueue(ID3D12CommandQueue* queue) noexcept;
         [[nodiscard]] ID3D12CommandQueue* CommandQueue() const noexcept;
 
+        [[nodiscard]] bool TryEnterCallback() noexcept;
+        void LeaveCallback() noexcept;
+        [[nodiscard]] std::uint32_t ActiveCallbacks() const noexcept;
+
     private:
         HookManager() = default;
         ~HookManager() = default;
@@ -43,8 +48,12 @@ namespace Tutones::Hooking
         HookManager& operator=(const HookManager&) = delete;
 
         void ResetTargets() noexcept;
+        bool WaitForCallbacksToDrain() noexcept;
 
-        HookStatus m_Status{HookStatus::NotInitialized};
+        std::atomic<HookStatus> m_Status{HookStatus::NotInitialized};
+        std::atomic<bool> m_ShuttingDown{false};
+        std::atomic<std::uint32_t> m_ActiveCallbacks{0};
+
         PresentFn m_OriginalPresent{};
         ResizeBuffersFn m_OriginalResizeBuffers{};
         ExecuteCommandListsFn m_OriginalExecuteCommandLists{};
