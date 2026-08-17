@@ -34,7 +34,3 @@ target_link_libraries(tutones_imgui PUBLIC
     d3d12
     dxgi
 )
-
-if(TARGET minhook)
-    target_include_directories(minhook PUBLIC ${minhook_SOURCE_DIR}/include)
-endif()
