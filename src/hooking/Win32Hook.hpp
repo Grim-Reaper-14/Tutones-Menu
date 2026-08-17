@@ -37,5 +37,7 @@ namespace Tutones::Hooking
         std::atomic<HWND> m_Window{nullptr};
         std::atomic<WNDPROC> m_OriginalProc{nullptr};
         std::atomic<MessageHandler> m_Handler{nullptr};
+        std::atomic<HWND> m_LastRejectedWindow{nullptr};
+        std::atomic<bool> m_LoggedSecondaryWindow{false};
     };
 }
