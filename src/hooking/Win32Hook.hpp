@@ -20,6 +20,7 @@ namespace Tutones::Hooking
         void SetMessageHandler(MessageHandler handler) noexcept;
 
         [[nodiscard]] bool IsAttached() const noexcept;
+        [[nodiscard]] bool IsPrimaryWindow(HWND window) const noexcept;
         [[nodiscard]] HWND Window() const noexcept;
         [[nodiscard]] WNDPROC OriginalProc() const noexcept;
 
@@ -29,6 +30,7 @@ namespace Tutones::Hooking
         Win32Hook(const Win32Hook&) = delete;
         Win32Hook& operator=(const Win32Hook&) = delete;
 
+        static bool IsValidPrimaryWindow(HWND window) noexcept;
         static LRESULT CALLBACK Detour(HWND window, UINT message, WPARAM wParam, LPARAM lParam) noexcept;
 
         mutable std::mutex m_Mutex;
