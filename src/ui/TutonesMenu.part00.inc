@@ -5,6 +5,7 @@
 #include "VehicleGeneralPanel.hpp"
 #include "VehicleModificationPanel.hpp"
 #include "VehiclePaintPanel.hpp"
+#include "WeaponPanel.hpp"
 #include "../core/logging/Logger.hpp"
 #include "../../byte_array.h"
 
@@ -25,15 +26,17 @@ namespace Tutones::UI
         {
             const char* icon;
             const char* name;
-            std::array<const char*, 3> items;
+            std::array<const char*, 4> items;
+            std::size_t itemCount;
         };
 
-        constexpr std::array<CategoryEntry, 5> Categories{{
-            {"B", "Home",     {{"Overview", "Quick Actions", "Favorites"}}},
-            {"C", "Player",   {{"General", "Movement", "Appearance"}}},
-            {"D", "Vehicle",  {{"General", "Paint", "Modifications"}}},
-            {"E", "World",    {{"General", "Time & Weather", "Teleport"}}},
-            {"F", "Settings", {{"General", "Theme", "Controls"}}},
+        constexpr std::array<CategoryEntry, 6> Categories{{
+            {"B", "Home",     {{"Overview", "Quick Actions", "Favorites", nullptr}}, 3},
+            {"C", "Player",   {{"General", "Movement", "Appearance", nullptr}}, 3},
+            {"D", "Weapons",  {{"General", "Ammo", "Aimbot", "Bullet Effects"}}, 4},
+            {"E", "Vehicle",  {{"General", "Paint", "Modifications", nullptr}}, 3},
+            {"F", "World",    {{"General", "Time & Weather", "Teleport", nullptr}}, 3},
+            {"G", "Settings", {{"General", "Theme", "Controls", nullptr}}, 3},
         }};
 
         constexpr float MenuWidth = 730.0f;

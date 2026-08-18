@@ -9,10 +9,10 @@
         switch (m_Category)
         {
         case 0:
-            DrawPanel(draw, windowPos, ImVec2(226.0f, 16.0f), ImVec2(240.0f, 300.0f), "Tutones Menu", {"Player options", "Vehicle customization", "World controls", "Menu settings", "Mouse + keyboard control"});
+            DrawPanel(draw, windowPos, ImVec2(226.0f, 16.0f), ImVec2(240.0f, 300.0f), "Tutones Menu", {"Player options", "Weapons runtime", "Vehicle customization", "World controls", "Menu settings"});
             DrawPanel(draw, windowPos, ImVec2(476.0f, 16.0f), ImVec2(240.0f, 240.0f), "Controls", {"F4  open / close", "Arrow keys  navigate", "Enter  select", "Escape  back", "Mouse  point / click"});
             DrawPanel(draw, windowPos, ImVec2(226.0f, 332.0f), ImVec2(240.0f, 114.0f), "Selected", {selected});
-            DrawPanel(draw, windowPos, ImVec2(476.0f, 272.0f), ImVec2(240.0f, 174.0f), "Favorites", {"Quick access slots", "Pinned options", "Recent selections", "Custom shortcuts"});
+            DrawPanel(draw, windowPos, ImVec2(476.0f, 272.0f), ImVec2(240.0f, 174.0f), "V11", {"Shared script runtime", "Weapon patch capabilities", "Build-verified hook lifecycle", "More sections follow"});
             break;
 
         case 1:
@@ -20,6 +20,10 @@
             break;
 
         case 2:
+            RenderWeaponPanel(m_Item);
+            break;
+
+        case 3:
             if (m_Item == 0)
                 RenderVehicleGeneralPanel();
             else if (m_Item == 1)
@@ -28,7 +32,7 @@
                 RenderVehicleModificationPanel();
             break;
 
-        case 3:
+        case 4:
             DrawPanel(draw, windowPos, ImVec2(226.0f, 16.0f), ImVec2(240.0f, 300.0f), "World", {"Time", "Weather", "Blackout", "Environment", "World options"});
             DrawPanel(draw, windowPos, ImVec2(476.0f, 16.0f), ImVec2(240.0f, 240.0f), "Time & Weather", {"Clock", "Freeze time", "Weather type", "Weather transition"});
             DrawPanel(draw, windowPos, ImVec2(226.0f, 332.0f), ImVec2(240.0f, 114.0f), "Selected", {selected});
@@ -37,7 +41,7 @@
 
         default:
             DrawPanel(draw, windowPos, ImVec2(226.0f, 16.0f), ImVec2(240.0f, 300.0f), "Menu", {"F4 toggle", "Mouse control", "Keyboard control", "Menu preferences", "Window behavior"});
-            DrawPanel(draw, windowPos, ImVec2(476.0f, 16.0f), ImVec2(240.0f, 240.0f), "Theme", {"Charcoal layout", "Green accent", "Original icon font", "Original 730 x 460 design"});
+            DrawPanel(draw, windowPos, ImVec2(476.0f, 16.0f), ImVec2(240.0f, 240.0f), "Theme", {"Charcoal layout", "Current accent", "Original icon font", "Original 730 x 460 design"});
             DrawPanel(draw, windowPos, ImVec2(226.0f, 332.0f), ImVec2(240.0f, 114.0f), "Selected", {selected});
             DrawPanel(draw, windowPos, ImVec2(476.0f, 272.0f), ImVec2(240.0f, 174.0f), "Controls", {"Arrow keys", "Enter", "Escape", "Mouse", "F4"});
             break;

@@ -71,7 +71,7 @@
         m_Category = 0;
         m_Item = 0;
         static_cast<void>(EnsureOriginalFonts());
-        TUTONES_LOG_DEBUG("ui", "Tutones navigation reset to original menu layout");
+        TUTONES_LOG_DEBUG("ui", "Tutones navigation reset to menu layout");
     }
 
     void TutonesMenu::ProcessInput() noexcept
@@ -80,7 +80,7 @@
         if (actions == 0)
             return;
 
-        constexpr std::size_t itemCount = 3;
+        const std::size_t itemCount = Categories[m_Category].itemCount;
         if ((actions & ToMask(InputAction::Up)) != 0)
             m_Item = (m_Item == 0) ? itemCount - 1 : m_Item - 1;
         if ((actions & ToMask(InputAction::Down)) != 0)
@@ -136,7 +136,7 @@
         auto* draw = ImGui::GetWindowDrawList();
         draw->AddText(FontOrDefault(g_SubtabTitle), 15.0f, Offset(windowPos, 72.0f, 60.0f), Color(255, 255, 255, 102), "MAIN");
 
-        for (std::size_t i = 0; i < Categories[m_Category].items.size(); ++i)
+        for (std::size_t i = 0; i < Categories[m_Category].itemCount; ++i)
         {
             ImGui::PushID(static_cast<int>(i));
             const ImVec2 localPos{57.0f, 86.0f + static_cast<float>(i) * 35.0f};
