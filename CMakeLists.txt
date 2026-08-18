@@ -37,6 +37,9 @@ add_library(TutonesMenu SHARED
     src/game/memory/ModuleView.cpp
     src/game/memory/PatternScanner.cpp
     src/game/native/NativeRegistry.cpp
+    src/game/script/ScriptFunction.cpp
+    src/game/script/ScriptPointer.cpp
+    src/game/script/ScriptRuntime.cpp
     src/game/vehicle/TutonesVehiclePaintBackend.cpp
     src/game/vehicle/VehiclePaintController.cpp
 
@@ -101,6 +104,8 @@ source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR}/src PREFIX "Source" FILES
     src/core/logging/LogSink.hpp
     src/core/logging/Logger.cpp
     src/core/logging/Logger.hpp
+    src/features/game/GameSessionTypes.hpp
+    src/features/player/OffRadarState.hpp
     src/features/player/PlayerRuntime.cpp
     src/features/player/PlayerRuntime.hpp
     src/features/player/PlayerRuntimeActions.cpp
@@ -111,6 +116,7 @@ source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR}/src PREFIX "Source" FILES
     src/features/vehicle/VehiclePaintRuntime.hpp
     src/features/vehicle/VehiclePaintService.cpp
     src/features/vehicle/VehiclePaintService.hpp
+    src/features/weapon/WeaponSettings.hpp
     src/game/GamePointers.cpp
     src/game/GamePointers.hpp
     src/game/GameState.cpp
@@ -125,6 +131,14 @@ source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR}/src PREFIX "Source" FILES
     src/game/native/NativeInvoker.hpp
     src/game/native/NativeRegistry.cpp
     src/game/native/NativeRegistry.hpp
+    src/game/script/ScriptFunction.cpp
+    src/game/script/ScriptFunction.hpp
+    src/game/script/ScriptGlobal.hpp
+    src/game/script/ScriptPointer.cpp
+    src/game/script/ScriptPointer.hpp
+    src/game/script/ScriptRuntime.cpp
+    src/game/script/ScriptRuntime.hpp
+    src/game/types/ScriptProgram.hpp
     src/game/types/ScriptTypes.hpp
     src/game/vehicle/TutonesVehiclePaintBackend.cpp
     src/game/vehicle/TutonesVehiclePaintBackend.hpp

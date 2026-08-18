@@ -75,6 +75,7 @@ namespace Tutones::Game::Native
         PlayerId,
         GetEntityHealth,
         GetEntityMaxHealth,
+        IsEntityDead,
         SetEntityHealth,
         SetEntityInvincible,
         SetEntityVisible,
