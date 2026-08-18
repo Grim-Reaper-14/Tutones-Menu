@@ -22,6 +22,7 @@ add_library(TutonesMenu SHARED
 
     src/core/CoreServices.cpp
     src/core/config/Config.cpp
+    src/core/config/MenuSettings.cpp
     src/core/filesystem/FileSystem.cpp
     src/core/logging/Logger.cpp
 
@@ -85,6 +86,7 @@ endif()
 
 target_link_libraries(TutonesMenu PRIVATE
     minhook
+    nlohmann_json::nlohmann_json
     tutones_imgui
     d3d12
     dxgi
@@ -104,6 +106,8 @@ source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR}/src PREFIX "Source" FILES
     src/core/CoreServices.hpp
     src/core/config/Config.cpp
     src/core/config/Config.hpp
+    src/core/config/MenuSettings.cpp
+    src/core/config/MenuSettings.hpp
     src/core/filesystem/FileSystem.cpp
     src/core/filesystem/FileSystem.hpp
     src/core/logging/LogLevel.hpp

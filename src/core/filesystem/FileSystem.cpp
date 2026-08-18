@@ -2,27 +2,34 @@
 
 #include "../logging/Logger.hpp"
 
+#include <Windows.h>
+
 #include <fstream>
 #include <iterator>
+#include <string>
 
 namespace Tutones::Core::FileSystem
 {
     namespace
     {
-        std::filesystem::path PathFor(const std::filesystem::path& module, Root root)
+        std::filesystem::path PathFor(
+            const std::filesystem::path& module,
+            const std::filesystem::path& user,
+            Root root)
         {
             switch (root)
             {
             case Root::Module: return module;
-            case Root::Data: return module / "data";
-            case Root::Config: return module / "config";
-            case Root::Logs: return module / "logs";
-            case Root::Cache: return module / "cache";
-            case Root::Assets: return module / "assets";
-            case Root::Scripts: return module / "scripts";
-            case Root::Dumps: return module / "dumps";
+            case Root::Data: return user / "data";
+            case Root::Config: return user / "config";
+            case Root::Logs: return user / "logs";
+            case Root::Cache: return user / "cache";
+            case Root::Assets: return user / "assets";
+            case Root::Scripts: return user / "scripts";
+            case Root::Dumps: return user / "dumps";
+            case Root::SavedVehicles: return user / "saved_vehicles";
             }
-            return module;
+            return user;
         }
 
         bool ContainsParentTraversal(const std::filesystem::path& path)
@@ -31,6 +38,21 @@ namespace Tutones::Core::FileSystem
                 if (component == "..")
                     return true;
             return false;
+        }
+
+        std::filesystem::path ResolveLocalAppData()
+        {
+            const DWORD required = ::GetEnvironmentVariableW(L"LOCALAPPDATA", nullptr, 0);
+            if (required == 0)
+                return {};
+
+            std::wstring value(required, L'\0');
+            const DWORD written = ::GetEnvironmentVariableW(L"LOCALAPPDATA", value.data(), required);
+            if (written == 0 || written >= required)
+                return {};
+
+            value.resize(written);
+            return std::filesystem::path(value) / L"Tutones Menu";
         }
     }
 
@@ -52,28 +74,54 @@ namespace Tutones::Core::FileSystem
         if (m_ModuleRoot.empty())
             return false;
 
-        for (const auto root : {Root::Data, Root::Config, Root::Logs, Root::Cache, Root::Assets, Root::Scripts, Root::Dumps})
+        m_UserRoot = ResolveLocalAppData();
+        if (m_UserRoot.empty())
+        {
+            m_ModuleRoot.clear();
+            return false;
+        }
+
+        if (!EnsureDirectory(m_UserRoot))
+        {
+            m_ModuleRoot.clear();
+            m_UserRoot.clear();
+            return false;
+        }
+
+        for (const auto root : {
+            Root::Data,
+            Root::Config,
+            Root::Logs,
+            Root::Cache,
+            Root::Assets,
+            Root::Scripts,
+            Root::Dumps,
+            Root::SavedVehicles})
         {
             if (!EnsureDirectory(root))
             {
-                TUTONES_LOG_ERROR("filesystem", "Failed to create a Tutones data directory");
+                TUTONES_LOG_ERROR("filesystem", "Failed to create a Tutones user-data directory");
+                m_ModuleRoot.clear();
+                m_UserRoot.clear();
                 return false;
             }
         }
 
         m_Initialized = true;
-        TUTONES_LOG_INFO("filesystem", "Filesystem service initialized");
+        TUTONES_LOG_INFO("filesystem", "Filesystem service initialized under LOCALAPPDATA\\Tutones Menu");
         return true;
     }
 
     void Service::Shutdown() noexcept
     {
         m_ModuleRoot.clear();
+        m_UserRoot.clear();
         m_Initialized = false;
     }
 
     std::filesystem::path Service::ModuleRoot() const { return m_ModuleRoot; }
-    std::filesystem::path Service::RootPath(Root root) const { return PathFor(m_ModuleRoot, root); }
+    std::filesystem::path Service::UserRoot() const { return m_UserRoot; }
+    std::filesystem::path Service::RootPath(Root root) const { return PathFor(m_ModuleRoot, m_UserRoot, root); }
 
     std::filesystem::path Service::Resolve(Root root, std::filesystem::path relative) const
     {

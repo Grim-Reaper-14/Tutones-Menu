@@ -1,6 +1,8 @@
 #include "Application.hpp"
 
 #include "../core/CoreServices.hpp"
+#include "../core/config/MenuSettings.hpp"
+#include "../core/filesystem/FileSystem.hpp"
 #include "../core/logging/Logger.hpp"
 #include "../features/player/OffRadarRuntime.hpp"
 #include "../features/player/PlayerRuntime.hpp"
@@ -14,6 +16,80 @@
 
 namespace Tutones::App
 {
+    namespace
+    {
+        void StagePersistedMenuSettings() noexcept
+        {
+            const auto& settings = Core::Config::MenuSettingsService::Get().Current();
+
+            auto& player = Game::PlayerFeatures::PlayerRuntime::Get();
+            player.SetInvincible(settings.player.invincible);
+            player.SetInvisible(settings.player.invisible);
+            player.SetNoRagdoll(settings.player.noRagdoll);
+            player.SetSuperJump(settings.player.superJump);
+            player.SetInfiniteStamina(settings.player.infiniteStamina);
+            player.SetNeverWanted(settings.player.neverWanted);
+            player.SetPoliceIgnore(settings.player.policeIgnore);
+            player.SetEveryoneIgnore(settings.player.everyoneIgnore);
+            player.SetRunMultiplier(settings.player.runMultiplier);
+            player.SetSwimMultiplier(settings.player.swimMultiplier);
+
+            Game::PlayerFeatures::OffRadarRuntime::Get().SetEnabled(settings.offRadar);
+
+            auto& weapons = Game::WeaponFeatures::WeaponRuntime::Get();
+            weapons.SetInfiniteAmmo(settings.weapons.infiniteAmmo);
+            weapons.SetInfiniteClip(settings.weapons.infiniteClip);
+            weapons.SetAimbot(settings.weapons.aimbot);
+            weapons.SetAimForHead(settings.weapons.aimForHead);
+            weapons.SetTargetDrivers(settings.weapons.targetDrivers);
+            weapons.SetReleaseDeadPed(settings.weapons.releaseDeadPed);
+            weapons.SetExplosiveAmmo(settings.weapons.explosiveAmmo);
+            weapons.SetExplosionType(settings.weapons.explosionType);
+            weapons.SetExplosionDamage(settings.weapons.explosionDamage);
+            weapons.SetExplosionCameraShake(settings.weapons.explosionCameraShake);
+
+            TUTONES_LOG_INFO("config", "Staged persisted V11 state before GTA runtime startup; no one-shot commands were executed");
+        }
+
+        void SavePersistedMenuSettings() noexcept
+        {
+            auto& service = Core::Config::MenuSettingsService::Get();
+            auto& settings = service.Current();
+
+            const auto player = Game::PlayerFeatures::PlayerRuntime::Get().Snapshot();
+            settings.player.invincible = player.invincible;
+            settings.player.invisible = player.invisible;
+            settings.player.noRagdoll = player.noRagdoll;
+            settings.player.superJump = player.superJump;
+            settings.player.infiniteStamina = player.infiniteStamina;
+            settings.player.neverWanted = player.neverWanted;
+            settings.player.policeIgnore = player.policeIgnore;
+            settings.player.everyoneIgnore = player.everyoneIgnore;
+            settings.player.runMultiplier = player.runMultiplier;
+            settings.player.swimMultiplier = player.swimMultiplier;
+
+            settings.offRadar = Game::PlayerFeatures::OffRadarRuntime::Get().Snapshot().enabled;
+
+            const auto weapons = Game::WeaponFeatures::WeaponRuntime::Get().Snapshot().settings;
+            settings.weapons.infiniteAmmo = weapons.infiniteAmmo;
+            settings.weapons.infiniteClip = weapons.infiniteClip;
+            settings.weapons.aimbot = weapons.aimbot;
+            settings.weapons.aimForHead = weapons.aimForHead;
+            settings.weapons.targetDrivers = weapons.targetDrivers;
+            settings.weapons.releaseDeadPed = weapons.releaseDeadPed;
+            settings.weapons.explosiveAmmo = weapons.explosiveAmmo;
+            settings.weapons.explosionType = weapons.explosionType;
+            settings.weapons.explosionDamage = weapons.explosionDamage;
+            settings.weapons.explosionCameraShake = weapons.explosionCameraShake;
+
+            const auto path = Core::FileSystem::Service::Get().UserRoot() / "menu_settings.json";
+            if (service.Save(path))
+                TUTONES_LOG_INFO("config", "Saved V11 stateful settings to menu_settings.json");
+            else
+                TUTONES_LOG_WARN("config", "Failed to save menu_settings.json");
+        }
+    }
+
     Application& Application::Get() noexcept
     {
         static Application instance;
@@ -33,6 +109,11 @@ namespace Tutones::App
 
         if (!Core::Services::Get().Initialize(moduleDirectory))
             return false;
+
+        // Load persistent feature state while GameRuntime is still inactive. Player setters may
+        // attempt an immediate apply, but GameRuntime::Enqueue rejects those operations here,
+        // guaranteeing config load cannot execute one-shot GTA actions.
+        StagePersistedMenuSettings();
 
         TUTONES_LOG_INFO("app", "Core services ready; starting renderer bootstrap");
         if (!Render::Renderer::Get().Initialize())
@@ -174,6 +255,10 @@ namespace Tutones::App
         }
 
         TUTONES_LOG_INFO("app", "Tutones Menu application shutting down");
+
+        // Capture only stateful settings while every feature snapshot is still live.
+        // One-shot actions are not represented by MenuSettingsData and therefore cannot persist.
+        SavePersistedMenuSettings();
 
         TUTONES_LOG_DEBUG("app", "Stopping Win32 menu input routing");
         UI::Input::Get().Shutdown();

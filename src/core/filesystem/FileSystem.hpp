@@ -18,6 +18,7 @@ namespace Tutones::Core::FileSystem
         Assets,
         Scripts,
         Dumps,
+        SavedVehicles,
     };
 
     class Service final
@@ -29,6 +30,7 @@ namespace Tutones::Core::FileSystem
         void Shutdown() noexcept;
 
         [[nodiscard]] std::filesystem::path ModuleRoot() const;
+        [[nodiscard]] std::filesystem::path UserRoot() const;
         [[nodiscard]] std::filesystem::path RootPath(Root root) const;
         [[nodiscard]] std::filesystem::path Resolve(Root root, std::filesystem::path relative) const;
 
@@ -64,6 +66,7 @@ namespace Tutones::Core::FileSystem
         Service& operator=(const Service&) = delete;
 
         std::filesystem::path m_ModuleRoot;
+        std::filesystem::path m_UserRoot;
         bool m_Initialized{};
     };
 

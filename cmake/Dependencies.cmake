@@ -14,7 +14,14 @@ FetchContent_Declare(
     GIT_SHALLOW TRUE
 )
 
-FetchContent_MakeAvailable(minhook imgui)
+FetchContent_Declare(
+    nlohmann_json
+    GIT_REPOSITORY https://github.com/nlohmann/json.git
+    GIT_TAG v3.11.3
+    GIT_SHALLOW TRUE
+)
+
+FetchContent_MakeAvailable(minhook imgui nlohmann_json)
 
 add_library(tutones_imgui STATIC
     ${imgui_SOURCE_DIR}/imgui.cpp
