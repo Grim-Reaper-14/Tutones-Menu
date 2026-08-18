@@ -26,6 +26,15 @@ namespace Tutones::Game::Paint
         Wheel,
     };
 
+    enum class PaintOperation : std::uint8_t
+    {
+        None,
+        Primary,
+        Secondary,
+        Pearlescent,
+        Wheel,
+    };
+
     struct PaintChoice final
     {
         PaintPalette palette{};
@@ -40,6 +49,14 @@ namespace Tutones::Game::Paint
         int pearlescentColor{};
         int wheelColor{};
         bool valid{};
+    };
+
+    struct PaintServiceSnapshot final
+    {
+        VehiclePaintState paint{};
+        PaintOperation lastOperation{PaintOperation::None};
+        bool lastOperationSucceeded{};
+        bool lastOperationRejectedAsStale{};
     };
 
     [[nodiscard]] constexpr bool PaletteAllowed(PaintTarget target, PaintPalette palette) noexcept

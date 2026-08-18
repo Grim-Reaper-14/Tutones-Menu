@@ -1,16 +1,27 @@
-# Vehicle paint integration notes
+# Vehicle Paint Integration
 
-## V2 scope
+Prepared against the Tutones GTA Enhanced runtime architecture.
 
-The controller now covers the indexed paint groups visible in Tutones' Vehicle / Paint UI.
+## Intended wiring
 
-The final adapter needs only four focused native operations:
+1. Add focused native wrappers for only:
+   - GET_VEHICLE_COLOURS
+   - SET_VEHICLE_COLOURS
+   - GET_VEHICLE_EXTRA_COLOURS
+   - SET_VEHICLE_EXTRA_COLOURS
+2. Implement `IVehiclePaintBackend` with those wrappers.
+3. Adapt the existing GTA game-thread queue to `IGameTaskQueue`.
+4. Adapt the existing `GameState` current-vehicle snapshot to `ICurrentVehicleSource`.
+5. Call `VehiclePaintService::Tick()` from the GTA script-thread runtime tick.
+6. Render `VehiclePaintService::Snapshot()` from ImGui; never invoke GTA natives from the render thread.
+7. UI click/Enter actions call only `QueuePrimary`, `QueueSecondary`, `QueuePearlescent`, or `QueueWheel`.
 
-- get indexed vehicle colours
-- set indexed vehicle colours
-- get extra colours
-- set extra colours
+## Polling cadence
 
-Primary/secondary writes preserve the other indexed colour. Pearlescent/wheel writes preserve the other extra colour.
+`Tick()` may run every GTA script tick, but paint natives do not. The service refreshes paint state immediately on vehicle acquisition/change and then at a 250 ms cadence. Successful writes also refresh immediately. This mirrors the existing `GameState` philosophy and avoids unnecessary native traffic.
 
-This layer remains independent from ImGui and from the exact Tutones native invoker API.
+## Paint behavior
+
+Primary/secondary palettes use indexed GTA vehicle colours: Chrome, Classic, Matte, Metals, Utility, Worn, and Chameleon. Pearlescent and wheel colour use the extra-colour pair. Wheel colour accepts Alloy, Classic, and Chameleon indices.
+
+Queued writes are vehicle-stable: if the player changes vehicles before a queued action runs, the operation is rejected rather than applied to the new vehicle.
