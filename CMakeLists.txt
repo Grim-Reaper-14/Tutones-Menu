@@ -54,7 +54,9 @@ add_library(TutonesMenu SHARED
 
     src/runtime/GameRuntime.cpp
 
+    src/ui/GamePanel.cpp
     src/ui/Input.cpp
+    src/ui/PlayerOnlinePanel.cpp
     src/ui/PlayerPanel.cpp
     src/ui/TutonesMenu.cpp
     src/ui/VehicleGeneralPanel.cpp
@@ -170,8 +172,12 @@ source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR}/src PREFIX "Source" FILES
     src/render/d3d12/FrameContext.hpp
     src/runtime/GameRuntime.cpp
     src/runtime/GameRuntime.hpp
+    src/ui/GamePanel.cpp
+    src/ui/GamePanel.hpp
     src/ui/Input.cpp
     src/ui/Input.hpp
+    src/ui/PlayerOnlinePanel.cpp
+    src/ui/PlayerOnlinePanel.hpp
     src/ui/PlayerPanel.cpp
     src/ui/PlayerPanel.hpp
     src/ui/TutonesMenu.cpp

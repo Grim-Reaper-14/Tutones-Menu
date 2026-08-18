@@ -9,14 +9,19 @@
         switch (m_Category)
         {
         case 0:
-            DrawPanel(draw, windowPos, ImVec2(226.0f, 16.0f), ImVec2(240.0f, 300.0f), "Tutones Menu", {"Player options", "Weapons runtime", "Vehicle customization", "World controls", "Menu settings"});
+            DrawPanel(draw, windowPos, ImVec2(226.0f, 16.0f), ImVec2(240.0f, 300.0f), "Tutones Menu", {"Player + Online options", "Weapons runtime", "Vehicle customization", "Game session transitions", "World controls"});
             DrawPanel(draw, windowPos, ImVec2(476.0f, 16.0f), ImVec2(240.0f, 240.0f), "Controls", {"F4  open / close", "Arrow keys  navigate", "Enter  select", "Escape  back", "Mouse  point / click"});
             DrawPanel(draw, windowPos, ImVec2(226.0f, 332.0f), ImVec2(240.0f, 114.0f), "Selected", {selected});
-            DrawPanel(draw, windowPos, ImVec2(476.0f, 272.0f), ImVec2(240.0f, 174.0f), "V11", {"Shared script runtime", "Weapon patch capabilities", "Build-verified hook lifecycle", "More sections follow"});
+            DrawPanel(draw, windowPos, ImVec2(476.0f, 272.0f), ImVec2(240.0f, 174.0f), "V11", {"Shared script runtime", "Off Radar broadcast globals", "Session transition backend", "Creator still unimplemented"});
             break;
 
         case 1:
-            RenderPlayerPanel(m_Item);
+            if (m_Item == 0)
+                RenderPlayerPanel(0);
+            else if (m_Item == 1)
+                RenderPlayerOnlinePanel();
+            else
+                RenderPlayerPanel(m_Item - 1);
             break;
 
         case 2:
@@ -33,6 +38,10 @@
             break;
 
         case 4:
+            RenderGamePanel(m_Item);
+            break;
+
+        case 5:
             DrawPanel(draw, windowPos, ImVec2(226.0f, 16.0f), ImVec2(240.0f, 300.0f), "World", {"Time", "Weather", "Blackout", "Environment", "World options"});
             DrawPanel(draw, windowPos, ImVec2(476.0f, 16.0f), ImVec2(240.0f, 240.0f), "Time & Weather", {"Clock", "Freeze time", "Weather type", "Weather transition"});
             DrawPanel(draw, windowPos, ImVec2(226.0f, 332.0f), ImVec2(240.0f, 114.0f), "Selected", {selected});

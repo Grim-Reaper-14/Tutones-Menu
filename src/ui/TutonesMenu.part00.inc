@@ -1,6 +1,8 @@
 #include "TutonesMenu.hpp"
 
+#include "GamePanel.hpp"
 #include "Input.hpp"
+#include "PlayerOnlinePanel.hpp"
 #include "PlayerPanel.hpp"
 #include "VehicleGeneralPanel.hpp"
 #include "VehicleModificationPanel.hpp"
@@ -30,13 +32,14 @@ namespace Tutones::UI
             std::size_t itemCount;
         };
 
-        constexpr std::array<CategoryEntry, 6> Categories{{
+        constexpr std::array<CategoryEntry, 7> Categories{{
             {"B", "Home",     {{"Overview", "Quick Actions", "Favorites", nullptr}}, 3},
-            {"C", "Player",   {{"General", "Movement", "Appearance", nullptr}}, 3},
+            {"C", "Player",   {{"General", "Online", "Movement", "Appearance"}}, 4},
             {"D", "Weapons",  {{"General", "Ammo", "Aimbot", "Bullet Effects"}}, 4},
             {"E", "Vehicle",  {{"General", "Paint", "Modifications", nullptr}}, 3},
-            {"F", "World",    {{"General", "Time & Weather", "Teleport", nullptr}}, 3},
-            {"G", "Settings", {{"General", "Theme", "Controls", nullptr}}, 3},
+            {"F", "Game",     {{"Session", "Creator", nullptr, nullptr}}, 2},
+            {"G", "World",    {{"General", "Time & Weather", "Teleport", nullptr}}, 3},
+            {"H", "Settings", {{"General", "Theme", "Controls", nullptr}}, 3},
         }};
 
         constexpr float MenuWidth = 730.0f;
