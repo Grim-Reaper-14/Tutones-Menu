@@ -3,6 +3,7 @@
 #include "../core/logging/Logger.hpp"
 #include "memory/PatternScanner.hpp"
 
+#include <array>
 #include <iomanip>
 #include <sstream>
 #include <string>
@@ -198,6 +199,58 @@ namespace Tutones::Game
         else
             TUTONES_LOG_WARN("game.ptr", "AssistedAimFindNewTarget pattern was not found; Release Dead Target will be unavailable");
 
+        constexpr auto shouldNotTargetEntityPattern = "F6 80 A9 14 00 00 01";
+        if (auto* match = Memory::PatternScanner::FindFirst(m_Module, shouldNotTargetEntityPattern))
+        {
+            auto* address = match - 0x53;
+            constexpr std::array<std::uint8_t, 3> replacement{0xB0, 0x00, 0xC3};
+            if (m_Module.Contains(address) && m_ShouldNotTargetEntityPatch.Configure(address, replacement))
+                TUTONES_LOG_INFO("game.ptr", std::string("Resolved ShouldNotTargetEntity patch at ") + AddressString(address));
+            else
+                TUTONES_LOG_WARN("game.ptr", "ShouldNotTargetEntity patch could not be configured");
+        }
+        else
+            TUTONES_LOG_WARN("game.ptr", "ShouldNotTargetEntity patch pattern was not found; Aimbot will be unavailable");
+
+        constexpr auto getAssistedAimTypePattern = "FF E0 48 8D 86";
+        if (auto* match = Memory::PatternScanner::FindFirst(m_Module, getAssistedAimTypePattern))
+        {
+            auto* address = match - 0x15;
+            constexpr std::array<std::uint8_t, 5> replacement{0xBD, 0x01, 0x00, 0x00, 0x00};
+            if (m_Module.Contains(address) && m_GetAssistedAimTypePatch.Configure(address, replacement))
+                TUTONES_LOG_INFO("game.ptr", std::string("Resolved GetAssistedAimType patch at ") + AddressString(address));
+            else
+                TUTONES_LOG_WARN("game.ptr", "GetAssistedAimType patch could not be configured");
+        }
+        else
+            TUTONES_LOG_WARN("game.ptr", "GetAssistedAimType patch pattern was not found; Aimbot will be unavailable");
+
+        constexpr auto getLockOnPosPattern = "0F 29 74 24 ? 48 89 D6 48 89 CF 48 8B 05";
+        if (auto* match = Memory::PatternScanner::FindFirst(m_Module, getLockOnPosPattern))
+        {
+            auto* address = match + 0x22;
+            constexpr std::array<std::uint8_t, 1> replacement{0xEB};
+            if (m_Module.Contains(address) && m_GetLockOnPosPatch.Configure(address, replacement))
+                TUTONES_LOG_INFO("game.ptr", std::string("Resolved GetLockOnPos patch at ") + AddressString(address));
+            else
+                TUTONES_LOG_WARN("game.ptr", "GetLockOnPos patch could not be configured");
+        }
+        else
+            TUTONES_LOG_WARN("game.ptr", "GetLockOnPos patch pattern was not found; Aim For Head will be unavailable");
+
+        constexpr auto shouldAllowDriverLockOnPattern = "75 ? 45 89 C7 49 89 CE";
+        if (auto* match = Memory::PatternScanner::FindFirst(m_Module, shouldAllowDriverLockOnPattern))
+        {
+            auto* address = match - 0x2C;
+            constexpr std::array<std::uint8_t, 3> replacement{0xB0, 0x01, 0xC3};
+            if (m_Module.Contains(address) && m_ShouldAllowDriverLockOnPatch.Configure(address, replacement))
+                TUTONES_LOG_INFO("game.ptr", std::string("Resolved ShouldAllowDriverLockOn patch at ") + AddressString(address));
+            else
+                TUTONES_LOG_WARN("game.ptr", "ShouldAllowDriverLockOn patch could not be configured");
+        }
+        else
+            TUTONES_LOG_WARN("game.ptr", "ShouldAllowDriverLockOn patch pattern was not found; Target Drivers will be unavailable");
+
         m_Resolved.store(true, std::memory_order_release);
         TUTONES_LOG_INFO("game.ptr", "GTA Enhanced pointer foundation resolved successfully");
         return true;
@@ -206,6 +259,10 @@ namespace Tutones::Game
     void GamePointers::Reset() noexcept
     {
         m_Resolved.store(false, std::memory_order_release);
+        m_ShouldNotTargetEntityPatch.Reset();
+        m_GetAssistedAimTypePatch.Reset();
+        m_GetLockOnPosPatch.Reset();
+        m_ShouldAllowDriverLockOnPatch.Reset();
         m_InitNativeTables = nullptr;
         m_RunScriptThreads = nullptr;
         m_ScriptThreads = nullptr;
@@ -228,5 +285,9 @@ namespace Tutones::Game
     PtrToHandleFn GamePointers::PtrToHandle() const noexcept { return m_PtrToHandle; }
     void* GamePointers::AssistedAimShouldReleaseEntity() const noexcept { return m_AssistedAimShouldReleaseEntity; }
     AssistedAimFindNewTargetFn GamePointers::AssistedAimFindNewTarget() const noexcept { return m_AssistedAimFindNewTarget; }
+    Memory::BytePatch& GamePointers::ShouldNotTargetEntityPatch() noexcept { return m_ShouldNotTargetEntityPatch; }
+    Memory::BytePatch& GamePointers::GetAssistedAimTypePatch() noexcept { return m_GetAssistedAimTypePatch; }
+    Memory::BytePatch& GamePointers::GetLockOnPosPatch() noexcept { return m_GetLockOnPosPatch; }
+    Memory::BytePatch& GamePointers::ShouldAllowDriverLockOnPatch() noexcept { return m_ShouldAllowDriverLockOnPatch; }
     const Memory::ModuleView& GamePointers::Module() const noexcept { return m_Module; }
 }

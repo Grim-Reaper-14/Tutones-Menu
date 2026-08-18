@@ -1,5 +1,6 @@
 #pragma once
 
+#include "memory/BytePatch.hpp"
 #include "memory/ModuleView.hpp"
 #include "types/ScriptProgram.hpp"
 #include "types/ScriptTypes.hpp"
@@ -33,6 +34,10 @@ namespace Tutones::Game
         [[nodiscard]] PtrToHandleFn PtrToHandle() const noexcept;
         [[nodiscard]] void* AssistedAimShouldReleaseEntity() const noexcept;
         [[nodiscard]] AssistedAimFindNewTargetFn AssistedAimFindNewTarget() const noexcept;
+        [[nodiscard]] Memory::BytePatch& ShouldNotTargetEntityPatch() noexcept;
+        [[nodiscard]] Memory::BytePatch& GetAssistedAimTypePatch() noexcept;
+        [[nodiscard]] Memory::BytePatch& GetLockOnPosPatch() noexcept;
+        [[nodiscard]] Memory::BytePatch& ShouldAllowDriverLockOnPatch() noexcept;
         [[nodiscard]] const Memory::ModuleView& Module() const noexcept;
 
     private:
@@ -51,6 +56,10 @@ namespace Tutones::Game
         PtrToHandleFn m_PtrToHandle{};
         void* m_AssistedAimShouldReleaseEntity{};
         AssistedAimFindNewTargetFn m_AssistedAimFindNewTarget{};
+        Memory::BytePatch m_ShouldNotTargetEntityPatch;
+        Memory::BytePatch m_GetAssistedAimTypePatch;
+        Memory::BytePatch m_GetLockOnPosPatch;
+        Memory::BytePatch m_ShouldAllowDriverLockOnPatch;
         std::atomic<bool> m_Resolved{false};
     };
 }

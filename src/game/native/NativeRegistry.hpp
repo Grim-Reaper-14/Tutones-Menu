@@ -111,6 +111,13 @@ namespace Tutones::Game::Native
         SetPedRandomComponentVariation,
         SetPedDefaultComponentVariation,
 
+        SetPedInfiniteAmmo,
+        SetPedInfiniteAmmoClip,
+        IsPedArmed,
+        IsPedPerformingMeleeAction,
+        GetPedLastWeaponImpactCoord,
+        AddOwnedExplosion,
+
         Count,
     };
 

@@ -31,9 +31,11 @@ add_library(TutonesMenu SHARED
     src/features/vehicle/VehicleModificationRuntime.cpp
     src/features/vehicle/VehiclePaintRuntime.cpp
     src/features/vehicle/VehiclePaintService.cpp
+    src/features/weapon/WeaponRuntime.cpp
 
     src/game/GamePointers.cpp
     src/game/GameState.cpp
+    src/game/memory/BytePatch.cpp
     src/game/memory/ModuleView.cpp
     src/game/memory/PatternScanner.cpp
     src/game/native/NativeRegistry.cpp
@@ -116,6 +118,8 @@ source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR}/src PREFIX "Source" FILES
     src/features/vehicle/VehiclePaintRuntime.hpp
     src/features/vehicle/VehiclePaintService.cpp
     src/features/vehicle/VehiclePaintService.hpp
+    src/features/weapon/WeaponRuntime.cpp
+    src/features/weapon/WeaponRuntime.hpp
     src/features/weapon/WeaponSettings.hpp
     src/game/GamePointers.cpp
     src/game/GamePointers.hpp
@@ -123,6 +127,8 @@ source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR}/src PREFIX "Source" FILES
     src/game/GameState.hpp
     src/game/Natives.hpp
     src/game/PlayerNatives.hpp
+    src/game/memory/BytePatch.cpp
+    src/game/memory/BytePatch.hpp
     src/game/memory/ModuleView.cpp
     src/game/memory/ModuleView.hpp
     src/game/memory/PatternScanner.cpp
