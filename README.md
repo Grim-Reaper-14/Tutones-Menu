@@ -1,12 +1,14 @@
-# Tutones Vehicle Paint Overlay v1
+# Tutones Vehicle Paint Overlay v2
 
-Repo-shaped first pass for vehicle paint support in Tutones-Menu.
+Second repo-shaped vehicle paint pass for Tutones-Menu.
 
-V1 deliberately stays small:
+V2 expands the V1 indexed primary/secondary controller with the paint groups shown by the current Vehicle / Paint UI:
 
-- Read the current indexed primary and secondary vehicle colours.
-- Change one indexed colour while preserving the companion colour.
-- Keep GTA/native details behind an `IVehiclePaintBackend` interface.
-- Keep the controller independent from ImGui so the UI can be wired later.
+- Primary/secondary indexed palettes: Chrome, Classic, Matte, Metals, Utility, Worn, Chameleon.
+- Pearlescent uses classic indexed colours.
+- Wheels accept Alloy, Classic, and Chameleon indices.
+- Companion values are preserved on writes (primary/secondary and pearl/wheel pairs).
+- Paint state can be read as one controller snapshot for later UI/service use.
+- Invalid target/palette/index combinations are rejected before a backend write.
 
-The real Tutones repo already uses `Tutones::Game::Vehicle` as the vehicle handle type, so this reconstruction uses `Tutones::Game::Paint` as its namespace to avoid a name collision.
+The native adapter is still intentionally separate from this layer.

@@ -1,7 +1,16 @@
 # Vehicle paint integration notes
 
-## V1 scope
+## V2 scope
 
-The first version only models indexed primary/secondary paint.
+The controller now covers the indexed paint groups visible in Tutones' Vehicle / Paint UI.
 
-The final Tutones adapter should implement `IVehiclePaintBackend` using the existing native runtime, while UI code should call the controller rather than invoke natives directly.
+The final adapter needs only four focused native operations:
+
+- get indexed vehicle colours
+- set indexed vehicle colours
+- get extra colours
+- set extra colours
+
+Primary/secondary writes preserve the other indexed colour. Pearlescent/wheel writes preserve the other extra colour.
+
+This layer remains independent from ImGui and from the exact Tutones native invoker API.
