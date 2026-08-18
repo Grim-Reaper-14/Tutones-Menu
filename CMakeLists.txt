@@ -22,21 +22,29 @@ add_library(TutonesMenu SHARED
 
     src/core/CoreServices.cpp
     src/core/config/Config.cpp
+    src/core/config/MenuSettings.cpp
     src/core/filesystem/FileSystem.cpp
     src/core/logging/Logger.cpp
 
+    src/features/game/GameSessionRuntime.cpp
+    src/features/player/OffRadarRuntime.cpp
     src/features/player/PlayerRuntime.cpp
     src/features/player/PlayerRuntimeActions.cpp
     src/features/player/PlayerRuntimeState.cpp
     src/features/vehicle/VehicleModificationRuntime.cpp
     src/features/vehicle/VehiclePaintRuntime.cpp
     src/features/vehicle/VehiclePaintService.cpp
+    src/features/weapon/WeaponRuntime.cpp
 
     src/game/GamePointers.cpp
     src/game/GameState.cpp
+    src/game/memory/BytePatch.cpp
     src/game/memory/ModuleView.cpp
     src/game/memory/PatternScanner.cpp
     src/game/native/NativeRegistry.cpp
+    src/game/script/ScriptFunction.cpp
+    src/game/script/ScriptPointer.cpp
+    src/game/script/ScriptRuntime.cpp
     src/game/vehicle/TutonesVehiclePaintBackend.cpp
     src/game/vehicle/VehiclePaintController.cpp
 
@@ -47,12 +55,15 @@ add_library(TutonesMenu SHARED
 
     src/runtime/GameRuntime.cpp
 
+    src/ui/GamePanel.cpp
     src/ui/Input.cpp
+    src/ui/PlayerOnlinePanel.cpp
     src/ui/PlayerPanel.cpp
     src/ui/TutonesMenu.cpp
     src/ui/VehicleGeneralPanel.cpp
     src/ui/VehicleModificationPanel.cpp
     src/ui/VehiclePaintPanel.cpp
+    src/ui/WeaponPanel.cpp
 )
 
 target_include_directories(TutonesMenu PRIVATE
@@ -75,6 +86,7 @@ endif()
 
 target_link_libraries(TutonesMenu PRIVATE
     minhook
+    nlohmann_json::nlohmann_json
     tutones_imgui
     d3d12
     dxgi
@@ -94,6 +106,8 @@ source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR}/src PREFIX "Source" FILES
     src/core/CoreServices.hpp
     src/core/config/Config.cpp
     src/core/config/Config.hpp
+    src/core/config/MenuSettings.cpp
+    src/core/config/MenuSettings.hpp
     src/core/filesystem/FileSystem.cpp
     src/core/filesystem/FileSystem.hpp
     src/core/logging/LogLevel.hpp
@@ -101,6 +115,12 @@ source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR}/src PREFIX "Source" FILES
     src/core/logging/LogSink.hpp
     src/core/logging/Logger.cpp
     src/core/logging/Logger.hpp
+    src/features/game/GameSessionRuntime.cpp
+    src/features/game/GameSessionRuntime.hpp
+    src/features/game/GameSessionTypes.hpp
+    src/features/player/OffRadarRuntime.cpp
+    src/features/player/OffRadarRuntime.hpp
+    src/features/player/OffRadarState.hpp
     src/features/player/PlayerRuntime.cpp
     src/features/player/PlayerRuntime.hpp
     src/features/player/PlayerRuntimeActions.cpp
@@ -111,12 +131,17 @@ source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR}/src PREFIX "Source" FILES
     src/features/vehicle/VehiclePaintRuntime.hpp
     src/features/vehicle/VehiclePaintService.cpp
     src/features/vehicle/VehiclePaintService.hpp
+    src/features/weapon/WeaponRuntime.cpp
+    src/features/weapon/WeaponRuntime.hpp
+    src/features/weapon/WeaponSettings.hpp
     src/game/GamePointers.cpp
     src/game/GamePointers.hpp
     src/game/GameState.cpp
     src/game/GameState.hpp
     src/game/Natives.hpp
     src/game/PlayerNatives.hpp
+    src/game/memory/BytePatch.cpp
+    src/game/memory/BytePatch.hpp
     src/game/memory/ModuleView.cpp
     src/game/memory/ModuleView.hpp
     src/game/memory/PatternScanner.cpp
@@ -125,6 +150,14 @@ source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR}/src PREFIX "Source" FILES
     src/game/native/NativeInvoker.hpp
     src/game/native/NativeRegistry.cpp
     src/game/native/NativeRegistry.hpp
+    src/game/script/ScriptFunction.cpp
+    src/game/script/ScriptFunction.hpp
+    src/game/script/ScriptGlobal.hpp
+    src/game/script/ScriptPointer.cpp
+    src/game/script/ScriptPointer.hpp
+    src/game/script/ScriptRuntime.cpp
+    src/game/script/ScriptRuntime.hpp
+    src/game/types/ScriptProgram.hpp
     src/game/types/ScriptTypes.hpp
     src/game/vehicle/TutonesVehiclePaintBackend.cpp
     src/game/vehicle/TutonesVehiclePaintBackend.hpp
@@ -143,8 +176,12 @@ source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR}/src PREFIX "Source" FILES
     src/render/d3d12/FrameContext.hpp
     src/runtime/GameRuntime.cpp
     src/runtime/GameRuntime.hpp
+    src/ui/GamePanel.cpp
+    src/ui/GamePanel.hpp
     src/ui/Input.cpp
     src/ui/Input.hpp
+    src/ui/PlayerOnlinePanel.cpp
+    src/ui/PlayerOnlinePanel.hpp
     src/ui/PlayerPanel.cpp
     src/ui/PlayerPanel.hpp
     src/ui/TutonesMenu.cpp
@@ -155,4 +192,6 @@ source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR}/src PREFIX "Source" FILES
     src/ui/VehicleModificationPanel.hpp
     src/ui/VehiclePaintPanel.cpp
     src/ui/VehiclePaintPanel.hpp
+    src/ui/WeaponPanel.cpp
+    src/ui/WeaponPanel.hpp
 )

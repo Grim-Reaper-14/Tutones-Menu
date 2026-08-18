@@ -10,7 +10,7 @@ namespace Tutones::Game::Script
 
     void ScriptRuntime::Configure(
         Types::AtArray<Types::ScriptThread*>* threads,
-        Types::AtArray<Types::ScriptProgram*>* programs,
+        Types::ScriptProgram** programs,
         std::int64_t** globals,
         ScriptVmFn scriptVm) noexcept
     {
@@ -39,13 +39,13 @@ namespace Tutones::Game::Script
     Types::ScriptThread* ScriptRuntime::FindThread(std::uint32_t scriptHash) const noexcept
     {
         std::scoped_lock lock(m_Mutex);
-        if (!m_Threads || !m_Threads->data)
+        if (!m_Threads || !m_Threads->data || m_Threads->size > m_Threads->capacity)
             return nullptr;
 
         for (std::uint16_t index = 0; index < m_Threads->size; ++index)
         {
             auto* thread = m_Threads->data[index];
-            if (thread && thread->scriptHash == scriptHash)
+            if (thread && thread->context.threadId != 0 && thread->scriptHash == scriptHash)
                 return thread;
         }
 
@@ -55,12 +55,12 @@ namespace Tutones::Game::Script
     Types::ScriptProgram* ScriptRuntime::FindProgram(std::uint32_t scriptHash) const noexcept
     {
         std::scoped_lock lock(m_Mutex);
-        if (!m_Programs || !m_Programs->data)
+        if (!m_Programs)
             return nullptr;
 
-        for (std::uint16_t index = 0; index < m_Programs->size; ++index)
+        for (std::size_t index = 0; index < ScriptProgramCount; ++index)
         {
-            auto* program = m_Programs->data[index];
+            auto* program = m_Programs[index];
             if (program && (program->hash == scriptHash || program->nameHash == scriptHash))
                 return program;
         }

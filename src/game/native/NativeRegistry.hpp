@@ -75,6 +75,7 @@ namespace Tutones::Game::Native
         PlayerId,
         GetEntityHealth,
         GetEntityMaxHealth,
+        IsEntityDead,
         SetEntityHealth,
         SetEntityInvincible,
         SetEntityVisible,
@@ -109,6 +110,13 @@ namespace Tutones::Game::Native
         SetPedComponentVariation,
         SetPedRandomComponentVariation,
         SetPedDefaultComponentVariation,
+
+        SetPedInfiniteAmmo,
+        SetPedInfiniteAmmoClip,
+        IsPedArmed,
+        IsPedPerformingMeleeAction,
+        GetPedLastWeaponImpactCoord,
+        AddOwnedExplosion,
 
         Count,
     };

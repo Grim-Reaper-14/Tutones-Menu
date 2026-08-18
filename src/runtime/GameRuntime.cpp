@@ -2,13 +2,16 @@
 
 #include "../core/logging/Logger.hpp"
 #include "../game/GameState.hpp"
+#include "../game/native/NativeInvoker.hpp"
 #include "../game/native/NativeRegistry.hpp"
+#include "../game/script/ScriptRuntime.hpp"
 
 #include <MinHook.h>
 #include <Windows.h>
 
 #include <array>
 #include <chrono>
+#include <cstdint>
 #include <exception>
 #include <string>
 #include <thread>
@@ -42,6 +45,10 @@ namespace Tutones::Runtime
             Joaat("main_persistent"),
             Joaat("startup"),
         };
+
+        constexpr std::uint8_t EntityTypePed = 4;
+        constexpr std::ptrdiff_t EntityTypeOffset = 0x28;
+        constexpr std::ptrdiff_t AssistedAimTargetOffset = 0x38;
 
         class ScriptTlsScope final
         {
@@ -104,6 +111,7 @@ namespace Tutones::Runtime
         m_ShuttingDown.store(false, std::memory_order_release);
         m_ActiveCallbacks.store(0, std::memory_order_release);
         m_GameThreadId.store(0, std::memory_order_release);
+        m_ReleaseDeadTargetSupported.store(false, std::memory_order_release);
         m_NativeInitAttempted = false;
         m_LoggedNoScriptThread = false;
         m_LoggedNoTls = false;
@@ -118,10 +126,21 @@ namespace Tutones::Runtime
             return false;
         }
 
+        Game::Script::ScriptRuntime::Get().Configure(
+            pointers.ScriptThreads(),
+            pointers.ScriptPrograms(),
+            pointers.ScriptGlobals(),
+            pointers.ScriptVm());
+        if (Game::Script::ScriptRuntime::Get().IsReady())
+            TUTONES_LOG_INFO("runtime.game", "V11 shared script runtime pointers are ready");
+        else
+            TUTONES_LOG_WARN("runtime.game", "V11 shared script runtime is incomplete; script-backed features will report unavailable");
+
         const auto runScriptThreads = pointers.RunScriptThreads();
         if (!runScriptThreads)
         {
             TUTONES_LOG_ERROR("runtime.game", "RunScriptThreads target is unavailable");
+            Game::Script::ScriptRuntime::Get().Reset();
             pointers.Reset();
             m_Initialized.store(false, std::memory_order_release);
             return false;
@@ -137,6 +156,7 @@ namespace Tutones::Runtime
         if (status != MH_OK)
         {
             TUTONES_LOG_ERROR("runtime.game", MinHookMessage("Failed to create RunScriptThreads hook", status));
+            Game::Script::ScriptRuntime::Get().Reset();
             pointers.Reset();
             m_RunScriptThreadsTarget = nullptr;
             m_Initialized.store(false, std::memory_order_release);
@@ -150,9 +170,47 @@ namespace Tutones::Runtime
             MH_RemoveHook(m_RunScriptThreadsTarget);
             m_OriginalRunScriptThreads = nullptr;
             m_RunScriptThreadsTarget = nullptr;
+            Game::Script::ScriptRuntime::Get().Reset();
             pointers.Reset();
             m_Initialized.store(false, std::memory_order_release);
             return false;
+        }
+
+        m_AssistedAimShouldReleaseEntityTarget = pointers.AssistedAimShouldReleaseEntity();
+        if (m_AssistedAimShouldReleaseEntityTarget && pointers.AssistedAimFindNewTarget() && pointers.PtrToHandle())
+        {
+            const auto assistedDetour = reinterpret_cast<void*>(reinterpret_cast<std::uintptr_t>(&GameRuntime::AssistedAimShouldReleaseEntityDetour));
+            status = MH_CreateHook(
+                m_AssistedAimShouldReleaseEntityTarget,
+                assistedDetour,
+                reinterpret_cast<void**>(&m_OriginalAssistedAimShouldReleaseEntity));
+            if (status == MH_OK)
+            {
+                status = MH_EnableHook(m_AssistedAimShouldReleaseEntityTarget);
+                if (status == MH_OK)
+                {
+                    m_ReleaseDeadTargetSupported.store(true, std::memory_order_release);
+                    TUTONES_LOG_INFO("runtime.game", "AssistedAimShouldReleaseEntity hook installed; Release Dead Target is supported");
+                }
+                else
+                {
+                    TUTONES_LOG_WARN("runtime.game", MinHookMessage("Failed to enable AssistedAimShouldReleaseEntity hook", status));
+                    MH_RemoveHook(m_AssistedAimShouldReleaseEntityTarget);
+                    m_OriginalAssistedAimShouldReleaseEntity = nullptr;
+                    m_AssistedAimShouldReleaseEntityTarget = nullptr;
+                }
+            }
+            else
+            {
+                TUTONES_LOG_WARN("runtime.game", MinHookMessage("Failed to create AssistedAimShouldReleaseEntity hook", status));
+                m_OriginalAssistedAimShouldReleaseEntity = nullptr;
+                m_AssistedAimShouldReleaseEntityTarget = nullptr;
+            }
+        }
+        else
+        {
+            m_AssistedAimShouldReleaseEntityTarget = nullptr;
+            TUTONES_LOG_WARN("runtime.game", "Release Dead Target dependencies are incomplete; feature will remain unavailable");
         }
 
         TUTONES_LOG_INFO("runtime.game", "RunScriptThreads hook installed; waiting for first GTA script tick");
@@ -168,7 +226,15 @@ namespace Tutones::Runtime
         }
 
         m_ShuttingDown.store(true, std::memory_order_release);
+        m_ReleaseDeadTargetSupported.store(false, std::memory_order_release);
         TUTONES_LOG_INFO("runtime.game", "Shutting down GTA game-thread runtime");
+
+        if (m_AssistedAimShouldReleaseEntityTarget)
+        {
+            const auto status = MH_DisableHook(m_AssistedAimShouldReleaseEntityTarget);
+            if (status != MH_OK && status != MH_ERROR_DISABLED)
+                TUTONES_LOG_WARN("runtime.game", MinHookMessage("AssistedAimShouldReleaseEntity hook disable returned", status));
+        }
 
         if (m_RunScriptThreadsTarget)
         {
@@ -182,9 +248,16 @@ namespace Tutones::Runtime
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
 
         if (m_ActiveCallbacks.load(std::memory_order_acquire) != 0)
-            TUTONES_LOG_WARN("runtime.game", "Timed out waiting for RunScriptThreads callback drain");
+            TUTONES_LOG_WARN("runtime.game", "Timed out waiting for GTA hook callback drain");
         else
-            TUTONES_LOG_DEBUG("runtime.game", "RunScriptThreads callbacks drained");
+            TUTONES_LOG_DEBUG("runtime.game", "GTA hook callbacks drained");
+
+        if (m_AssistedAimShouldReleaseEntityTarget)
+        {
+            const auto status = MH_RemoveHook(m_AssistedAimShouldReleaseEntityTarget);
+            if (status != MH_OK && status != MH_ERROR_NOT_CREATED)
+                TUTONES_LOG_WARN("runtime.game", MinHookMessage("AssistedAimShouldReleaseEntity hook removal returned", status));
+        }
 
         if (m_RunScriptThreadsTarget)
         {
@@ -198,10 +271,13 @@ namespace Tutones::Runtime
             m_Tasks.clear();
         }
 
+        Game::Script::ScriptRuntime::Get().Reset();
         Game::GameState::Get().Reset();
         Game::Native::NativeRegistry::Get().Shutdown();
         Game::GamePointers::Get().Reset();
 
+        m_OriginalAssistedAimShouldReleaseEntity = nullptr;
+        m_AssistedAimShouldReleaseEntityTarget = nullptr;
         m_OriginalRunScriptThreads = nullptr;
         m_RunScriptThreadsTarget = nullptr;
         m_GameThreadId.store(0, std::memory_order_release);
@@ -246,6 +322,21 @@ namespace Tutones::Runtime
         return true;
     }
 
+    void GameRuntime::SetReleaseDeadTargetEnabled(bool enabled) noexcept
+    {
+        m_ReleaseDeadTargetEnabled.store(enabled, std::memory_order_release);
+    }
+
+    bool GameRuntime::ReleaseDeadTargetEnabled() const noexcept
+    {
+        return m_ReleaseDeadTargetEnabled.load(std::memory_order_acquire);
+    }
+
+    bool GameRuntime::ReleaseDeadTargetSupported() const noexcept
+    {
+        return m_ReleaseDeadTargetSupported.load(std::memory_order_acquire);
+    }
+
     bool GameRuntime::RunScriptThreadsDetour(int operationsToExecute) noexcept
     {
         auto& runtime = Get();
@@ -260,6 +351,64 @@ namespace Tutones::Runtime
 
         runtime.m_ActiveCallbacks.fetch_sub(1, std::memory_order_acq_rel);
         return result;
+    }
+
+    bool GameRuntime::AssistedAimShouldReleaseEntityDetour(std::int64_t context) noexcept
+    {
+        auto& runtime = Get();
+        runtime.m_ActiveCallbacks.fetch_add(1, std::memory_order_acq_rel);
+
+        const auto finish = [&runtime](bool value) noexcept {
+            runtime.m_ActiveCallbacks.fetch_sub(1, std::memory_order_acq_rel);
+            return value;
+        };
+
+        const auto original = runtime.m_OriginalAssistedAimShouldReleaseEntity;
+        if (!original)
+            return finish(false);
+        if (context == 0 || runtime.m_ShuttingDown.load(std::memory_order_acquire))
+            return finish(original(context));
+
+        auto** targetSlot = reinterpret_cast<void**>(context + AssistedAimTargetOffset);
+        void* entity = targetSlot ? *targetSlot : nullptr;
+        if (!entity)
+            return finish(original(context));
+
+        const auto entityType = *(reinterpret_cast<const std::uint8_t*>(entity) + EntityTypeOffset);
+        if (entityType != EntityTypePed)
+            return finish(original(context));
+
+        const auto ptrToHandle = Game::GamePointers::Get().PtrToHandle();
+        if (!ptrToHandle)
+            return finish(original(context));
+
+        const int handle = ptrToHandle(entity);
+        if (handle == 0)
+            return finish(original(context));
+
+        const auto dead = Game::Native::NativeInvoker::Invoke<std::int32_t>(
+            Game::Native::NativeId::IsEntityDead,
+            handle,
+            std::int32_t{1});
+        if (!dead || *dead == 0)
+            return finish(original(context));
+
+        *targetSlot = nullptr;
+        const auto findNewTarget = Game::GamePointers::Get().AssistedAimFindNewTarget();
+        if (!findNewTarget)
+        {
+            *targetSlot = entity;
+            return finish(original(context));
+        }
+
+        if (!findNewTarget(context))
+        {
+            *targetSlot = entity;
+            if (runtime.m_ReleaseDeadTargetEnabled.load(std::memory_order_acquire))
+                return finish(true);
+        }
+
+        return finish(original(context));
     }
 
     void GameRuntime::Tick() noexcept
