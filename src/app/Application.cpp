@@ -2,6 +2,7 @@
 
 #include "../core/CoreServices.hpp"
 #include "../core/logging/Logger.hpp"
+#include "../features/vehicle/VehicleModificationRuntime.hpp"
 #include "../features/vehicle/VehiclePaintRuntime.hpp"
 #include "../hooking/HookManager.hpp"
 #include "../render/Renderer.hpp"
@@ -69,7 +70,7 @@ namespace Tutones::App
             return false;
         }
 
-        TUTONES_LOG_INFO("app", "Game runtime ready; starting vehicle paint runtime");
+        TUTONES_LOG_INFO("app", "Game runtime ready; starting vehicle feature runtimes");
         if (!Game::Paint::VehiclePaintRuntime::Get().Start())
         {
             TUTONES_LOG_ERROR("app", "Vehicle paint runtime failed to queue its first GTA script-thread tick");
@@ -81,11 +82,10 @@ namespace Tutones::App
             return false;
         }
 
-        TUTONES_LOG_INFO("app", "Vehicle paint runtime ready; initializing menu input routing");
-        if (!UI::Input::Get().Initialize())
+        if (!Game::Mods::VehicleModificationRuntime::Get().Start())
         {
-            TUTONES_LOG_ERROR("app", "Menu input initialization failed");
-            UI::Input::Get().Shutdown();
+            TUTONES_LOG_ERROR("app", "Vehicle modification runtime failed to queue its first GTA script-thread tick");
+            Game::Mods::VehicleModificationRuntime::Get().Stop();
             Game::Paint::VehiclePaintRuntime::Get().Stop();
             Runtime::GameRuntime::Get().Shutdown();
             Hooking::HookManager::Get().Shutdown();
@@ -94,7 +94,21 @@ namespace Tutones::App
             return false;
         }
 
-        TUTONES_LOG_INFO("app", "Tutones Menu application initialized with render, input, GTA native runtime, and vehicle paint layers");
+        TUTONES_LOG_INFO("app", "Vehicle runtimes ready; initializing menu input routing");
+        if (!UI::Input::Get().Initialize())
+        {
+            TUTONES_LOG_ERROR("app", "Menu input initialization failed");
+            UI::Input::Get().Shutdown();
+            Game::Mods::VehicleModificationRuntime::Get().Stop();
+            Game::Paint::VehiclePaintRuntime::Get().Stop();
+            Runtime::GameRuntime::Get().Shutdown();
+            Hooking::HookManager::Get().Shutdown();
+            Render::Renderer::Get().Shutdown();
+            Core::Services::Get().Shutdown();
+            return false;
+        }
+
+        TUTONES_LOG_INFO("app", "Tutones Menu application initialized with render, input, GTA native runtime, and vehicle feature layers");
         TUTONES_LOG_DEBUG("app", "Runtime is waiting for primary render state and the first GTA script-thread tick");
         m_Running = true;
         return true;
@@ -113,7 +127,8 @@ namespace Tutones::App
         TUTONES_LOG_DEBUG("app", "Stopping Win32 menu input routing");
         UI::Input::Get().Shutdown();
 
-        TUTONES_LOG_DEBUG("app", "Stopping vehicle paint scheduling before GTA runtime teardown");
+        TUTONES_LOG_DEBUG("app", "Stopping vehicle feature scheduling before GTA runtime teardown");
+        Game::Mods::VehicleModificationRuntime::Get().Stop();
         Game::Paint::VehiclePaintRuntime::Get().Stop();
 
         TUTONES_LOG_DEBUG("app", "Stopping GTA script/native runtime before MinHook teardown");

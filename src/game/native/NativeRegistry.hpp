@@ -37,6 +37,20 @@ namespace Tutones::Game::Native
         ClearVehicleCustomPrimaryColour,
         ClearVehicleCustomSecondaryColour,
 
+        SetVehicleModKit,
+        GetVehicleWheelType,
+        SetVehicleWheelType,
+        SetVehicleMod,
+        GetVehicleMod,
+        GetVehicleModVariation,
+        GetNumVehicleMods,
+        RemoveVehicleMod,
+        ToggleVehicleMod,
+        IsToggleModOn,
+        SetVehicleFixed,
+        SetVehicleDirtLevel,
+        SetVehicleOnGroundProperly,
+
         Count,
     };
 

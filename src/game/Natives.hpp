@@ -99,58 +99,34 @@ namespace Tutones::Game
 
         [[nodiscard]] inline std::optional<bool> GetIsVehiclePrimaryColourCustom(Vehicle vehicle) noexcept
         {
-            const auto result = Native::NativeInvoker::Invoke<std::int32_t>(
-                Native::NativeId::GetIsVehiclePrimaryColourCustom,
-                vehicle);
+            const auto result = Native::NativeInvoker::Invoke<std::int32_t>(Native::NativeId::GetIsVehiclePrimaryColourCustom, vehicle);
             return result ? std::optional<bool>(*result != 0) : std::nullopt;
         }
 
         [[nodiscard]] inline std::optional<bool> GetIsVehicleSecondaryColourCustom(Vehicle vehicle) noexcept
         {
-            const auto result = Native::NativeInvoker::Invoke<std::int32_t>(
-                Native::NativeId::GetIsVehicleSecondaryColourCustom,
-                vehicle);
+            const auto result = Native::NativeInvoker::Invoke<std::int32_t>(Native::NativeId::GetIsVehicleSecondaryColourCustom, vehicle);
             return result ? std::optional<bool>(*result != 0) : std::nullopt;
         }
 
         inline bool GetVehicleCustomPrimaryColour(Vehicle vehicle, int& red, int& green, int& blue) noexcept
         {
-            return Native::NativeInvoker::InvokeVoid(
-                Native::NativeId::GetVehicleCustomPrimaryColour,
-                vehicle,
-                &red,
-                &green,
-                &blue);
+            return Native::NativeInvoker::InvokeVoid(Native::NativeId::GetVehicleCustomPrimaryColour, vehicle, &red, &green, &blue);
         }
 
         inline bool GetVehicleCustomSecondaryColour(Vehicle vehicle, int& red, int& green, int& blue) noexcept
         {
-            return Native::NativeInvoker::InvokeVoid(
-                Native::NativeId::GetVehicleCustomSecondaryColour,
-                vehicle,
-                &red,
-                &green,
-                &blue);
+            return Native::NativeInvoker::InvokeVoid(Native::NativeId::GetVehicleCustomSecondaryColour, vehicle, &red, &green, &blue);
         }
 
         inline bool SetVehicleCustomPrimaryColour(Vehicle vehicle, int red, int green, int blue) noexcept
         {
-            return Native::NativeInvoker::InvokeVoid(
-                Native::NativeId::SetVehicleCustomPrimaryColour,
-                vehicle,
-                red,
-                green,
-                blue);
+            return Native::NativeInvoker::InvokeVoid(Native::NativeId::SetVehicleCustomPrimaryColour, vehicle, red, green, blue);
         }
 
         inline bool SetVehicleCustomSecondaryColour(Vehicle vehicle, int red, int green, int blue) noexcept
         {
-            return Native::NativeInvoker::InvokeVoid(
-                Native::NativeId::SetVehicleCustomSecondaryColour,
-                vehicle,
-                red,
-                green,
-                blue);
+            return Native::NativeInvoker::InvokeVoid(Native::NativeId::SetVehicleCustomSecondaryColour, vehicle, red, green, blue);
         }
 
         inline bool ClearVehicleCustomPrimaryColour(Vehicle vehicle) noexcept
@@ -161,6 +137,86 @@ namespace Tutones::Game
         inline bool ClearVehicleCustomSecondaryColour(Vehicle vehicle) noexcept
         {
             return Native::NativeInvoker::InvokeVoid(Native::NativeId::ClearVehicleCustomSecondaryColour, vehicle);
+        }
+
+        inline bool SetVehicleModKit(Vehicle vehicle, int modKit) noexcept
+        {
+            return Native::NativeInvoker::InvokeVoid(Native::NativeId::SetVehicleModKit, vehicle, modKit);
+        }
+
+        [[nodiscard]] inline std::optional<int> GetVehicleWheelType(Vehicle vehicle) noexcept
+        {
+            return Native::NativeInvoker::Invoke<int>(Native::NativeId::GetVehicleWheelType, vehicle);
+        }
+
+        inline bool SetVehicleWheelType(Vehicle vehicle, int wheelType) noexcept
+        {
+            return Native::NativeInvoker::InvokeVoid(Native::NativeId::SetVehicleWheelType, vehicle, wheelType);
+        }
+
+        inline bool SetVehicleMod(Vehicle vehicle, int modType, int modIndex, bool customTires) noexcept
+        {
+            return Native::NativeInvoker::InvokeVoid(
+                Native::NativeId::SetVehicleMod,
+                vehicle,
+                modType,
+                modIndex,
+                static_cast<std::int32_t>(customTires));
+        }
+
+        [[nodiscard]] inline std::optional<int> GetVehicleMod(Vehicle vehicle, int modType) noexcept
+        {
+            return Native::NativeInvoker::Invoke<int>(Native::NativeId::GetVehicleMod, vehicle, modType);
+        }
+
+        [[nodiscard]] inline std::optional<bool> GetVehicleModVariation(Vehicle vehicle, int modType) noexcept
+        {
+            const auto result = Native::NativeInvoker::Invoke<std::int32_t>(Native::NativeId::GetVehicleModVariation, vehicle, modType);
+            return result ? std::optional<bool>(*result != 0) : std::nullopt;
+        }
+
+        [[nodiscard]] inline std::optional<int> GetNumVehicleMods(Vehicle vehicle, int modType) noexcept
+        {
+            return Native::NativeInvoker::Invoke<int>(Native::NativeId::GetNumVehicleMods, vehicle, modType);
+        }
+
+        inline bool RemoveVehicleMod(Vehicle vehicle, int modType) noexcept
+        {
+            return Native::NativeInvoker::InvokeVoid(Native::NativeId::RemoveVehicleMod, vehicle, modType);
+        }
+
+        inline bool ToggleVehicleMod(Vehicle vehicle, int modType, bool enabled) noexcept
+        {
+            return Native::NativeInvoker::InvokeVoid(
+                Native::NativeId::ToggleVehicleMod,
+                vehicle,
+                modType,
+                static_cast<std::int32_t>(enabled));
+        }
+
+        [[nodiscard]] inline std::optional<bool> IsToggleModOn(Vehicle vehicle, int modType) noexcept
+        {
+            const auto result = Native::NativeInvoker::Invoke<std::int32_t>(Native::NativeId::IsToggleModOn, vehicle, modType);
+            return result ? std::optional<bool>(*result != 0) : std::nullopt;
+        }
+
+        inline bool SetVehicleFixed(Vehicle vehicle) noexcept
+        {
+            return Native::NativeInvoker::InvokeVoid(Native::NativeId::SetVehicleFixed, vehicle);
+        }
+
+        inline bool SetVehicleDirtLevel(Vehicle vehicle, float dirtLevel) noexcept
+        {
+            return Native::NativeInvoker::InvokeVoid(Native::NativeId::SetVehicleDirtLevel, vehicle, dirtLevel);
+        }
+
+        [[nodiscard]] inline std::optional<bool> SetVehicleOnGroundProperly(Vehicle vehicle, float probeHeight) noexcept
+        {
+            const auto result = Native::NativeInvoker::Invoke<std::int32_t>(
+                Native::NativeId::SetVehicleOnGroundProperly,
+                vehicle,
+                probeHeight);
+            return result ? std::optional<bool>(*result != 0) : std::nullopt;
         }
     }
 }

@@ -25,6 +25,7 @@ add_library(TutonesMenu SHARED
     src/core/filesystem/FileSystem.cpp
     src/core/logging/Logger.cpp
 
+    src/features/vehicle/VehicleModificationRuntime.cpp
     src/features/vehicle/VehiclePaintRuntime.cpp
     src/features/vehicle/VehiclePaintService.cpp
 
@@ -45,6 +46,8 @@ add_library(TutonesMenu SHARED
 
     src/ui/Input.cpp
     src/ui/TutonesMenu.cpp
+    src/ui/VehicleGeneralPanel.cpp
+    src/ui/VehicleModificationPanel.cpp
     src/ui/VehiclePaintPanel.cpp
 )
 
@@ -94,6 +97,8 @@ source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR}/src PREFIX "Source" FILES
     src/core/logging/LogSink.hpp
     src/core/logging/Logger.cpp
     src/core/logging/Logger.hpp
+    src/features/vehicle/VehicleModificationRuntime.cpp
+    src/features/vehicle/VehicleModificationRuntime.hpp
     src/features/vehicle/VehiclePaintRuntime.cpp
     src/features/vehicle/VehiclePaintRuntime.hpp
     src/features/vehicle/VehiclePaintService.cpp
@@ -133,6 +138,10 @@ source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR}/src PREFIX "Source" FILES
     src/ui/Input.hpp
     src/ui/TutonesMenu.cpp
     src/ui/TutonesMenu.hpp
+    src/ui/VehicleGeneralPanel.cpp
+    src/ui/VehicleGeneralPanel.hpp
+    src/ui/VehicleModificationPanel.cpp
+    src/ui/VehicleModificationPanel.hpp
     src/ui/VehiclePaintPanel.cpp
     src/ui/VehiclePaintPanel.hpp
 )
