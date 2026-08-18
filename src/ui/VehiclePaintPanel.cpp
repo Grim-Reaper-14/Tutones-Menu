@@ -2,20 +2,23 @@
 
 #include "../features/vehicle/VehiclePaintRuntime.hpp"
 #include "../game/GameState.hpp"
+#include "../game/vehicle/VehicleCatalogs.hpp"
 
 #include <imgui.h>
 
 #include <algorithm>
 #include <array>
 #include <cstdint>
+#include <cstdio>
+#include <span>
 
 namespace Tutones::UI
 {
     namespace
     {
         using namespace Game::Paint;
+        using Game::VehicleCatalogs::IndexedName;
 
-        constexpr ImVec4 Accent{147.0f / 255.0f, 190.0f / 255.0f, 66.0f / 255.0f, 1.0f};
         constexpr std::array<PaintPalette, 10> PrimarySecondaryPalettes{
             PaintPalette::Normal,
             PaintPalette::Metallic,
@@ -29,6 +32,11 @@ namespace Tutones::UI
             PaintPalette::Chameleon,
         };
 
+        constexpr std::array<const char*, 10> PaletteNames{{
+            "Normal", "Metallic", "Pearlescent", "Chrome", "Classic",
+            "Matte", "Metals", "Utility", "Worn", "Chameleon",
+        }};
+
         struct PaintUiState final
         {
             VehicleHandle vehicle{};
@@ -38,6 +46,7 @@ namespace Tutones::UI
             int secondaryIndex{};
             int pearlescent{};
             int wheel{};
+            int wheelFamily{}; // 0 classic, 1 chameleon
             float customPrimary[3]{};
             float customSecondary[3]{};
             const char* queueMessage{"Ready"};
@@ -49,23 +58,23 @@ namespace Tutones::UI
         {
             switch (type)
             {
-            case NativePaintType::Normal: return 0;
+            case NativePaintType::Normal: return 4; // Classic list, normal native finish.
             case NativePaintType::Metallic: return 1;
             case NativePaintType::Pearl: return 2;
             case NativePaintType::Matte: return 5;
             case NativePaintType::Metal: return 6;
             case NativePaintType::Chrome: return 3;
             }
-            return 0;
+            return 4;
         }
 
         [[nodiscard]] const char* NativePaintTypeName(NativePaintType type) noexcept
         {
             switch (type)
             {
-            case NativePaintType::Normal: return "Normal";
+            case NativePaintType::Normal: return "Normal / Classic";
             case NativePaintType::Metallic: return "Metallic";
-            case NativePaintType::Pearl: return "Pearl";
+            case NativePaintType::Pearl: return "Pearlescent";
             case NativePaintType::Matte: return "Matte";
             case NativePaintType::Metal: return "Metal";
             case NativePaintType::Chrome: return "Chrome";
@@ -81,13 +90,52 @@ namespace Tutones::UI
             case PaintOperation::Primary: return "Primary";
             case PaintOperation::Secondary: return "Secondary";
             case PaintOperation::Pearlescent: return "Pearlescent";
-            case PaintOperation::Wheel: return "Wheel";
+            case PaintOperation::Wheel: return "Wheel color";
             case PaintOperation::CustomPrimary: return "Custom primary";
             case PaintOperation::CustomSecondary: return "Custom secondary";
             case PaintOperation::ClearCustomPrimary: return "Clear custom primary";
             case PaintOperation::ClearCustomSecondary: return "Clear custom secondary";
             }
             return "Unknown";
+        }
+
+        [[nodiscard]] const char* PreviewFor(std::span<const IndexedName> colors, int value) noexcept
+        {
+            for (const auto& entry : colors)
+                if (entry.value == value)
+                    return entry.name;
+            return "Choose color";
+        }
+
+        bool RenderNamedColorCombo(const char* label, std::span<const IndexedName> colors, int& value) noexcept
+        {
+            bool changed = false;
+            if (colors.empty())
+                return false;
+
+            if (ImGui::BeginCombo(label, PreviewFor(colors, value)))
+            {
+                for (const auto& entry : colors)
+                {
+                    const bool selected = entry.value == value;
+                    if (ImGui::Selectable(entry.name, selected))
+                    {
+                        value = entry.value;
+                        changed = true;
+                    }
+                    if (selected)
+                        ImGui::SetItemDefaultFocus();
+                }
+                ImGui::EndCombo();
+            }
+            return changed;
+        }
+
+        void ResetColorForPalette(PaintPalette palette, int& colorIndex) noexcept
+        {
+            const auto colors = Game::VehicleCatalogs::ColorsForPalette(palette);
+            if (!colors.empty())
+                colorIndex = colors.front().value;
         }
 
         void SyncEditor(const VehiclePaintState& paint) noexcept
@@ -107,6 +155,7 @@ namespace Tutones::UI
             g_PaintUi.secondaryIndex = paint.secondaryColor >= 161 ? paint.secondaryColor : paint.secondaryModColor;
             g_PaintUi.pearlescent = paint.pearlescentColor;
             g_PaintUi.wheel = paint.wheelColor;
+            g_PaintUi.wheelFamily = paint.wheelColor >= 161 ? 1 : 0;
 
             if (paint.primaryCustom)
             {
@@ -120,14 +169,6 @@ namespace Tutones::UI
                 g_PaintUi.customSecondary[1] = static_cast<float>(paint.customSecondary.green) / 255.0f;
                 g_PaintUi.customSecondary[2] = static_cast<float>(paint.customSecondary.blue) / 255.0f;
             }
-        }
-
-        void ClampPaintIndex(PaintPalette palette, int& colorIndex) noexcept
-        {
-            if (palette == PaintPalette::Chameleon)
-                colorIndex = std::clamp(colorIndex, 161, 223);
-            else
-                colorIndex = std::clamp(colorIndex, 0, 160);
         }
 
         [[nodiscard]] RgbColor ToRgb(const float color[3]) noexcept
@@ -151,20 +192,18 @@ namespace Tutones::UI
             bool primary) noexcept
         {
             ImGui::PushID(id);
-            ImGui::TextUnformatted(primary ? "Primary finish" : "Secondary finish");
-            if (ImGui::Combo(
-                    "Finish",
-                    &paletteIndex,
-                    "Normal\0Metallic\0Pearl\0Chrome\0Classic\0Matte\0Metal\0Utility\0Worn\0Chameleon\0\0"))
+            ImGui::TextUnformatted(primary ? "Primary LSC paint" : "Secondary LSC paint");
+            if (ImGui::Combo("Finish", &paletteIndex, PaletteNames.data(), static_cast<int>(PaletteNames.size())))
             {
-                ClampPaintIndex(PrimarySecondaryPalettes[static_cast<std::size_t>(paletteIndex)], colorIndex);
+                paletteIndex = std::clamp(paletteIndex, 0, static_cast<int>(PaletteNames.size()) - 1);
+                ResetColorForPalette(PrimarySecondaryPalettes[static_cast<std::size_t>(paletteIndex)], colorIndex);
             }
 
             const PaintPalette palette = PrimarySecondaryPalettes[static_cast<std::size_t>(paletteIndex)];
-            const int minIndex = palette == PaintPalette::Chameleon ? 161 : 0;
-            const int maxIndex = palette == PaintPalette::Chameleon ? 223 : 160;
-            ImGui::SliderInt("Color index", &colorIndex, minIndex, maxIndex);
+            const auto colors = Game::VehicleCatalogs::ColorsForPalette(palette);
+            static_cast<void>(RenderNamedColorCombo("Color", colors, colorIndex));
 
+            ImGui::TextDisabled("Index %d", colorIndex);
             auto& service = VehiclePaintRuntime::Get().Service();
             if (ImGui::Button(applyLabel, ImVec2(-1.0f, 0.0f)))
             {
@@ -206,19 +245,26 @@ namespace Tutones::UI
             auto& service = VehiclePaintRuntime::Get().Service();
 
             ImGui::TextUnformatted("Pearlescent overlay");
-            ImGui::SliderInt("Pearlescent index", &g_PaintUi.pearlescent, 0, 160);
+            static_cast<void>(RenderNamedColorCombo("Pearlescent", Game::VehicleCatalogs::ClassicColors, g_PaintUi.pearlescent));
             if (ImGui::Button("Apply pearlescent", ImVec2(-1.0f, 0.0f)))
             {
-                QueueResult(
-                    service.QueuePearlescent(g_PaintUi.pearlescent),
-                    "Pearlescent queued",
-                    "Pearlescent rejected");
+                QueueResult(service.QueuePearlescent(g_PaintUi.pearlescent), "Pearlescent queued", "Pearlescent rejected");
             }
 
             ImGui::Separator();
-            ImGui::TextUnformatted("Wheel color");
-            ImGui::SliderInt("Wheel index", &g_PaintUi.wheel, 0, 223);
-            ImGui::TextDisabled("0-160 standard/alloy/classic, 161-223 chameleon");
+            const char* wheelFamilies[] = {"LSC / Classic", "Chameleon"};
+            if (ImGui::Combo("Wheel color family", &g_PaintUi.wheelFamily, wheelFamilies, 2))
+            {
+                const auto colors = g_PaintUi.wheelFamily == 1
+                    ? std::span<const IndexedName>(Game::VehicleCatalogs::ChameleonColors)
+                    : std::span<const IndexedName>(Game::VehicleCatalogs::ClassicColors);
+                if (!colors.empty())
+                    g_PaintUi.wheel = colors.front().value;
+            }
+            const auto wheelColors = g_PaintUi.wheelFamily == 1
+                ? std::span<const IndexedName>(Game::VehicleCatalogs::ChameleonColors)
+                : std::span<const IndexedName>(Game::VehicleCatalogs::ClassicColors);
+            static_cast<void>(RenderNamedColorCombo("Wheel color", wheelColors, g_PaintUi.wheel));
             if (ImGui::Button("Apply wheel color", ImVec2(-1.0f, 0.0f)))
             {
                 QueueResult(service.QueueWheel(g_PaintUi.wheel), "Wheel color queued", "Wheel color rejected");
@@ -227,41 +273,33 @@ namespace Tutones::UI
 
         void RenderStatus(const PaintServiceSnapshot& snapshot) noexcept
         {
-            const auto& runtime = VehiclePaintRuntime::Get();
             const auto& paint = snapshot.paint;
-
-            ImGui::Text("Runtime: %s", runtime.IsRunning() ? "online" : "offline");
-            if (!paint.valid)
-            {
-                ImGui::TextDisabled("No tracked vehicle paint snapshot yet.");
-                ImGui::TextDisabled("Enter a vehicle and wait for the GTA script-thread refresh.");
-                return;
-            }
-
-            ImGui::Separator();
-            ImGui::Text("Vehicle handle: %d", paint.vehicle);
-            ImGui::Text("Primary: %s / %d", NativePaintTypeName(paint.primaryPaintType), paint.primaryModColor);
-            ImGui::Text("Secondary: %s / %d", NativePaintTypeName(paint.secondaryPaintType), paint.secondaryModColor);
+            ImGui::Text("Vehicle: %d", paint.vehicle);
+            ImGui::Text("Primary finish: %s", NativePaintTypeName(paint.primaryPaintType));
+            ImGui::Text("Primary color: %d", paint.primaryModColor);
+            ImGui::Text("Secondary finish: %s", NativePaintTypeName(paint.secondaryPaintType));
+            ImGui::Text("Secondary color: %d", paint.secondaryModColor);
             ImGui::Text("Indexed pair: %d / %d", paint.primaryColor, paint.secondaryColor);
-            ImGui::Text("Pearlescent / wheel: %d / %d", paint.pearlescentColor, paint.wheelColor);
+            ImGui::Text("Pearl / wheel: %d / %d", paint.pearlescentColor, paint.wheelColor);
             ImGui::Text("Custom primary: %s", paint.primaryCustom ? "yes" : "no");
             ImGui::Text("Custom secondary: %s", paint.secondaryCustom ? "yes" : "no");
-
             ImGui::Separator();
             ImGui::Text("Last operation: %s", OperationName(snapshot.lastOperation));
-            if (snapshot.lastOperation == PaintOperation::None)
-                ImGui::TextDisabled("No paint write has run yet.");
-            else if (snapshot.lastOperationRejectedAsStale)
-                ImGui::TextDisabled("Rejected because the current vehicle changed before execution.");
-            else
-                ImGui::Text("Result: %s", snapshot.lastOperationSucceeded ? "success" : "failed");
+            if (snapshot.lastOperation != PaintOperation::None)
+            {
+                if (snapshot.lastOperationRejectedAsStale)
+                    ImGui::TextDisabled("Rejected: vehicle changed before execution.");
+                else
+                    ImGui::Text("Result: %s", snapshot.lastOperationSucceeded ? "success" : "failed");
+            }
         }
     }
 
     void RenderVehiclePaintPanel() noexcept
     {
-        auto& runtime = VehiclePaintRuntime::Get();
-        const PaintServiceSnapshot snapshot = runtime.Snapshot();
+        auto& runtime = Game::Paint::VehiclePaintRuntime::Get();
+        const auto snapshot = runtime.Snapshot();
+        const auto gameState = Game::GameState::Get().Snapshot();
         SyncEditor(snapshot.paint);
 
         ImGui::SetCursorPos(ImVec2(226.0f, 16.0f));
@@ -270,9 +308,9 @@ namespace Tutones::UI
         ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(24.0f / 255.0f, 24.0f / 255.0f, 26.0f / 255.0f, 1.0f));
         ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(1.0f, 1.0f, 1.0f, 0.04f));
 
-        if (ImGui::BeginChild("##vehicle_paint_editor", ImVec2(490.0f, 430.0f), true))
+        if (ImGui::BeginChild("##vehicle_paint", ImVec2(490.0f, 430.0f), true))
         {
-            ImGui::TextColored(Accent, "Vehicle Paint");
+            ImGui::TextUnformatted("LSC Paint Catalog");
             ImGui::SameLine();
             ImGui::TextDisabled("%s", g_PaintUi.queueMessage);
             ImGui::Separator();
@@ -281,22 +319,17 @@ namespace Tutones::UI
             {
                 ImGui::TextDisabled("Vehicle paint runtime is offline.");
             }
+            else if (!gameState.inVehicle || gameState.vehicle == 0)
+            {
+                ImGui::TextDisabled("No vehicle detected. Enter a vehicle first.");
+            }
             else if (!snapshot.paint.valid)
             {
-                const auto gameState = Game::GameState::Get().Snapshot();
-                if (gameState.inVehicle && gameState.vehicle != 0)
-                {
-                    ImGui::Text("Vehicle handle: %d", gameState.vehicle);
-                    ImGui::TextDisabled("Vehicle detected; paint state is still refreshing or a paint native read failed.");
-                }
-                else
-                {
-                    ImGui::TextDisabled("No current vehicle handle detected yet.");
-                }
+                ImGui::Text("Vehicle detected: %d", gameState.vehicle);
+                ImGui::TextDisabled("Paint state is refreshing. Base paint reads no longer depend on optional custom metadata.");
             }
             else if (ImGui::BeginTabBar("##vehicle_paint_tabs"))
             {
-                ImGui::BeginDisabled(!snapshot.paint.valid);
                 if (ImGui::BeginTabItem("Primary"))
                 {
                     RenderBasePaintEditor("primary", "Apply primary paint", g_PaintUi.primaryPalette, g_PaintUi.primaryIndex, true);
@@ -309,12 +342,11 @@ namespace Tutones::UI
                     RenderCustomEditor("secondary_custom", g_PaintUi.customSecondary, false, snapshot.paint.secondaryCustom);
                     ImGui::EndTabItem();
                 }
-                if (ImGui::BeginTabItem("Extras"))
+                if (ImGui::BeginTabItem("Pearl / Wheels"))
                 {
                     RenderExtras();
                     ImGui::EndTabItem();
                 }
-                ImGui::EndDisabled();
                 if (ImGui::BeginTabItem("Status"))
                 {
                     RenderStatus(snapshot);

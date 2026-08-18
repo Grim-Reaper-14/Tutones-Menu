@@ -139,7 +139,11 @@ namespace Tutones::Game::Paint
         VehiclePaintState state{};
         if (!m_Controller.ReadPaintState(vehicle, state))
         {
-            ClearPaintSnapshot();
+            // Keep the last known editor state for the same vehicle. A transient or
+            // optional metadata read must not collapse the entire Paint UI.
+            std::scoped_lock lock(m_Mutex);
+            if (m_Snapshot.paint.vehicle != vehicle)
+                m_Snapshot.paint = {};
             return false;
         }
 

@@ -303,10 +303,11 @@ int main()
     assert(service.Snapshot().lastOperationRejectedAsStale);
     vehicles.current = 42;
 
-    // Read/backend failures invalidate the snapshot conservatively.
+    // A transient read failure for the same vehicle keeps the last known editor state.
     backend.failRead = true;
     service.TickAt(t0 + std::chrono::seconds{1});
-    assert(!service.Snapshot().paint.valid);
+    assert(service.Snapshot().paint.valid);
+    assert(service.Snapshot().paint.vehicle == 42);
     backend.failRead = false;
 
     // No vehicle rejects writes.
@@ -315,6 +316,6 @@ int main()
     assert(!service.QueuePrimary({PaintPalette::Normal, 1}));
     assert(!service.QueueCustomPrimary(pink));
 
-    std::cout << "Tutones vehicle paint v5 tests passed\n";
+    std::cout << "Tutones vehicle paint v10 tests passed\n";
     return 0;
 }
