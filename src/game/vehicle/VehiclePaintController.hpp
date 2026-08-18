@@ -17,6 +17,10 @@ namespace Tutones::Game::Paint
         [[nodiscard]] bool SetSecondary(VehicleHandle vehicle, PaintChoice choice) noexcept;
         [[nodiscard]] bool SetPearlescent(VehicleHandle vehicle, int colorIndex) noexcept;
         [[nodiscard]] bool SetWheel(VehicleHandle vehicle, int colorIndex) noexcept;
+        [[nodiscard]] bool SetCustomPrimary(VehicleHandle vehicle, RgbColor color) noexcept;
+        [[nodiscard]] bool SetCustomSecondary(VehicleHandle vehicle, RgbColor color) noexcept;
+        [[nodiscard]] bool ClearCustomPrimary(VehicleHandle vehicle) noexcept;
+        [[nodiscard]] bool ClearCustomSecondary(VehicleHandle vehicle) noexcept;
 
     private:
         IVehiclePaintBackend& m_Backend;

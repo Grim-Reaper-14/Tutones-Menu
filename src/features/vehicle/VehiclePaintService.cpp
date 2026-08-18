@@ -21,7 +21,7 @@ namespace Tutones::Game::Paint
         }
 
         // Refresh immediately when entering/switching vehicles. Otherwise poll at a
-        // modest cadence instead of issuing four GTA native calls every script tick.
+        // modest cadence instead of issuing multiple GTA native calls every script tick.
         if (vehicle != m_LastVehicle || m_NextRefresh == Clock::time_point{} || now >= m_NextRefresh)
         {
             m_LastVehicle = vehicle;
@@ -70,6 +70,34 @@ namespace Tutones::Game::Paint
 
         return QueueOperation(PaintOperation::Wheel, [this, colorIndex](VehicleHandle vehicle) {
             return m_Controller.SetWheel(vehicle, colorIndex);
+        });
+    }
+
+    bool VehiclePaintService::QueueCustomPrimary(RgbColor color)
+    {
+        return QueueOperation(PaintOperation::CustomPrimary, [this, color](VehicleHandle vehicle) {
+            return m_Controller.SetCustomPrimary(vehicle, color);
+        });
+    }
+
+    bool VehiclePaintService::QueueCustomSecondary(RgbColor color)
+    {
+        return QueueOperation(PaintOperation::CustomSecondary, [this, color](VehicleHandle vehicle) {
+            return m_Controller.SetCustomSecondary(vehicle, color);
+        });
+    }
+
+    bool VehiclePaintService::QueueClearCustomPrimary()
+    {
+        return QueueOperation(PaintOperation::ClearCustomPrimary, [this](VehicleHandle vehicle) {
+            return m_Controller.ClearCustomPrimary(vehicle);
+        });
+    }
+
+    bool VehiclePaintService::QueueClearCustomSecondary()
+    {
+        return QueueOperation(PaintOperation::ClearCustomSecondary, [this](VehicleHandle vehicle) {
+            return m_Controller.ClearCustomSecondary(vehicle);
         });
     }
 

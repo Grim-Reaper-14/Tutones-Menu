@@ -45,6 +45,10 @@ namespace Tutones::Game::Paint
         [[nodiscard]] bool QueueSecondary(PaintChoice choice);
         [[nodiscard]] bool QueuePearlescent(int colorIndex);
         [[nodiscard]] bool QueueWheel(int colorIndex);
+        [[nodiscard]] bool QueueCustomPrimary(RgbColor color);
+        [[nodiscard]] bool QueueCustomSecondary(RgbColor color);
+        [[nodiscard]] bool QueueClearCustomPrimary();
+        [[nodiscard]] bool QueueClearCustomSecondary();
 
         [[nodiscard]] PaintServiceSnapshot Snapshot() const noexcept;
 

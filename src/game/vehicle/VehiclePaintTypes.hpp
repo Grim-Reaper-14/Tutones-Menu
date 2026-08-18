@@ -33,6 +33,19 @@ namespace Tutones::Game::Paint
         Secondary,
         Pearlescent,
         Wheel,
+        CustomPrimary,
+        CustomSecondary,
+        ClearCustomPrimary,
+        ClearCustomSecondary,
+    };
+
+    struct RgbColor final
+    {
+        std::uint8_t red{};
+        std::uint8_t green{};
+        std::uint8_t blue{};
+
+        [[nodiscard]] friend constexpr bool operator==(const RgbColor&, const RgbColor&) noexcept = default;
     };
 
     struct PaintChoice final
@@ -48,6 +61,10 @@ namespace Tutones::Game::Paint
         int secondaryColor{};
         int pearlescentColor{};
         int wheelColor{};
+        bool primaryCustom{};
+        bool secondaryCustom{};
+        RgbColor customPrimary{};
+        RgbColor customSecondary{};
         bool valid{};
     };
 
