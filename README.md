@@ -1,24 +1,32 @@
-# Tutones Vehicle Paint Overlay v4
+# Tutones Vehicle Paint Overlay v5
 
-Repo-shaped integration checkpoint for the next GitHub write.
+Tutones GTA Enhanced vehicle-paint runtime checkpoint.
 
-The paint layer stays independent from ImGui and from the GTA native invoker. UI code only queues operations; the final Tutones adapter performs native calls on the existing GTA script-thread runtime path.
+V5 moves the tested paint logic onto the real Tutones native/runtime architecture while fixing finish routing from the earlier standalone checkpoints.
 
-## Runtime behavior
+## Paint routing
 
-- Primary/secondary indexed palettes: Chrome, Classic, Matte, Metals, Utility, Worn, Chameleon.
-- Pearlescent uses classic indexed colors.
-- Wheels accept Alloy, Classic, and Chameleon indices.
-- Custom RGB primary and secondary paint are supported without replacing the stored indexed fallback.
-- Selecting an indexed primary/secondary paint removes the corresponding custom RGB override only after the indexed value was written successfully.
-- Custom override reset preserves the underlying indexed paint.
-- Companion values are preserved on indexed writes (primary/secondary and pearl/wheel pairs).
-- Queued operations are vehicle-stable: switching cars before execution drops the stale operation.
-- Passive paint reads are throttled to 250 ms instead of polling multiple natives every script tick.
-- Entering or switching vehicles refreshes immediately.
-- Successful writes refresh the published snapshot immediately.
-- Backend/read failures invalidate or preserve state conservatively instead of fabricating success.
+- Native paint types use `GET/SET_VEHICLE_MOD_COLOR_1/2`:
+  - 0 Normal
+  - 1 Metallic
+  - 2 Pearl
+  - 3 Matte
+  - 4 Metal
+  - 5 Chrome
+- Classic and Utility choices map to native Normal instead of inventing unsupported paint types.
+- Worn and Chameleon stay on indexed `GET/SET_VEHICLE_COLOURS`.
+- Pearlescent overlay and wheel colour stay on `GET/SET_VEHICLE_EXTRA_COLOURS`.
+- Custom primary/secondary RGB use the dedicated custom-colour natives.
 
-The code is intended to be compiled and tested standalone under C++20 with warnings-as-errors and sanitizers before being wired into the current Tutones runtime.
+## Runtime integration
 
-The only intentionally missing piece is the thin adapter to Tutones' exact current `NativeRegistry`, `GameRuntime` queue, and `GameState` APIs. Those should be read from current `main` before the final merge rather than guessed.
+- `TutonesVehiclePaintBackend` adapts `IVehiclePaintBackend` to the focused `NativeInvoker` / `NativeRegistry`.
+- `VehiclePaintRuntime` adapts `GameRuntime::Enqueue` and `GameState::Snapshot().vehicle`.
+- The paint service self-schedules one task per GTA script tick; native calls never execute from the D3D12/ImGui render thread.
+- The existing 250 ms passive paint refresh, immediate successful-write refresh, stale-vehicle rejection, and conservative failure behavior remain intact.
+
+## Validation
+
+The standalone controller/service tests compile under C++20 with `-Wall -Wextra -Werror -pedantic` and pass as `Tutones vehicle paint v5 tests passed`.
+
+The next checkpoint is the interactive Vehicle / Paint UI and broader vehicle modification controls.

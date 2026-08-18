@@ -19,6 +19,24 @@ namespace Tutones::Game::Native
         GetEntityModel,
         IsPedInAnyVehicle,
         GetVehiclePedIsIn,
+
+        GetVehicleColours,
+        SetVehicleColours,
+        GetVehicleExtraColours,
+        SetVehicleExtraColours,
+        GetVehicleModColor1,
+        SetVehicleModColor1,
+        GetVehicleModColor2,
+        SetVehicleModColor2,
+        GetIsVehiclePrimaryColourCustom,
+        GetIsVehicleSecondaryColourCustom,
+        GetVehicleCustomPrimaryColour,
+        GetVehicleCustomSecondaryColour,
+        SetVehicleCustomPrimaryColour,
+        SetVehicleCustomSecondaryColour,
+        ClearVehicleCustomPrimaryColour,
+        ClearVehicleCustomSecondaryColour,
+
         Count,
     };
 

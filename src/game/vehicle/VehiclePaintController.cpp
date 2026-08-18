@@ -11,6 +11,11 @@ namespace Tutones::Game::Paint
         int secondary{};
         int pearlescent{};
         int wheel{};
+        int primaryPaintType{};
+        int primaryModColor{};
+        int primaryModPearlescent{};
+        int secondaryPaintType{};
+        int secondaryModColor{};
         bool primaryCustom{};
         bool secondaryCustom{};
         RgbColor customPrimary{};
@@ -19,6 +24,12 @@ namespace Tutones::Game::Paint
         if (!m_Backend.GetVehicleColours(vehicle, primary, secondary))
             return false;
         if (!m_Backend.GetVehicleExtraColours(vehicle, pearlescent, wheel))
+            return false;
+        if (!m_Backend.GetVehicleModColor1(vehicle, primaryPaintType, primaryModColor, primaryModPearlescent))
+            return false;
+        if (!m_Backend.GetVehicleModColor2(vehicle, secondaryPaintType, secondaryModColor))
+            return false;
+        if (!IsNativePaintType(primaryPaintType) || !IsNativePaintType(secondaryPaintType))
             return false;
         if (!m_Backend.IsPrimaryColourCustom(vehicle, primaryCustom))
             return false;
@@ -34,6 +45,11 @@ namespace Tutones::Game::Paint
         out.secondaryColor = secondary;
         out.pearlescentColor = pearlescent;
         out.wheelColor = wheel;
+        out.primaryPaintType = static_cast<NativePaintType>(primaryPaintType);
+        out.secondaryPaintType = static_cast<NativePaintType>(secondaryPaintType);
+        out.primaryModColor = primaryModColor;
+        out.secondaryModColor = secondaryModColor;
+        out.primaryModPearlescent = primaryModPearlescent;
         out.primaryCustom = primaryCustom;
         out.secondaryCustom = secondaryCustom;
         out.customPrimary = customPrimary;
@@ -47,18 +63,36 @@ namespace Tutones::Game::Paint
         if (vehicle == 0 || !PaintChoiceAllowed(PaintTarget::Primary, choice))
             return false;
 
-        int primary{};
-        int secondary{};
         bool custom{};
-        if (!m_Backend.GetVehicleColours(vehicle, primary, secondary))
-            return false;
         if (!m_Backend.IsPrimaryColourCustom(vehicle, custom))
             return false;
-        if (!m_Backend.SetVehicleColours(vehicle, choice.colorIndex, secondary))
-            return false;
 
-        // The indexed value is written first. If clearing the custom override fails,
-        // the visible custom colour remains instead of destroying it before a failed write.
+        if (UsesIndexedVehicleColourPath(choice.palette))
+        {
+            int primary{};
+            int secondary{};
+            if (!m_Backend.GetVehicleColours(vehicle, primary, secondary))
+                return false;
+            if (!m_Backend.SetVehicleColours(vehicle, choice.colorIndex, secondary))
+                return false;
+        }
+        else
+        {
+            const int paintType = NativePaintTypeValue(choice.palette);
+            if (!IsNativePaintType(paintType))
+                return false;
+
+            int currentPaintType{};
+            int currentColor{};
+            int currentPearlescent{};
+            if (!m_Backend.GetVehicleModColor1(vehicle, currentPaintType, currentColor, currentPearlescent))
+                return false;
+            if (!m_Backend.SetVehicleModColor1(vehicle, paintType, choice.colorIndex, currentPearlescent))
+                return false;
+        }
+
+        // Always write the requested indexed/mod paint first. A failed custom-clear
+        // leaves the visible custom RGB override intact and reports failure conservatively.
         return !custom || m_Backend.ClearCustomPrimaryColour(vehicle);
     }
 
@@ -67,15 +101,27 @@ namespace Tutones::Game::Paint
         if (vehicle == 0 || !PaintChoiceAllowed(PaintTarget::Secondary, choice))
             return false;
 
-        int primary{};
-        int secondary{};
         bool custom{};
-        if (!m_Backend.GetVehicleColours(vehicle, primary, secondary))
-            return false;
         if (!m_Backend.IsSecondaryColourCustom(vehicle, custom))
             return false;
-        if (!m_Backend.SetVehicleColours(vehicle, primary, choice.colorIndex))
-            return false;
+
+        if (UsesIndexedVehicleColourPath(choice.palette))
+        {
+            int primary{};
+            int secondary{};
+            if (!m_Backend.GetVehicleColours(vehicle, primary, secondary))
+                return false;
+            if (!m_Backend.SetVehicleColours(vehicle, primary, choice.colorIndex))
+                return false;
+        }
+        else
+        {
+            const int paintType = NativePaintTypeValue(choice.palette);
+            if (!IsNativePaintType(paintType))
+                return false;
+            if (!m_Backend.SetVehicleModColor2(vehicle, paintType, choice.colorIndex))
+                return false;
+        }
 
         return !custom || m_Backend.ClearCustomSecondaryColour(vehicle);
     }

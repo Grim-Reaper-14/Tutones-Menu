@@ -25,11 +25,16 @@ add_library(TutonesMenu SHARED
     src/core/filesystem/FileSystem.cpp
     src/core/logging/Logger.cpp
 
+    src/features/vehicle/VehiclePaintRuntime.cpp
+    src/features/vehicle/VehiclePaintService.cpp
+
     src/game/GamePointers.cpp
     src/game/GameState.cpp
     src/game/memory/ModuleView.cpp
     src/game/memory/PatternScanner.cpp
     src/game/native/NativeRegistry.cpp
+    src/game/vehicle/TutonesVehiclePaintBackend.cpp
+    src/game/vehicle/VehiclePaintController.cpp
 
     src/hooking/HookManager.cpp
     src/hooking/Win32Hook.cpp
@@ -88,6 +93,10 @@ source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR}/src PREFIX "Source" FILES
     src/core/logging/LogSink.hpp
     src/core/logging/Logger.cpp
     src/core/logging/Logger.hpp
+    src/features/vehicle/VehiclePaintRuntime.cpp
+    src/features/vehicle/VehiclePaintRuntime.hpp
+    src/features/vehicle/VehiclePaintService.cpp
+    src/features/vehicle/VehiclePaintService.hpp
     src/game/GamePointers.cpp
     src/game/GamePointers.hpp
     src/game/GameState.cpp
@@ -102,6 +111,12 @@ source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR}/src PREFIX "Source" FILES
     src/game/native/NativeRegistry.cpp
     src/game/native/NativeRegistry.hpp
     src/game/types/ScriptTypes.hpp
+    src/game/vehicle/TutonesVehiclePaintBackend.cpp
+    src/game/vehicle/TutonesVehiclePaintBackend.hpp
+    src/game/vehicle/VehiclePaintBackend.hpp
+    src/game/vehicle/VehiclePaintController.cpp
+    src/game/vehicle/VehiclePaintController.hpp
+    src/game/vehicle/VehiclePaintTypes.hpp
     src/hooking/HookManager.cpp
     src/hooking/HookManager.hpp
     src/hooking/HookStatus.hpp

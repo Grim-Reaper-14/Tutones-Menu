@@ -14,6 +14,11 @@ namespace Tutones::Game::Paint
         virtual bool GetVehicleExtraColours(VehicleHandle vehicle, int& pearlescent, int& wheel) noexcept = 0;
         virtual bool SetVehicleExtraColours(VehicleHandle vehicle, int pearlescent, int wheel) noexcept = 0;
 
+        virtual bool GetVehicleModColor1(VehicleHandle vehicle, int& paintType, int& color, int& pearlescent) noexcept = 0;
+        virtual bool SetVehicleModColor1(VehicleHandle vehicle, int paintType, int color, int pearlescent) noexcept = 0;
+        virtual bool GetVehicleModColor2(VehicleHandle vehicle, int& paintType, int& color) noexcept = 0;
+        virtual bool SetVehicleModColor2(VehicleHandle vehicle, int paintType, int color) noexcept = 0;
+
         virtual bool IsPrimaryColourCustom(VehicleHandle vehicle, bool& custom) noexcept = 0;
         virtual bool IsSecondaryColourCustom(VehicleHandle vehicle, bool& custom) noexcept = 0;
         virtual bool GetCustomPrimaryColour(VehicleHandle vehicle, RgbColor& color) noexcept = 0;

@@ -1,33 +1,35 @@
-# Vehicle paint integration notes
+# Vehicle Paint Integration
 
-Prepared against the Tutones GTA Enhanced runtime architecture.
+## V5 runtime wiring
 
-## Final adapter responsibilities
+The standalone paint service now has a concrete Tutones adapter path:
 
-1. Implement `IVehiclePaintBackend` on top of `Native::NativeRegistry` / `Native::NativeInvoker`.
-2. Add only the vehicle paint natives required by the backend:
-   - get/set indexed vehicle colours
-   - get/set extra colours
-   - test/get/set/clear custom primary colour
-   - test/get/set/clear custom secondary colour
-3. Implement `IGameTaskQueue` with `Runtime::GameRuntime::Get().Enqueue(std::function<void()>)`.
-4. Implement `ICurrentVehicleSource` from `GameState::Get().Snapshot().vehicle`.
-5. Call `VehiclePaintService::Tick()` from the GTA script-thread runtime tick.
-6. Render `VehiclePaintService::Snapshot()` from ImGui; never invoke GTA natives from the render thread.
-7. UI actions call only the queue methods on `VehiclePaintService`.
+1. `NativeRegistry` resolves the focused vehicle-paint native set.
+2. `Natives.hpp` exposes typed wrappers for indexed, mod-colour, extra-colour, and custom-RGB operations.
+3. `TutonesVehiclePaintBackend` implements `IVehiclePaintBackend` with those wrappers.
+4. `GameTaskQueueAdapter` forwards paint work to `Runtime::GameRuntime::Get().Enqueue(...)`.
+5. `CurrentVehicleSource` reads the thread-safe `GameState::Get().Snapshot().vehicle` snapshot.
+6. `VehiclePaintRuntime` self-schedules a service tick on the GTA task queue after `GameRuntime` starts and stops before it shuts down.
 
-## Polling cadence
+No GTA native is invoked from the D3D12/ImGui render thread.
 
-`Tick()` may run every GTA script tick, but paint natives do not. The service refreshes paint state immediately on vehicle acquisition/change and then at a 250 ms cadence. Successful writes also refresh immediately.
+## Finish routing
 
-Custom RGB getter natives are only called when the corresponding `IS_*_COLOUR_CUSTOM` result says an override is active.
+Primary/secondary finishes are split into the two GTA-native paths instead of treating every finish as a raw indexed colour:
 
-## Indexed/custom interaction
+- `SET/GET_VEHICLE_MOD_COLOR_1/2` for native paint types 0 through 5: Normal, Metallic, Pearl, Matte, Metal, and Chrome.
+- Classic and Utility are routed through native Normal.
+- `SET/GET_VEHICLE_COLOURS` for Worn and Chameleon indexed finishes.
+- `SET/GET_VEHICLE_EXTRA_COLOURS` for pearlescent overlay and wheel colour.
 
-The stored indexed GTA colour remains the fallback behind a custom RGB override. Applying an indexed primary/secondary choice writes the indexed pair first and only then clears the matching custom override. This means a failed indexed write does not destroy a visible custom colour.
+Primary mod-colour writes read the existing primary mod colour first so the `SET_VEHICLE_MOD_COLOR_1` pearlescent companion argument is preserved.
 
-Explicit `QueueClearCustomPrimary()` / `QueueClearCustomSecondary()` operations remove only the RGB override and preserve the indexed fallback.
+## Custom RGB interaction
 
-## Paint behavior
+The indexed/mod paint is written before a custom RGB override is cleared. A failed base paint write therefore never destroys the visible custom override. If the base write succeeds but clearing the override fails, the operation reports failure conservatively.
 
-Primary/secondary palettes use indexed GTA vehicle colours: Chrome, Classic, Matte, Metals, Utility, Worn, and Chameleon. Pearlescent and wheel colour use the extra-colour pair. Wheel colour accepts Alloy, Classic, and Chameleon indices.
+Custom RGB getters only run when `GET_IS_VEHICLE_*_COLOUR_CUSTOM` reports that the matching override is active.
+
+## Remaining UI work
+
+The current Vehicle / Paint panel is still a visual placeholder. The next checkpoint should render `VehiclePaintRuntime::Get().Snapshot()` and route UI actions only through `VehiclePaintRuntime::Get().Service().Queue...` methods.

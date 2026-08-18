@@ -6,9 +6,22 @@ namespace Tutones::Game::Paint
 {
     using VehicleHandle = std::int32_t;
 
+    enum class NativePaintType : std::uint8_t
+    {
+        Normal = 0,
+        Metallic = 1,
+        Pearl = 2,
+        Matte = 3,
+        Metal = 4,
+        Chrome = 5,
+    };
+
     enum class PaintPalette : std::uint8_t
     {
         Alloy,
+        Normal,
+        Metallic,
+        Pearl,
         Chrome,
         Classic,
         Matte,
@@ -61,6 +74,11 @@ namespace Tutones::Game::Paint
         int secondaryColor{};
         int pearlescentColor{};
         int wheelColor{};
+        NativePaintType primaryPaintType{NativePaintType::Normal};
+        NativePaintType secondaryPaintType{NativePaintType::Normal};
+        int primaryModColor{};
+        int secondaryModColor{};
+        int primaryModPearlescent{};
         bool primaryCustom{};
         bool secondaryCustom{};
         RgbColor customPrimary{};
@@ -75,6 +93,43 @@ namespace Tutones::Game::Paint
         bool lastOperationSucceeded{};
         bool lastOperationRejectedAsStale{};
     };
+
+    [[nodiscard]] constexpr bool UsesIndexedVehicleColourPath(PaintPalette palette) noexcept
+    {
+        return palette == PaintPalette::Worn || palette == PaintPalette::Chameleon;
+    }
+
+    [[nodiscard]] constexpr int NativePaintTypeValue(PaintPalette palette) noexcept
+    {
+        switch (palette)
+        {
+        case PaintPalette::Normal:
+        case PaintPalette::Classic:
+        case PaintPalette::Utility:
+            return static_cast<int>(NativePaintType::Normal);
+        case PaintPalette::Metallic:
+            return static_cast<int>(NativePaintType::Metallic);
+        case PaintPalette::Pearl:
+            return static_cast<int>(NativePaintType::Pearl);
+        case PaintPalette::Matte:
+            return static_cast<int>(NativePaintType::Matte);
+        case PaintPalette::Metals:
+            return static_cast<int>(NativePaintType::Metal);
+        case PaintPalette::Chrome:
+            return static_cast<int>(NativePaintType::Chrome);
+        case PaintPalette::Alloy:
+        case PaintPalette::Worn:
+        case PaintPalette::Chameleon:
+            return -1;
+        }
+        return -1;
+    }
+
+    [[nodiscard]] constexpr bool IsNativePaintType(int value) noexcept
+    {
+        return value >= static_cast<int>(NativePaintType::Normal)
+            && value <= static_cast<int>(NativePaintType::Chrome);
+    }
 
     [[nodiscard]] constexpr bool PaletteAllowed(PaintTarget target, PaintPalette palette) noexcept
     {
