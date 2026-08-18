@@ -1,9 +1,13 @@
 #include "VehicleModificationRuntime.hpp"
 
 #include "../../game/GameState.hpp"
+#include "../../game/PlayerNatives.hpp"
+#include "../../game/VehicleNatives.hpp"
 #include "../../runtime/GameRuntime.hpp"
 
 #include <algorithm>
+#include <cmath>
+#include <optional>
 #include <utility>
 
 namespace Tutones::Game::Mods
@@ -15,6 +19,8 @@ namespace Tutones::Game::Mods
         constexpr int TurboModType = 18;
         constexpr int TireSmokeModType = 20;
         constexpr int XenonModType = 22;
+        constexpr float Pi = 3.14159265358979323846f;
+        constexpr float SpawnDistance = 5.0f;
 
         [[nodiscard]] constexpr bool ValidModType(int modType) noexcept
         {
@@ -87,6 +93,46 @@ namespace Tutones::Game::Mods
         return QueueVehicleOperation(VehicleModAction::FlipUpright, [](Vehicle vehicle) {
             const auto result = Natives::SetVehicleOnGroundProperly(vehicle, 5.0f);
             return result.value_or(false);
+        });
+    }
+
+    bool VehicleModificationRuntime::QueueMaxVehicle()
+    {
+        return QueueVehicleOperation(VehicleModAction::MaxVehicle, [this](Vehicle vehicle) {
+            return MaxVehicle(vehicle);
+        });
+    }
+
+    bool VehicleModificationRuntime::QueueSpawnVehicle(std::string_view modelName, bool spawnInside, bool maxed)
+    {
+        const Hash model = Joaat(modelName);
+        if (modelName.empty() || model == 0 || !IsRunning())
+            return false;
+
+        return Runtime::GameRuntime::Get().Enqueue([this, model, spawnInside, maxed] {
+            const auto inCdImage = PlayerNatives::IsModelInCdimage(model);
+            const auto validModel = PlayerNatives::IsModelValid(model);
+            const auto isVehicle = VehicleNatives::IsModelAVehicle(model);
+            if (!inCdImage || !validModel || !isVehicle || !*inCdImage || !*validModel || !*isVehicle)
+            {
+                RecordAction(VehicleModAction::SpawnVehicle, false, false);
+                return;
+            }
+
+            if (!PlayerNatives::RequestModel(model))
+            {
+                RecordAction(VehicleModAction::SpawnVehicle, false, false);
+                return;
+            }
+
+            if (m_PendingSpawnModel != 0 && m_PendingSpawnModel != model)
+                static_cast<void>(PlayerNatives::SetModelAsNoLongerNeeded(m_PendingSpawnModel));
+
+            m_PendingSpawnModel = model;
+            m_PendingSpawnInside = spawnInside;
+            m_PendingSpawnMaxed = maxed;
+            m_SpawnDeadline = Clock::now() + SpawnTimeout;
+            SetSpawnPending(model, true);
         });
     }
 
@@ -164,6 +210,8 @@ namespace Tutones::Game::Mods
         if (!IsRunning())
             return;
 
+        ProcessPendingSpawn();
+
         const Vehicle vehicle = CurrentVehicle();
         const int observed = m_ObservedModType.load(std::memory_order_acquire);
         const auto now = Clock::now();
@@ -188,6 +236,78 @@ namespace Tutones::Game::Mods
 
         if (IsRunning() && !QueueNextTick())
             m_Running.store(false, std::memory_order_release);
+    }
+
+    void VehicleModificationRuntime::ProcessPendingSpawn() noexcept
+    {
+        if (m_PendingSpawnModel == 0)
+            return;
+
+        const Hash model = m_PendingSpawnModel;
+        const auto loaded = PlayerNatives::HasModelLoaded(model);
+        if (!loaded)
+        {
+            if (Clock::now() >= m_SpawnDeadline)
+            {
+                static_cast<void>(PlayerNatives::SetModelAsNoLongerNeeded(model));
+                m_PendingSpawnModel = 0;
+                SetSpawnPending(0, false);
+                RecordAction(VehicleModAction::SpawnVehicle, false, false);
+            }
+            return;
+        }
+
+        if (!*loaded)
+        {
+            if (Clock::now() >= m_SpawnDeadline)
+            {
+                static_cast<void>(PlayerNatives::SetModelAsNoLongerNeeded(model));
+                m_PendingSpawnModel = 0;
+                SetSpawnPending(0, false);
+                RecordAction(VehicleModAction::SpawnVehicle, false, false);
+            }
+            else
+            {
+                static_cast<void>(PlayerNatives::RequestModel(model));
+            }
+            return;
+        }
+
+        const auto ped = PlayerNatives::PlayerPedId();
+        const auto coords = ped ? VehicleNatives::GetEntityCoords(*ped, false) : std::nullopt;
+        const auto heading = ped ? VehicleNatives::GetEntityHeading(*ped) : std::nullopt;
+        if (!ped || *ped == 0 || !coords || !heading)
+        {
+            static_cast<void>(PlayerNatives::SetModelAsNoLongerNeeded(model));
+            m_PendingSpawnModel = 0;
+            SetSpawnPending(0, false);
+            RecordAction(VehicleModAction::SpawnVehicle, false, false);
+            return;
+        }
+
+        const float radians = *heading * (Pi / 180.0f);
+        const float spawnX = coords->x - std::sin(radians) * SpawnDistance;
+        const float spawnY = coords->y + std::cos(radians) * SpawnDistance;
+        const float spawnZ = coords->z + 0.5f;
+
+        const auto spawned = VehicleNatives::CreateVehicle(model, spawnX, spawnY, spawnZ, *heading, true, false, false);
+        bool success = spawned && *spawned != 0;
+        if (success)
+        {
+            static_cast<void>(Natives::SetVehicleOnGroundProperly(*spawned, 5.0f));
+            if (m_PendingSpawnMaxed)
+                success = MaxVehicle(*spawned) && success;
+            if (m_PendingSpawnInside)
+                success = VehicleNatives::SetPedIntoVehicle(*ped, *spawned, -1) && success;
+
+            std::scoped_lock lock(m_Mutex);
+            m_Snapshot.lastSpawnedVehicle = *spawned;
+        }
+
+        static_cast<void>(PlayerNatives::SetModelAsNoLongerNeeded(model));
+        m_PendingSpawnModel = 0;
+        SetSpawnPending(0, false);
+        RecordAction(VehicleModAction::SpawnVehicle, success, false);
     }
 
     bool VehicleModificationRuntime::Refresh(Vehicle vehicle) noexcept
@@ -238,6 +358,32 @@ namespace Tutones::Game::Mods
         return true;
     }
 
+    bool VehicleModificationRuntime::MaxVehicle(Vehicle vehicle) noexcept
+    {
+        if (vehicle == 0 || !Natives::SetVehicleModKit(vehicle, 0))
+            return false;
+
+        bool success = true;
+        for (int modType = MinModType; modType <= MaxModType; ++modType)
+        {
+            if (ValidToggleModType(modType))
+            {
+                success = Natives::ToggleVehicleMod(vehicle, modType, true) && success;
+                continue;
+            }
+
+            const auto count = Natives::GetNumVehicleMods(vehicle, modType);
+            if (!count)
+            {
+                success = false;
+                continue;
+            }
+            if (*count > 0)
+                success = Natives::SetVehicleMod(vehicle, modType, *count - 1, false) && success;
+        }
+        return success;
+    }
+
     bool VehicleModificationRuntime::QueueVehicleOperation(
         VehicleModAction action,
         std::function<bool(Vehicle)> apply)
@@ -272,16 +418,47 @@ namespace Tutones::Game::Mods
         m_Snapshot.lastActionRejectedAsStale = stale;
     }
 
+    void VehicleModificationRuntime::SetSpawnPending(Hash model, bool pending) noexcept
+    {
+        std::scoped_lock lock(m_Mutex);
+        m_Snapshot.spawnPending = pending;
+        m_Snapshot.pendingSpawnModel = pending ? model : 0;
+    }
+
     void VehicleModificationRuntime::ClearSnapshot() noexcept
     {
         std::scoped_lock lock(m_Mutex);
         const auto lastAction = m_Snapshot.lastAction;
         const bool lastSuccess = m_Snapshot.lastActionSucceeded;
         const bool lastStale = m_Snapshot.lastActionRejectedAsStale;
+        const bool spawnPending = m_Snapshot.spawnPending;
+        const Hash pendingSpawnModel = m_Snapshot.pendingSpawnModel;
+        const Vehicle lastSpawnedVehicle = m_Snapshot.lastSpawnedVehicle;
         m_Snapshot = {};
         m_Snapshot.currentMod = -1;
         m_Snapshot.lastAction = lastAction;
         m_Snapshot.lastActionSucceeded = lastSuccess;
         m_Snapshot.lastActionRejectedAsStale = lastStale;
+        m_Snapshot.spawnPending = spawnPending;
+        m_Snapshot.pendingSpawnModel = pendingSpawnModel;
+        m_Snapshot.lastSpawnedVehicle = lastSpawnedVehicle;
+    }
+
+    Hash VehicleModificationRuntime::Joaat(std::string_view text) noexcept
+    {
+        std::uint32_t hash{};
+        for (const char raw : text)
+        {
+            char c = raw;
+            if (c >= 'A' && c <= 'Z')
+                c = static_cast<char>(c - 'A' + 'a');
+            hash += static_cast<std::uint8_t>(c);
+            hash += hash << 10;
+            hash ^= hash >> 6;
+        }
+        hash += hash << 3;
+        hash ^= hash >> 11;
+        hash += hash << 15;
+        return hash;
     }
 }

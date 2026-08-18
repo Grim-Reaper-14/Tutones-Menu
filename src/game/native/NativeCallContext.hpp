@@ -48,7 +48,7 @@ namespace Tutones::Game::Native
         {
             using Value = std::remove_cv_t<std::remove_reference_t<T>>;
             static_assert(std::is_trivially_copyable_v<Value>);
-            static_assert(sizeof(Value) <= sizeof(std::uint64_t));
+            static_assert(sizeof(Value) <= sizeof(NativeVector3));
 
             Value value{};
             if (m_ReturnValue)

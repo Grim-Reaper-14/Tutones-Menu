@@ -26,16 +26,21 @@ namespace Tutones::UI
         }};
 
         constexpr std::array<const char*, 13> WheelTypeNames{{
-            "Sport", "Muscle", "Lowrider", "SUV", "Offroad", "Tuner", "Bike",
-            "High End", "Benny Original", "Benny Bespoke", "Open Wheel", "Street", "Track",
+            "Sport", "Muscle", "Lowrider", "SUV", "Offroad", "Tuner", "Bike Wheels",
+            "High End", "Bennys Original", "Bennys Bespoke", "Open Wheel", "Street", "Track",
         }};
+
+        constexpr std::array<const char*, 2> WheelAxleNames{{"Front Wheels", "Rear Wheels"}};
 
         int g_ModType{11};
         int g_ModIndex{};
         int g_WheelType{};
+        int g_WheelAxle{};
+        int g_WheelStyle{};
         bool g_CustomTires{};
         int g_LastVehicle{};
         int g_LastObserved{-1};
+        const char* g_WheelMessage{"Choose a wheel family, then a wheel style."};
 
         [[nodiscard]] bool IsToggleSlot(int modType) noexcept
         {
@@ -57,6 +62,7 @@ namespace Tutones::UI
             g_LastObserved = snapshot.observedModType;
             g_ModType = std::clamp(snapshot.observedModType, 0, 49);
             g_ModIndex = std::max(0, snapshot.currentMod);
+            g_WheelStyle = std::max(0, snapshot.currentMod);
             g_WheelType = std::clamp(snapshot.wheelType, 0, 12);
             g_CustomTires = snapshot.customTires;
         }
@@ -95,7 +101,7 @@ namespace Tutones::UI
                     }
 
                     ImGui::Text("Available: %d", snapshot.modCount);
-                    ImGui::Text("Installed: %s", snapshot.currentMod >= 0 ? "custom" : "stock");
+                    ImGui::Text("Installed index: %d", snapshot.currentMod);
 
                     if (IsToggleSlot(g_ModType))
                     {
@@ -111,7 +117,6 @@ namespace Tutones::UI
                         }
                         else
                         {
-                            ImGui::TextDisabled("This toggle slot is supported by the runtime but has no dedicated state label yet.");
                             if (ImGui::Button("Enable", ImVec2(120.0f, 0.0f)))
                                 static_cast<void>(runtime.QueueToggleMod(g_ModType, true));
                             ImGui::SameLine();
@@ -141,10 +146,55 @@ namespace Tutones::UI
 
                 if (ImGui::BeginTabItem("Wheels"))
                 {
-                    g_WheelType = std::clamp(g_WheelType, 0, 12);
-                    ImGui::Combo("Wheel category", &g_WheelType, WheelTypeNames.data(), static_cast<int>(WheelTypeNames.size()));
-                    if (ImGui::Button("Apply wheel category", ImVec2(-1.0f, 0.0f)))
-                        static_cast<void>(runtime.QueueWheelType(g_WheelType));
+                    const int wheelSlot = g_WheelAxle == 0 ? 23 : 24;
+                    if (g_ModType != wheelSlot)
+                    {
+                        g_ModType = wheelSlot;
+                        runtime.SetObservedModType(wheelSlot);
+                        g_LastObserved = -1;
+                    }
+
+                    ImGui::TextUnformatted("Wheel family");
+                    ImGui::Combo("Category", &g_WheelType, WheelTypeNames.data(), static_cast<int>(WheelTypeNames.size()));
+                    if (ImGui::Button("Apply wheel family", ImVec2(-1.0f, 0.0f)))
+                    {
+                        const bool queued = runtime.QueueWheelType(g_WheelType);
+                        g_WheelMessage = queued ? "Wheel family queued; refreshing styles." : "Wheel family rejected.";
+                        runtime.SetObservedModType(wheelSlot);
+                        g_LastObserved = -1;
+                    }
+                    ImGui::TextDisabled("%s", g_WheelMessage);
+
+                    ImGui::Separator();
+                    if (ImGui::Combo("Axle", &g_WheelAxle, WheelAxleNames.data(), static_cast<int>(WheelAxleNames.size())))
+                    {
+                        const int nextSlot = g_WheelAxle == 0 ? 23 : 24;
+                        g_ModType = nextSlot;
+                        runtime.SetObservedModType(nextSlot);
+                        g_LastObserved = -1;
+                    }
+
+                    if (snapshot.observedModType != wheelSlot)
+                    {
+                        ImGui::TextDisabled("Refreshing wheel choices...");
+                    }
+                    else if (snapshot.modCount <= 0)
+                    {
+                        ImGui::TextDisabled("This vehicle exposes no wheel styles for this axle/category.");
+                    }
+                    else
+                    {
+                        g_WheelStyle = std::clamp(g_WheelStyle, 0, snapshot.modCount - 1);
+                        ImGui::Text("Available styles: %d", snapshot.modCount);
+                        ImGui::SliderInt("Wheel style", &g_WheelStyle, 0, snapshot.modCount - 1);
+                        ImGui::Checkbox("Custom tires", &g_CustomTires);
+
+                        if (ImGui::Button("Apply wheel style", ImVec2(180.0f, 0.0f)))
+                            static_cast<void>(runtime.QueueSetMod(wheelSlot, g_WheelStyle, g_CustomTires));
+                        ImGui::SameLine();
+                        if (ImGui::Button("Stock wheels", ImVec2(-1.0f, 0.0f)))
+                            static_cast<void>(runtime.QueueRemoveMod(wheelSlot));
+                    }
 
                     ImGui::Separator();
                     bool turbo = snapshot.turbo;
@@ -165,7 +215,7 @@ namespace Tutones::UI
                     ImGui::Text("Slot: %d - %s", snapshot.observedModType, ModNames[static_cast<std::size_t>(snapshot.observedModType)]);
                     ImGui::Text("Count: %d", snapshot.modCount);
                     ImGui::Text("Current index: %d", snapshot.currentMod);
-                    ImGui::Text("Wheel type: %d", snapshot.wheelType);
+                    ImGui::Text("Wheel family: %d - %s", snapshot.wheelType, WheelTypeNames[static_cast<std::size_t>(snapshot.wheelType)]);
                     ImGui::Text("Turbo: %s", snapshot.turbo ? "on" : "off");
                     ImGui::Text("Tire smoke: %s", snapshot.tireSmoke ? "on" : "off");
                     ImGui::Text("Xenon: %s", snapshot.xenon ? "on" : "off");

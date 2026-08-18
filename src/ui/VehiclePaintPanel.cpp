@@ -1,6 +1,7 @@
 #include "VehiclePaintPanel.hpp"
 
 #include "../features/vehicle/VehiclePaintRuntime.hpp"
+#include "../game/GameState.hpp"
 
 #include <imgui.h>
 
@@ -282,7 +283,16 @@ namespace Tutones::UI
             }
             else if (!snapshot.paint.valid)
             {
-                ImGui::TextDisabled("No vehicle detected yet. Paint actions are disabled until a valid vehicle snapshot is available.");
+                const auto gameState = Game::GameState::Get().Snapshot();
+                if (gameState.inVehicle && gameState.vehicle != 0)
+                {
+                    ImGui::Text("Vehicle handle: %d", gameState.vehicle);
+                    ImGui::TextDisabled("Vehicle detected; paint state is still refreshing or a paint native read failed.");
+                }
+                else
+                {
+                    ImGui::TextDisabled("No current vehicle handle detected yet.");
+                }
             }
             else if (ImGui::BeginTabBar("##vehicle_paint_tabs"))
             {

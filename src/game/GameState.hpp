@@ -36,5 +36,6 @@ namespace Tutones::Game
         GameSnapshot m_Snapshot{};
         std::uint64_t m_LastPollMs{};
         bool m_LoggedReadFailure{};
+        bool m_LoggedVehicleReadFailure{};
     };
 }

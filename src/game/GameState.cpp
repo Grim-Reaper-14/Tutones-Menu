@@ -2,6 +2,7 @@
 
 #include "../core/logging/Logger.hpp"
 #include "native/NativeRegistry.hpp"
+#include "VehicleNatives.hpp"
 
 #include <Windows.h>
 
@@ -28,12 +29,12 @@ namespace Tutones::Game
         m_LastPollMs = now;
 
         const auto ped = Natives::PlayerPedId();
-        if (!ped)
+        if (!ped || *ped == 0)
         {
             if (!m_LoggedReadFailure)
             {
                 m_LoggedReadFailure = true;
-                TUTONES_LOG_WARN("game.state", "PLAYER_PED_ID native call did not return a value");
+                TUTONES_LOG_WARN("game.state", "PLAYER_PED_ID native call did not return a valid player ped");
             }
             return;
         }
@@ -42,27 +43,39 @@ namespace Tutones::Game
         if (!pedExists || !*pedExists)
             return;
 
-        const auto inVehicle = Natives::IsPedInAnyVehicle(*ped, false);
-        if (!inVehicle)
-            return;
-
         Vehicle vehicle{};
-        Hash vehicleModel{};
-
-        if (*inVehicle)
+        auto currentVehicle = VehicleNatives::GetVehiclePedIsUsing(*ped);
+        if (currentVehicle && *currentVehicle != 0)
         {
-            const auto currentVehicle = Natives::GetVehiclePedIsIn(*ped, false);
-            if (currentVehicle)
-            {
+            const auto exists = Natives::DoesEntityExist(*currentVehicle);
+            if (exists && *exists)
                 vehicle = *currentVehicle;
-                const auto vehicleExists = Natives::DoesEntityExist(vehicle);
-                if (vehicleExists && *vehicleExists)
-                {
-                    const auto model = Natives::GetEntityModel(vehicle);
-                    if (model)
-                        vehicleModel = *model;
-                }
+        }
+
+        if (vehicle == 0)
+        {
+            currentVehicle = Natives::GetVehiclePedIsIn(*ped, false);
+            if (currentVehicle && *currentVehicle != 0)
+            {
+                const auto exists = Natives::DoesEntityExist(*currentVehicle);
+                if (exists && *exists)
+                    vehicle = *currentVehicle;
             }
+        }
+
+        const bool inVehicle = vehicle != 0;
+        Hash vehicleModel{};
+        if (inVehicle)
+        {
+            const auto model = Natives::GetEntityModel(vehicle);
+            if (model)
+                vehicleModel = *model;
+            m_LoggedVehicleReadFailure = false;
+        }
+        else if (!m_LoggedVehicleReadFailure)
+        {
+            m_LoggedVehicleReadFailure = true;
+            TUTONES_LOG_DEBUG("game.vehicle", "No active player vehicle handle resolved this poll");
         }
 
         GameSnapshot previous{};
@@ -72,7 +85,7 @@ namespace Tutones::Game
             previous = m_Snapshot;
             current.nativeRuntimeReady = true;
             current.playerPed = *ped;
-            current.inVehicle = *inVehicle;
+            current.inVehicle = inVehicle;
             current.vehicle = vehicle;
             current.vehicleModel = vehicleModel;
             current.sequence = m_Snapshot.sequence + 1;
@@ -125,6 +138,7 @@ namespace Tutones::Game
         m_Snapshot = {};
         m_LastPollMs = 0;
         m_LoggedReadFailure = false;
+        m_LoggedVehicleReadFailure = false;
     }
 
     GameSnapshot GameState::Snapshot() const noexcept
