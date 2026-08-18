@@ -25,6 +25,8 @@ add_library(TutonesMenu SHARED
     src/core/filesystem/FileSystem.cpp
     src/core/logging/Logger.cpp
 
+    src/features/game/GameSessionRuntime.cpp
+    src/features/player/OffRadarRuntime.cpp
     src/features/player/PlayerRuntime.cpp
     src/features/player/PlayerRuntimeActions.cpp
     src/features/player/PlayerRuntimeState.cpp
@@ -107,7 +109,11 @@ source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR}/src PREFIX "Source" FILES
     src/core/logging/LogSink.hpp
     src/core/logging/Logger.cpp
     src/core/logging/Logger.hpp
+    src/features/game/GameSessionRuntime.cpp
+    src/features/game/GameSessionRuntime.hpp
     src/features/game/GameSessionTypes.hpp
+    src/features/player/OffRadarRuntime.cpp
+    src/features/player/OffRadarRuntime.hpp
     src/features/player/OffRadarState.hpp
     src/features/player/PlayerRuntime.cpp
     src/features/player/PlayerRuntime.hpp

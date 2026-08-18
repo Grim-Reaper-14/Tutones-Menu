@@ -169,6 +169,36 @@ namespace Tutones::Game
         else
             TUTONES_LOG_WARN("game.ptr", "ScriptVM pattern was not found; V11 script-function features will be unavailable");
 
+        constexpr auto isSessionStartedPattern = "0F B6 05 ? ? ? ? 0A 05 ? ? ? ? 75 2A";
+        if (auto* match = Memory::PatternScanner::FindFirst(m_Module, isSessionStartedPattern))
+        {
+            auto* address = Memory::PatternScanner::ResolveRip(match + 3);
+            if (address && m_Module.Contains(address))
+            {
+                m_IsSessionStarted = reinterpret_cast<bool*>(address);
+                TUTONES_LOG_INFO("game.ptr", std::string("Resolved IsSessionStarted at ") + AddressString(address));
+            }
+            else
+                TUTONES_LOG_WARN("game.ptr", "IsSessionStarted resolved outside GTA module image");
+        }
+        else
+            TUTONES_LOG_WARN("game.ptr", "IsSessionStarted pattern was not found; online script-global features will report unavailable");
+
+        constexpr auto networkTimePattern = "89 05 ? ? ? ? 80 3D ? ? ? ? ? 0F 84 ? ? ? ? E9";
+        if (auto* match = Memory::PatternScanner::FindFirst(m_Module, networkTimePattern))
+        {
+            auto* address = Memory::PatternScanner::ResolveRip(match + 2);
+            if (address && m_Module.Contains(address))
+            {
+                m_NetworkTime = reinterpret_cast<std::uint32_t*>(address);
+                TUTONES_LOG_INFO("game.ptr", std::string("Resolved NetworkTime at ") + AddressString(address));
+            }
+            else
+                TUTONES_LOG_WARN("game.ptr", "NetworkTime resolved outside GTA module image");
+        }
+        else
+            TUTONES_LOG_WARN("game.ptr", "NetworkTime pattern was not found; Off Radar will report unavailable");
+
         constexpr auto assistedAimShouldReleaseEntityPattern = "80 7F 28 04 75 6A";
         if (auto* match = Memory::PatternScanner::FindFirst(m_Module, assistedAimShouldReleaseEntityPattern))
         {
@@ -269,6 +299,8 @@ namespace Tutones::Game
         m_ScriptPrograms = nullptr;
         m_ScriptGlobals = nullptr;
         m_ScriptVm = nullptr;
+        m_IsSessionStarted = nullptr;
+        m_NetworkTime = nullptr;
         m_PtrToHandle = nullptr;
         m_AssistedAimShouldReleaseEntity = nullptr;
         m_AssistedAimFindNewTarget = nullptr;
@@ -282,6 +314,8 @@ namespace Tutones::Game
     Types::ScriptProgram** GamePointers::ScriptPrograms() const noexcept { return m_ScriptPrograms; }
     std::int64_t** GamePointers::ScriptGlobals() const noexcept { return m_ScriptGlobals; }
     ScriptVmFn GamePointers::ScriptVm() const noexcept { return m_ScriptVm; }
+    bool* GamePointers::IsSessionStarted() const noexcept { return m_IsSessionStarted; }
+    std::uint32_t* GamePointers::NetworkTime() const noexcept { return m_NetworkTime; }
     PtrToHandleFn GamePointers::PtrToHandle() const noexcept { return m_PtrToHandle; }
     void* GamePointers::AssistedAimShouldReleaseEntity() const noexcept { return m_AssistedAimShouldReleaseEntity; }
     AssistedAimFindNewTargetFn GamePointers::AssistedAimFindNewTarget() const noexcept { return m_AssistedAimFindNewTarget; }

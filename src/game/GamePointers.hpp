@@ -31,6 +31,8 @@ namespace Tutones::Game
         [[nodiscard]] Types::ScriptProgram** ScriptPrograms() const noexcept;
         [[nodiscard]] std::int64_t** ScriptGlobals() const noexcept;
         [[nodiscard]] ScriptVmFn ScriptVm() const noexcept;
+        [[nodiscard]] bool* IsSessionStarted() const noexcept;
+        [[nodiscard]] std::uint32_t* NetworkTime() const noexcept;
         [[nodiscard]] PtrToHandleFn PtrToHandle() const noexcept;
         [[nodiscard]] void* AssistedAimShouldReleaseEntity() const noexcept;
         [[nodiscard]] AssistedAimFindNewTargetFn AssistedAimFindNewTarget() const noexcept;
@@ -53,6 +55,8 @@ namespace Tutones::Game
         Types::ScriptProgram** m_ScriptPrograms{};
         std::int64_t** m_ScriptGlobals{};
         ScriptVmFn m_ScriptVm{};
+        bool* m_IsSessionStarted{};
+        std::uint32_t* m_NetworkTime{};
         PtrToHandleFn m_PtrToHandle{};
         void* m_AssistedAimShouldReleaseEntity{};
         AssistedAimFindNewTargetFn m_AssistedAimFindNewTarget{};
