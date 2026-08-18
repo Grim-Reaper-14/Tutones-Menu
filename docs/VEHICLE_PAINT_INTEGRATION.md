@@ -1,35 +1,38 @@
 # Vehicle Paint Integration
 
-## V5 runtime wiring
+## V6 UI wiring
 
-The standalone paint service now has a concrete Tutones adapter path:
+`Vehicle / Paint` is now a functional editor instead of a visual placeholder.
 
-1. `NativeRegistry` resolves the focused vehicle-paint native set.
-2. `Natives.hpp` exposes typed wrappers for indexed, mod-colour, extra-colour, and custom-RGB operations.
-3. `TutonesVehiclePaintBackend` implements `IVehiclePaintBackend` with those wrappers.
-4. `GameTaskQueueAdapter` forwards paint work to `Runtime::GameRuntime::Get().Enqueue(...)`.
-5. `CurrentVehicleSource` reads the thread-safe `GameState::Get().Snapshot().vehicle` snapshot.
-6. `VehiclePaintRuntime` self-schedules a service tick on the GTA task queue after `GameRuntime` starts and stops before it shuts down.
+`TutonesMenu::RenderContent()` delegates the Paint subtab to `RenderVehiclePaintPanel()`. The panel reads only the thread-safe `VehiclePaintRuntime::Get().Snapshot()` value and sends mutations through `VehiclePaintRuntime::Get().Service().Queue...`.
 
 No GTA native is invoked from the D3D12/ImGui render thread.
 
+## Exposed controls
+
+The editor contains four tabs:
+
+- **Primary**: native/indexed finish selection, color index, custom RGB, clear custom.
+- **Secondary**: native/indexed finish selection, color index, custom RGB, clear custom.
+- **Extras**: pearlescent overlay and wheel color.
+- **Status**: current vehicle handle, mod paint types/colors, indexed pair, pearl/wheel values, custom override state, and last operation outcome.
+
+Chameleon controls are constrained to indices 161-223. Other primary/secondary finish selections are constrained to 0-160. Wheel color accepts 0-223, with 161-223 representing the Chameleon range.
+
+## Runtime path
+
+1. ImGui reads `VehiclePaintRuntime::Snapshot()`.
+2. User actions call `VehiclePaintService::QueuePrimary`, `QueueSecondary`, `QueuePearlescent`, `QueueWheel`, `QueueCustomPrimary`, `QueueCustomSecondary`, `QueueClearCustomPrimary`, or `QueueClearCustomSecondary`.
+3. `GameTaskQueueAdapter` forwards the work to `Runtime::GameRuntime::Get().Enqueue(...)`.
+4. `VehiclePaintController` validates the target and routes the operation to the correct backend path.
+5. `TutonesVehiclePaintBackend` invokes the focused native wrappers only on the GTA script thread.
+6. Successful writes immediately refresh the published paint snapshot.
+
 ## Finish routing
 
-Primary/secondary finishes are split into the two GTA-native paths instead of treating every finish as a raw indexed colour:
+- `SET/GET_VEHICLE_MOD_COLOR_1/2`: Normal, Metallic, Pearl, Matte, Metal, Chrome.
+- Classic and Utility route through native Normal.
+- `SET/GET_VEHICLE_COLOURS`: Worn and Chameleon indexed finishes.
+- `SET/GET_VEHICLE_EXTRA_COLOURS`: pearlescent overlay and wheel color.
 
-- `SET/GET_VEHICLE_MOD_COLOR_1/2` for native paint types 0 through 5: Normal, Metallic, Pearl, Matte, Metal, and Chrome.
-- Classic and Utility are routed through native Normal.
-- `SET/GET_VEHICLE_COLOURS` for Worn and Chameleon indexed finishes.
-- `SET/GET_VEHICLE_EXTRA_COLOURS` for pearlescent overlay and wheel colour.
-
-Primary mod-colour writes read the existing primary mod colour first so the `SET_VEHICLE_MOD_COLOR_1` pearlescent companion argument is preserved.
-
-## Custom RGB interaction
-
-The indexed/mod paint is written before a custom RGB override is cleared. A failed base paint write therefore never destroys the visible custom override. If the base write succeeds but clearing the override fails, the operation reports failure conservatively.
-
-Custom RGB getters only run when `GET_IS_VEHICLE_*_COLOUR_CUSTOM` reports that the matching override is active.
-
-## Remaining UI work
-
-The current Vehicle / Paint panel is still a visual placeholder. The next checkpoint should render `VehiclePaintRuntime::Get().Snapshot()` and route UI actions only through `VehiclePaintRuntime::Get().Service().Queue...` methods.
+The UI does not guess a Worn state from a snapshot because GTA does not expose a separate Worn paint-type flag in this layer. Chameleon can be recognized when the indexed color is in the 161-223 range; otherwise the editor initializes from the native mod-color state and still allows Worn to be selected explicitly.

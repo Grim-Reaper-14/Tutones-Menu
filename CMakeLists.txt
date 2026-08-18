@@ -45,6 +45,7 @@ add_library(TutonesMenu SHARED
 
     src/ui/Input.cpp
     src/ui/TutonesMenu.cpp
+    src/ui/VehiclePaintPanel.cpp
 )
 
 target_include_directories(TutonesMenu PRIVATE
@@ -132,4 +133,6 @@ source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR}/src PREFIX "Source" FILES
     src/ui/Input.hpp
     src/ui/TutonesMenu.cpp
     src/ui/TutonesMenu.hpp
+    src/ui/VehiclePaintPanel.cpp
+    src/ui/VehiclePaintPanel.hpp
 )

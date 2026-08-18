@@ -1,6 +1,7 @@
 #include "TutonesMenu.hpp"
 
 #include "Input.hpp"
+#include "VehiclePaintPanel.hpp"
 #include "../core/logging/Logger.hpp"
 #include "../../byte_array.h"
 
@@ -206,7 +207,6 @@ namespace Tutones::UI
             const ImGuiID itemId = ImGui::GetID(id);
 
             const bool pressed = ImGui::InvisibleButton(id, size);
-            const bool hovered = ImGui::IsItemHovered();
 
             auto& anim = g_SubtabAnimations[itemId];
             anim.elementOpacity = Animate(anim.elementOpacity, selected ? 0.04f : 0.0f, 0.09f);
@@ -438,6 +438,11 @@ namespace Tutones::UI
             break;
 
         case 2:
+            if (m_Item == 1)
+            {
+                RenderVehiclePaintPanel();
+                break;
+            }
             DrawPanel(draw, windowPos, ImVec2(226.0f, 16.0f), ImVec2(240.0f, 300.0f), "Vehicle",
                 {"Repair vehicle", "Clean vehicle", "Flip upright", "Vehicle options", "Spawner", "Current vehicle"});
             DrawPanel(draw, windowPos, ImVec2(476.0f, 16.0f), ImVec2(240.0f, 240.0f), "Paint",
