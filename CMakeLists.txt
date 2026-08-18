@@ -25,6 +25,9 @@ add_library(TutonesMenu SHARED
     src/core/filesystem/FileSystem.cpp
     src/core/logging/Logger.cpp
 
+    src/features/player/PlayerRuntime.cpp
+    src/features/player/PlayerRuntimeActions.cpp
+    src/features/player/PlayerRuntimeState.cpp
     src/features/vehicle/VehicleModificationRuntime.cpp
     src/features/vehicle/VehiclePaintRuntime.cpp
     src/features/vehicle/VehiclePaintService.cpp
@@ -45,6 +48,7 @@ add_library(TutonesMenu SHARED
     src/runtime/GameRuntime.cpp
 
     src/ui/Input.cpp
+    src/ui/PlayerPanel.cpp
     src/ui/TutonesMenu.cpp
     src/ui/VehicleGeneralPanel.cpp
     src/ui/VehicleModificationPanel.cpp
@@ -97,6 +101,10 @@ source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR}/src PREFIX "Source" FILES
     src/core/logging/LogSink.hpp
     src/core/logging/Logger.cpp
     src/core/logging/Logger.hpp
+    src/features/player/PlayerRuntime.cpp
+    src/features/player/PlayerRuntime.hpp
+    src/features/player/PlayerRuntimeActions.cpp
+    src/features/player/PlayerRuntimeState.cpp
     src/features/vehicle/VehicleModificationRuntime.cpp
     src/features/vehicle/VehicleModificationRuntime.hpp
     src/features/vehicle/VehiclePaintRuntime.cpp
@@ -108,6 +116,7 @@ source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR}/src PREFIX "Source" FILES
     src/game/GameState.cpp
     src/game/GameState.hpp
     src/game/Natives.hpp
+    src/game/PlayerNatives.hpp
     src/game/memory/ModuleView.cpp
     src/game/memory/ModuleView.hpp
     src/game/memory/PatternScanner.cpp
@@ -136,6 +145,8 @@ source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR}/src PREFIX "Source" FILES
     src/runtime/GameRuntime.hpp
     src/ui/Input.cpp
     src/ui/Input.hpp
+    src/ui/PlayerPanel.cpp
+    src/ui/PlayerPanel.hpp
     src/ui/TutonesMenu.cpp
     src/ui/TutonesMenu.hpp
     src/ui/VehicleGeneralPanel.cpp
