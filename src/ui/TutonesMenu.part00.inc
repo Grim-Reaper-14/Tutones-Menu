@@ -4,6 +4,7 @@
 #include "Input.hpp"
 #include "PlayerOnlinePanel.hpp"
 #include "PlayerPanel.hpp"
+#include "V11Theme.hpp"
 #include "VehicleGeneralPanel.hpp"
 #include "VehicleModificationPanel.hpp"
 #include "VehiclePaintPanel.hpp"
@@ -29,24 +30,40 @@ namespace Tutones::UI
             const char* icon;
             const char* name;
             std::array<const char*, 4> items;
+            std::array<const char*, 4> descriptions;
             std::size_t itemCount;
         };
 
         constexpr std::array<CategoryEntry, 7> Categories{{
-            {"B", "Home",     {{"Overview", "Quick Actions", "Favorites", nullptr}}, 3},
-            {"C", "Player",   {{"General", "Online", "Movement", "Appearance"}}, 4},
-            {"D", "Weapons",  {{"General", "Ammo", "Aimbot", "Bullet Effects"}}, 4},
-            {"E", "Vehicle",  {{"General", "Paint", "Modifications", nullptr}}, 3},
-            {"F", "Game",     {{"Session", "Creator", nullptr, nullptr}}, 2},
-            {"G", "World",    {{"General", "Time & Weather", "Teleport", nullptr}}, 3},
-            {"H", "Settings", {{"General", "Theme", "Controls", nullptr}}, 3},
+            {"B", "Home",
+                {{"Overview", "Quick Actions", "Favorites", nullptr}},
+                {{"Current V11 recovery status and verified feature layers.", "Fast access to the current Tutones feature surfaces.", "Pinned and frequently used menu actions.", nullptr}}, 3},
+            {"C", "Player",
+                {{"General", "Online", "Movement", "Appearance"}},
+                {{"Health, wanted level, invincibility and player state.", "Online-only player state backed by verified Freemode globals.", "Run, swim, stamina and movement modifiers.", "Model and component appearance controls."}}, 4},
+            {"D", "Weapons",
+                {{"General", "Ammo", "Aimbot", "Bullet Effects"}},
+                {{"Weapon runtime capabilities and backend status.", "Infinite ammo and infinite clip state.", "Assisted-aim patches with dead-target retarget support.", "Impact-driven explosive ammunition configuration."}}, 4},
+            {"E", "Vehicle",
+                {{"General", "Paint", "Modifications", nullptr}},
+                {{"Spawner, current vehicle, clone and saved vehicle tools.", "Vehicle color, custom RGB and finish controls.", "LSC mods, wheels, lights, neon and tire settings.", nullptr}}, 3},
+            {"F", "Game",
+                {{"Session", "Creator", nullptr, nullptr}},
+                {{"Verified GTA Online join types and Leave Online transitions.", "Creator remains disabled until its Enhanced transition path is verified.", nullptr, nullptr}}, 2},
+            {"G", "World",
+                {{"General", "Time & Weather", "Teleport", nullptr}},
+                {{"World feature workspace.", "Clock and weather workspace.", "Teleport workspace.", nullptr}}, 3},
+            {"H", "Settings",
+                {{"General", "Theme", "Controls", nullptr}},
+                {{"Tutones runtime and menu preferences.", "V11 appearance and theme settings.", "Keyboard and mouse input preferences.", nullptr}}, 3},
         }};
 
-        constexpr float MenuWidth = 730.0f;
-        constexpr float MenuHeight = 460.0f;
-        constexpr float LeftPanelWidth = 210.0f;
-        constexpr float IconRailWidth = 47.0f;
-        constexpr ImVec4 Accent{147.0f / 255.0f, 190.0f / 255.0f, 66.0f / 255.0f, 1.0f};
+        constexpr float MenuWidth = V11Theme::MenuWidth;
+        constexpr float MenuHeight = V11Theme::MenuHeight;
+        constexpr float LeftPanelWidth = V11Theme::LeftPanelWidth;
+        constexpr float IconRailWidth = V11Theme::IconRailWidth;
+        const ImVec4 Accent = V11Theme::Accent;
+        const ImVec4 AccentHover = V11Theme::AccentHover;
 
         ImFont* g_Medium{};
         ImFont* g_Bold{};
@@ -87,6 +104,22 @@ namespace Tutones::UI
         ImFont* FontOrDefault(ImFont* font) noexcept
         {
             return font ? font : ImGui::GetFont();
+        }
+
+        void ApplyV11Style() noexcept
+        {
+            auto& style = ImGui::GetStyle();
+            style.Colors[ImGuiCol_CheckMark] = Accent;
+            style.Colors[ImGuiCol_SliderGrab] = Accent;
+            style.Colors[ImGuiCol_SliderGrabActive] = AccentHover;
+            style.Colors[ImGuiCol_Header] = ImVec4(Accent.x, Accent.y, Accent.z, 0.24f);
+            style.Colors[ImGuiCol_HeaderHovered] = ImVec4(AccentHover.x, AccentHover.y, AccentHover.z, 0.42f);
+            style.Colors[ImGuiCol_HeaderActive] = ImVec4(Accent.x, Accent.y, Accent.z, 0.58f);
+            style.Colors[ImGuiCol_ButtonHovered] = ImVec4(Accent.x, Accent.y, Accent.z, 0.30f);
+            style.Colors[ImGuiCol_ButtonActive] = ImVec4(Accent.x, Accent.y, Accent.z, 0.46f);
+            style.Colors[ImGuiCol_FrameBgActive] = ImVec4(Accent.x, Accent.y, Accent.z, 0.18f);
+            style.Colors[ImGuiCol_SeparatorHovered] = ImVec4(Accent.x, Accent.y, Accent.z, 0.55f);
+            style.Colors[ImGuiCol_SeparatorActive] = Accent;
         }
 
         bool EnsureOriginalFonts() noexcept
@@ -134,11 +167,11 @@ namespace Tutones::UI
 
             if (g_Medium && g_Bold && g_TabIcons)
             {
-                TUTONES_LOG_INFO("ui.fonts", "Loaded original Tutones embedded menu fonts and icon font");
+                TUTONES_LOG_INFO("ui.fonts", "Loaded Tutones embedded fonts for V11 shell");
                 return true;
             }
 
-            TUTONES_LOG_WARN("ui.fonts", "Original Tutones embedded fonts were incomplete; using ImGui fallback fonts");
+            TUTONES_LOG_WARN("ui.fonts", "Tutones embedded fonts were incomplete; using ImGui fallback fonts");
             return g_Medium != nullptr;
         }
 
