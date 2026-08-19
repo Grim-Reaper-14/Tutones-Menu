@@ -1,6 +1,7 @@
 #include "VehicleModificationPanel.hpp"
 
 #include "LscBypassWidget.hpp"
+#include "V11Description.hpp"
 #include "V11Theme.hpp"
 #include "../features/vehicle/VehicleModificationRuntime.hpp"
 #include "../game/vehicle/VehicleCatalogs.hpp"
@@ -89,7 +90,11 @@ namespace Tutones::UI
             g_CustomTires = snapshot.customTires;
         }
 
-        bool NamedModCombo(const char* label, const Game::Mods::VehicleModificationSnapshot& snapshot, int& index) noexcept
+        bool NamedModCombo(
+            const char* label,
+            const Game::Mods::VehicleModificationSnapshot& snapshot,
+            int& index,
+            const char* description) noexcept
         {
             if (snapshot.modCount <= 0)
                 return false;
@@ -117,6 +122,7 @@ namespace Tutones::UI
                 }
                 ImGui::EndCombo();
             }
+            DescribeLastV11Item(description);
             return changed;
         }
 
@@ -162,6 +168,7 @@ namespace Tutones::UI
                         runtime.SetObservedModType(g_ModType);
                         g_LastObserved = -1;
                     }
+                    DescribeLastV11Item("Choose the native GTA vehicle-mod slot Tutones should inspect and modify for the current vehicle.");
 
                     ImGui::TextDisabled("Direct native workshop controls still enforce the vehicle-supported mod count.");
                     RenderLscBypassWidget();
@@ -178,27 +185,39 @@ namespace Tutones::UI
                         {
                             if (ImGui::Checkbox("Enabled", &enabled))
                                 static_cast<void>(runtime.QueueToggleMod(g_ModType, enabled));
+                            DescribeLastV11Item("Enable or disable the currently selected supported toggle-style LSC modification slot.");
                         }
                         else
                         {
                             if (ImGui::Button("Enable", ImVec2(120.0f, 0.0f)))
                                 static_cast<void>(runtime.QueueToggleMod(g_ModType, true));
+                            DescribeLastV11Item("Enable the currently selected toggle-style vehicle modification slot.");
                             ImGui::SameLine();
                             if (ImGui::Button("Disable", ImVec2(120.0f, 0.0f)))
                                 static_cast<void>(runtime.QueueToggleMod(g_ModType, false));
+                            DescribeLastV11Item("Disable the currently selected toggle-style vehicle modification slot.");
                         }
                     }
                     else if (snapshot.modCount > 0)
                     {
-                        static_cast<void>(NamedModCombo("Option", snapshot, g_ModIndex));
+                        static_cast<void>(NamedModCombo(
+                            "Option",
+                            snapshot,
+                            g_ModIndex,
+                            "Choose one of the named options exposed by GTA for the selected vehicle modification slot."));
                         if (g_ModType == 23 || g_ModType == 24)
+                        {
                             ImGui::Checkbox("Custom tires", &g_CustomTires);
+                            DescribeLastV11Item("Use the custom-tire/whitewall variant when applying a supported wheel modification.");
+                        }
 
                         if (ImGui::Button("Apply", ImVec2(180.0f, 0.0f)))
                             static_cast<void>(runtime.QueueSetMod(g_ModType, g_ModIndex, g_CustomTires));
+                        DescribeLastV11Item("Apply the selected option to the currently selected vehicle modification slot.");
                         ImGui::SameLine();
                         if (ImGui::Button("Stock / remove", ImVec2(-1.0f, 0.0f)))
                             static_cast<void>(runtime.QueueRemoveMod(g_ModType));
+                        DescribeLastV11Item("Remove the currently selected modification and restore the stock option for this slot.");
                     }
                     else
                     {
@@ -231,6 +250,7 @@ namespace Tutones::UI
                         }
                         ImGui::EndCombo();
                     }
+                    DescribeLastV11Item("Choose the native wheel family used to populate the named wheel-style list.");
                     if (ImGui::Button("Apply family / refresh wheel list", ImVec2(-1.0f, 0.0f)))
                     {
                         const bool queued = runtime.QueueWheelType(g_WheelType);
@@ -238,6 +258,7 @@ namespace Tutones::UI
                         runtime.SetObservedModType(wheelSlot);
                         g_LastObserved = -1;
                     }
+                    DescribeLastV11Item("Apply the selected wheel family, then refresh the vehicle-specific named wheel choices.");
                     ImGui::TextDisabled("%s", g_WheelMessage);
 
                     if (ImGui::Combo("Axle", &g_WheelAxle, WheelAxleNames.data(), static_cast<int>(WheelAxleNames.size())))
@@ -247,16 +268,24 @@ namespace Tutones::UI
                         runtime.SetObservedModType(nextSlot);
                         g_LastObserved = -1;
                     }
+                    DescribeLastV11Item("Choose whether the wheel editor is targeting GTA's front-wheel or rear-wheel modification slot.");
 
                     if (snapshot.observedModType == wheelSlot && snapshot.modCount > 0)
                     {
-                        static_cast<void>(NamedModCombo("Wheel", snapshot, g_WheelStyle));
+                        static_cast<void>(NamedModCombo(
+                            "Wheel",
+                            snapshot,
+                            g_WheelStyle,
+                            "Choose a named wheel style supported by the current vehicle, axle, and wheel family."));
                         ImGui::Checkbox("Custom tire / whitewall variant", &g_CustomTires);
+                        DescribeLastV11Item("Use the custom-tire or whitewall variant when the selected wheel supports it.");
                         if (ImGui::Button("Apply wheel", ImVec2(180.0f, 0.0f)))
                             static_cast<void>(runtime.QueueSetMod(wheelSlot, g_WheelStyle, g_CustomTires));
+                        DescribeLastV11Item("Apply the selected named wheel style to the chosen axle slot.");
                         ImGui::SameLine();
                         if (ImGui::Button("Stock wheels", ImVec2(-1.0f, 0.0f)))
                             static_cast<void>(runtime.QueueRemoveMod(wheelSlot));
+                        DescribeLastV11Item("Remove the selected axle's wheel modification and restore its stock wheel slot.");
                     }
                     else
                     {
@@ -271,6 +300,7 @@ namespace Tutones::UI
                     bool xenon = snapshot.xenon;
                     if (ImGui::Checkbox("Xenon headlights", &xenon))
                         static_cast<void>(runtime.QueueToggleMod(22, xenon));
+                    DescribeLastV11Item("Enable or disable the vehicle's supported xenon headlight modification.");
 
                     const int xenonPos = std::clamp(g_XenonColor, 0, static_cast<int>(Game::VehicleCatalogs::HeadlightColors.size()) - 1);
                     const char* xenonPreview = Game::VehicleCatalogs::HeadlightColors[static_cast<std::size_t>(xenonPos)].name;
@@ -285,9 +315,11 @@ namespace Tutones::UI
                         }
                         ImGui::EndCombo();
                     }
+                    DescribeLastV11Item("Choose a supported GTA xenon headlight color for the current vehicle.");
                     if (ImGui::Button("Apply xenon color", ImVec2(-1.0f, 0.0f)))
                         static_cast<void>(runtime.QueueXenonColor(
                             Game::VehicleCatalogs::HeadlightColors[static_cast<std::size_t>(g_XenonColor)].value));
+                    DescribeLastV11Item("Apply the selected xenon headlight color through the vehicle modification runtime.");
 
                     ImGui::Separator();
                     ImGui::TextColored(V11Theme::Accent, "Neon Kit");
@@ -297,6 +329,7 @@ namespace Tutones::UI
                         ImGui::PushID(i);
                         if (ImGui::Checkbox(NeonSideNames[static_cast<std::size_t>(i)], &enabled))
                             static_cast<void>(runtime.QueueNeonEnabled(i, enabled));
+                        DescribeLastV11Item("Enable or disable this side of the current vehicle's neon lighting kit.");
                         if (i != 3) ImGui::SameLine();
                         ImGui::PopID();
                     }
@@ -315,15 +348,19 @@ namespace Tutones::UI
                         }
                         ImGui::EndCombo();
                     }
+                    DescribeLastV11Item("Choose a named neon color preset and copy its RGB values into the custom neon editor.");
                     ImGui::ColorEdit3("Custom neon RGB", g_NeonRgb, ImGuiColorEditFlags_NoAlpha);
+                    DescribeLastV11Item("Choose an exact custom RGB color for the current vehicle's neon lighting.");
                     if (ImGui::Button("Apply neon color", ImVec2(-1.0f, 0.0f)))
                         static_cast<void>(runtime.QueueNeonColor(ToByte(g_NeonRgb[0]), ToByte(g_NeonRgb[1]), ToByte(g_NeonRgb[2])));
+                    DescribeLastV11Item("Apply the selected custom or preset neon RGB color to the current vehicle.");
 
                     ImGui::Separator();
                     ImGui::TextColored(V11Theme::Accent, "Tire Effects");
                     bool smokeEnabled = snapshot.tireSmoke;
                     if (ImGui::Checkbox("Tire smoke", &smokeEnabled))
                         static_cast<void>(runtime.QueueToggleMod(20, smokeEnabled));
+                    DescribeLastV11Item("Enable or disable the vehicle's tire-smoke modification.");
                     g_SmokePreset = std::clamp(g_SmokePreset, 0, static_cast<int>(Game::VehicleCatalogs::TireSmokeColors.size()) - 1);
                     if (ImGui::BeginCombo("Smoke preset", Game::VehicleCatalogs::TireSmokeColors[static_cast<std::size_t>(g_SmokePreset)].name))
                     {
@@ -339,17 +376,22 @@ namespace Tutones::UI
                         }
                         ImGui::EndCombo();
                     }
+                    DescribeLastV11Item("Choose a named tire-smoke preset and copy its RGB values into the custom smoke editor.");
                     ImGui::ColorEdit3("Custom smoke RGB", g_SmokeRgb, ImGuiColorEditFlags_NoAlpha);
+                    DescribeLastV11Item("Choose an exact custom RGB color for the vehicle's tire smoke.");
                     if (ImGui::Button("Apply tire smoke", ImVec2(-1.0f, 0.0f)))
                         static_cast<void>(runtime.QueueTireSmokeColor(ToByte(g_SmokeRgb[0]), ToByte(g_SmokeRgb[1]), ToByte(g_SmokeRgb[2])));
+                    DescribeLastV11Item("Apply the selected tire-smoke RGB color to the current vehicle.");
 
                     bool bulletproof = !snapshot.tyresCanBurst;
                     if (ImGui::Checkbox("Bulletproof tires", &bulletproof))
                         static_cast<void>(runtime.QueueTyresCanBurst(!bulletproof));
+                    DescribeLastV11Item("Prevent the current vehicle's tires from bursting, or restore normal tire burst behavior.");
                     ImGui::SameLine();
                     bool lowGrip = snapshot.driftTyres;
                     if (ImGui::Checkbox("Low grip / drift tires", &lowGrip))
                         static_cast<void>(runtime.QueueDriftTyres(lowGrip));
+                    DescribeLastV11Item("Enable or disable GTA's low-grip/drift tire state on the current vehicle.");
                     ImGui::EndTabItem();
                 }
 

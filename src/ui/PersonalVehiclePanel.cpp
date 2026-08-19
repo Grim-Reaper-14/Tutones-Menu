@@ -1,5 +1,6 @@
 #include "PersonalVehiclePanel.hpp"
 
+#include "V11Description.hpp"
 #include "V11Theme.hpp"
 #include "../features/vehicle/PersonalVehicleRuntime.hpp"
 
@@ -117,6 +118,7 @@ namespace Tutones::UI
                     }
                     ImGui::EndCombo();
                 }
+                DescribeLastV11Item("Filter the Enhanced personal-vehicle snapshot to one resolved garage, or show vehicles from every garage.");
 
                 if (ImGui::BeginListBox("##personal_vehicles", ImVec2(-1.0f, 168.0f)))
                 {
@@ -134,6 +136,7 @@ namespace Tutones::UI
                         const bool selected = g_SelectedVehicleId == vehicle.id;
                         if (ImGui::Selectable(label, selected))
                             g_SelectedVehicleId = vehicle.id;
+                        DescribeLastV11Item("Select this Rockstar personal-vehicle entry to inspect its MPSV identity, plate, garage slot, and available actions.");
                         if (selected)
                             ImGui::SetItemDefaultFocus();
                     }
@@ -159,6 +162,7 @@ namespace Tutones::UI
                     if (ImGui::Button("Repair", ImVec2(150.0f, 0.0f)))
                         g_Message = runtime.QueueRepair(selected->id) ? "Repair queued" : "Repair rejected";
                     ImGui::EndDisabled();
+                    DescribeLastV11Item("Repair an insured destroyed personal vehicle by clearing the verified destroyed/impounded MPSV repair state.");
 
                     ImGui::SameLine();
                     const bool requestEnabled = !snapshot.actionPending
@@ -169,6 +173,7 @@ namespace Tutones::UI
                     if (ImGui::Button("Request", ImVec2(-1.0f, 0.0f)))
                         g_Message = runtime.QueueRequest(selected->id) ? "Request queued" : "Request rejected";
                     ImGui::EndDisabled();
+                    DescribeLastV11Item("Request this selected personal vehicle through the verified Enhanced Freemode personal-vehicle request state machine.");
                 }
                 else
                 {

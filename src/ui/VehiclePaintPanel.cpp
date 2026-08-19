@@ -1,5 +1,6 @@
 #include "VehiclePaintPanel.hpp"
 
+#include "V11Description.hpp"
 #include "V11Theme.hpp"
 #include "../features/vehicle/VehiclePaintRuntime.hpp"
 #include "../game/GameState.hpp"
@@ -108,7 +109,7 @@ namespace Tutones::UI
             return "Choose color";
         }
 
-        bool RenderNamedColorCombo(const char* label, std::span<const IndexedName> colors, int& value) noexcept
+        bool RenderNamedColorCombo(const char* label, std::span<const IndexedName> colors, int& value, const char* description) noexcept
         {
             bool changed = false;
             if (colors.empty())
@@ -129,6 +130,7 @@ namespace Tutones::UI
                 }
                 ImGui::EndCombo();
             }
+            DescribeLastV11Item(description);
             return changed;
         }
 
@@ -199,10 +201,19 @@ namespace Tutones::UI
                 paletteIndex = std::clamp(paletteIndex, 0, static_cast<int>(PaletteNames.size()) - 1);
                 ResetColorForPalette(PrimarySecondaryPalettes[static_cast<std::size_t>(paletteIndex)], colorIndex);
             }
+            DescribeLastV11Item(primary
+                ? "Choose the native finish family used for the vehicle's primary paint color."
+                : "Choose the native finish family used for the vehicle's secondary paint color.");
 
             const PaintPalette palette = PrimarySecondaryPalettes[static_cast<std::size_t>(paletteIndex)];
             const auto colors = Game::VehicleCatalogs::ColorsForPalette(palette);
-            static_cast<void>(RenderNamedColorCombo("Color", colors, colorIndex));
+            static_cast<void>(RenderNamedColorCombo(
+                "Color",
+                colors,
+                colorIndex,
+                primary
+                    ? "Choose the indexed primary color from the selected LSC paint family."
+                    : "Choose the indexed secondary color from the selected LSC paint family."));
 
             ImGui::TextDisabled("Index %d", colorIndex);
             auto& service = VehiclePaintRuntime::Get().Service();
@@ -213,6 +224,9 @@ namespace Tutones::UI
                     : service.QueueSecondary({palette, colorIndex});
                 QueueResult(queued, primary ? "Primary paint queued" : "Secondary paint queued", "Paint action rejected");
             }
+            DescribeLastV11Item(primary
+                ? "Apply the selected indexed finish and color to the vehicle's primary paint through the paint runtime."
+                : "Apply the selected indexed finish and color to the vehicle's secondary paint through the paint runtime.");
             ImGui::PopID();
         }
 
@@ -224,6 +238,9 @@ namespace Tutones::UI
             ImGui::SameLine();
             ImGui::TextDisabled(active ? "active" : "inactive");
             ImGui::ColorEdit3("RGB", color, ImGuiColorEditFlags_NoAlpha);
+            DescribeLastV11Item(primary
+                ? "Pick a custom RGB override for the primary vehicle color."
+                : "Pick a custom RGB override for the secondary vehicle color.");
 
             auto& service = VehiclePaintRuntime::Get().Service();
             if (ImGui::Button("Apply custom RGB", ImVec2(180.0f, 0.0f)))
@@ -232,12 +249,18 @@ namespace Tutones::UI
                 const bool queued = primary ? service.QueueCustomPrimary(rgb) : service.QueueCustomSecondary(rgb);
                 QueueResult(queued, "Custom RGB queued", "Custom RGB rejected");
             }
+            DescribeLastV11Item(primary
+                ? "Apply the selected custom RGB override to the vehicle's primary color."
+                : "Apply the selected custom RGB override to the vehicle's secondary color.");
             ImGui::SameLine();
             if (ImGui::Button("Clear custom", ImVec2(-1.0f, 0.0f)))
             {
                 const bool queued = primary ? service.QueueClearCustomPrimary() : service.QueueClearCustomSecondary();
                 QueueResult(queued, "Clear custom queued", "Clear custom rejected");
             }
+            DescribeLastV11Item(primary
+                ? "Remove the custom primary RGB override and return to indexed paint behavior."
+                : "Remove the custom secondary RGB override and return to indexed paint behavior.");
             ImGui::PopID();
         }
 
@@ -246,11 +269,16 @@ namespace Tutones::UI
             auto& service = VehiclePaintRuntime::Get().Service();
 
             ImGui::TextColored(V11Theme::Accent, "Pearlescent Overlay");
-            static_cast<void>(RenderNamedColorCombo("Pearlescent", Game::VehicleCatalogs::ClassicColors, g_PaintUi.pearlescent));
+            static_cast<void>(RenderNamedColorCombo(
+                "Pearlescent",
+                Game::VehicleCatalogs::ClassicColors,
+                g_PaintUi.pearlescent,
+                "Choose the indexed pearlescent overlay color used with compatible vehicle paint finishes."));
             if (ImGui::Button("Apply pearlescent", ImVec2(-1.0f, 0.0f)))
             {
                 QueueResult(service.QueuePearlescent(g_PaintUi.pearlescent), "Pearlescent queued", "Pearlescent rejected");
             }
+            DescribeLastV11Item("Apply the selected pearlescent overlay color to the current vehicle.");
 
             ImGui::Separator();
             ImGui::TextColored(V11Theme::Accent, "Wheel Color");
@@ -263,14 +291,20 @@ namespace Tutones::UI
                 if (!colors.empty())
                     g_PaintUi.wheel = colors.front().value;
             }
+            DescribeLastV11Item("Switch the wheel-color catalog between standard LSC/classic colors and supported chameleon colors.");
             const auto wheelColors = g_PaintUi.wheelFamily == 1
                 ? std::span<const IndexedName>(Game::VehicleCatalogs::ChameleonColors)
                 : std::span<const IndexedName>(Game::VehicleCatalogs::ClassicColors);
-            static_cast<void>(RenderNamedColorCombo("Wheel color", wheelColors, g_PaintUi.wheel));
+            static_cast<void>(RenderNamedColorCombo(
+                "Wheel color",
+                wheelColors,
+                g_PaintUi.wheel,
+                "Choose the indexed wheel color from the selected wheel-color family."));
             if (ImGui::Button("Apply wheel color", ImVec2(-1.0f, 0.0f)))
             {
                 QueueResult(service.QueueWheel(g_PaintUi.wheel), "Wheel color queued", "Wheel color rejected");
             }
+            DescribeLastV11Item("Apply the selected indexed wheel color to the current vehicle.");
         }
 
         void RenderStatus(const PaintServiceSnapshot& snapshot) noexcept

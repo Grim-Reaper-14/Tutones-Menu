@@ -1,9 +1,10 @@
+#include "V11Description.hpp"
+
 namespace Tutones::UI
 {
     namespace
     {
         constexpr float V11Pi = 3.14159265358979323846f;
-        const char* g_DescriptionText{};
 
         ImTextureID V11BannerTexture() noexcept
         {
@@ -345,7 +346,7 @@ namespace Tutones::UI
             const bool pressed = ImGui::InvisibleButton(id, size);
             const bool hovered = ImGui::IsItemHovered();
             if (hovered && description)
-                g_DescriptionText = description;
+                SetV11Description(description);
             auto& anim = g_TabAnimations[itemId];
             anim.elementOpacity = Animate(anim.elementOpacity, selected ? 0.34f : hovered ? 0.14f : 0.02f, 0.10f);
             anim.rectOpacity = Animate(anim.rectOpacity, selected ? 1.0f : hovered ? 0.50f : 0.18f, 0.12f);
@@ -383,7 +384,7 @@ namespace Tutones::UI
             const bool pressed = ImGui::InvisibleButton(id, size);
             const bool hovered = ImGui::IsItemHovered();
             if (hovered && description)
-                g_DescriptionText = description;
+                SetV11Description(description);
             auto& anim = g_SubtabAnimations[itemId];
             anim.elementOpacity = Animate(anim.elementOpacity, selected ? 0.28f : hovered ? 0.10f : 0.0f, 0.10f);
             anim.rectOpacity = Animate(anim.rectOpacity, selected ? 1.0f : hovered ? 0.42f : 0.0f, 0.14f);
@@ -521,7 +522,9 @@ namespace Tutones::UI
             const float footerY = pos.y + V11Theme::FooterY;
             const ImVec2 min{pos.x, footerY};
             const ImVec2 max{pos.x + width, footerY + V11Theme::FooterHeight};
-            const char* description = g_DescriptionText ? g_DescriptionText : Categories[category].descriptions[item];
+            const char* description = CurrentV11Description();
+            if (!description)
+                description = Categories[category].descriptions[item];
             if (!description)
                 description = "No description is available for this option yet.";
 
@@ -612,7 +615,6 @@ namespace Tutones::UI
 
     void TutonesMenu::RenderNavigationRail() noexcept
     {
-        g_DescriptionText = Categories[m_Category].descriptions[m_Item];
         for (std::size_t i = 0; i < Categories.size(); ++i)
         {
             ImGui::PushID(static_cast<int>(i));
