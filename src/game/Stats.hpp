@@ -69,11 +69,12 @@ namespace Tutones::Game::Stats
 
         [[nodiscard]] inline bool WriteInt(std::uint32_t statHash, int value) noexcept
         {
-            return Native::NativeInvoker::InvokeVoid(
+            const auto result = Native::NativeInvoker::Invoke<std::int32_t>(
                 Native::NativeId::StatSetInt,
                 statHash,
                 value,
                 std::int32_t{1});
+            return result && *result != 0;
         }
     }
 
