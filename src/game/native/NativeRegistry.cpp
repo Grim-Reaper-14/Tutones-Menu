@@ -123,6 +123,7 @@ namespace Tutones::Game::Native
             {0x8F03CD462437C002ull, "ADD_OWNED_EXPLOSION"},
 
             {0x767FBC2AC802EF3Dull, "STAT_GET_INT"},
+            {0xB3271D7AB655B441ull, "STAT_SET_INT"},
         }};
 
         struct NativeProgram final
