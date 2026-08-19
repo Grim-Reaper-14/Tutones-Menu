@@ -3,6 +3,7 @@ namespace Tutones::UI
     namespace
     {
         constexpr float V11Pi = 3.14159265358979323846f;
+        const char* g_DescriptionText{};
 
         ImTextureID V11BannerTexture() noexcept
         {
@@ -333,7 +334,7 @@ namespace Tutones::UI
             }
         }
 
-        bool CategoryButton(const char* id, std::size_t category, const char* label, bool selected, const ImVec2& localPos) noexcept
+        bool CategoryButton(const char* id, std::size_t category, const char* label, const char* description, bool selected, const ImVec2& localPos) noexcept
         {
             ImGui::SetCursorPos(localPos);
             const ImVec2 min = ImGui::GetCursorScreenPos();
@@ -343,6 +344,8 @@ namespace Tutones::UI
 
             const bool pressed = ImGui::InvisibleButton(id, size);
             const bool hovered = ImGui::IsItemHovered();
+            if (hovered && description)
+                g_DescriptionText = description;
             auto& anim = g_TabAnimations[itemId];
             anim.elementOpacity = Animate(anim.elementOpacity, selected ? 0.34f : hovered ? 0.14f : 0.02f, 0.10f);
             anim.rectOpacity = Animate(anim.rectOpacity, selected ? 1.0f : hovered ? 0.50f : 0.18f, 0.12f);
@@ -369,7 +372,7 @@ namespace Tutones::UI
             return pressed;
         }
 
-        bool SubtabButton(const char* id, const char* icon, const char* label, bool selected, const ImVec2& localPos) noexcept
+        bool SubtabButton(const char* id, const char* icon, const char* label, const char* description, bool selected, const ImVec2& localPos) noexcept
         {
             ImGui::SetCursorPos(localPos);
             const ImVec2 min = ImGui::GetCursorScreenPos();
@@ -379,6 +382,8 @@ namespace Tutones::UI
 
             const bool pressed = ImGui::InvisibleButton(id, size);
             const bool hovered = ImGui::IsItemHovered();
+            if (hovered && description)
+                g_DescriptionText = description;
             auto& anim = g_SubtabAnimations[itemId];
             anim.elementOpacity = Animate(anim.elementOpacity, selected ? 0.28f : hovered ? 0.10f : 0.0f, 0.10f);
             anim.rectOpacity = Animate(anim.rectOpacity, selected ? 1.0f : hovered ? 0.42f : 0.0f, 0.14f);
@@ -516,7 +521,7 @@ namespace Tutones::UI
             const float footerY = pos.y + V11Theme::FooterY;
             const ImVec2 min{pos.x, footerY};
             const ImVec2 max{pos.x + width, footerY + V11Theme::FooterHeight};
-            const char* description = Categories[category].descriptions[item];
+            const char* description = g_DescriptionText ? g_DescriptionText : Categories[category].descriptions[item];
             if (!description)
                 description = "No description is available for this option yet.";
 
@@ -607,11 +612,12 @@ namespace Tutones::UI
 
     void TutonesMenu::RenderNavigationRail() noexcept
     {
+        g_DescriptionText = Categories[m_Category].descriptions[m_Item];
         for (std::size_t i = 0; i < Categories.size(); ++i)
         {
             ImGui::PushID(static_cast<int>(i));
             const ImVec2 localPos{V11Theme::CategoryRailX + 10.0f, V11Theme::HeaderHeight + 12.0f + static_cast<float>(i) * 42.0f};
-            if (CategoryButton("##v11_category", i, Categories[i].name, i == m_Category, localPos))
+            if (CategoryButton("##v11_category", i, Categories[i].name, Categories[i].descriptions[0], i == m_Category, localPos))
             {
                 m_Category = i;
                 m_Item = 0;
@@ -635,8 +641,16 @@ namespace Tutones::UI
         {
             ImGui::PushID(static_cast<int>(i));
             const ImVec2 localPos{V11Theme::SubtabRailX + 8.0f, V11Theme::HeaderHeight + 44.0f + static_cast<float>(i) * 40.0f};
-            if (SubtabButton("##v11_subtab", Categories[m_Category].itemIcons[i], Categories[m_Category].items[i], i == m_Item, localPos))
+            if (SubtabButton(
+                    "##v11_subtab",
+                    Categories[m_Category].itemIcons[i],
+                    Categories[m_Category].items[i],
+                    Categories[m_Category].descriptions[i],
+                    i == m_Item,
+                    localPos))
+            {
                 m_Item = i;
+            }
             ImGui::PopID();
         }
     }
