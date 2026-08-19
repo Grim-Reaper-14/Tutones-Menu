@@ -119,6 +119,7 @@ namespace Tutones::Game::Native
         AddOwnedExplosion,
 
         StatGetInt,
+        StatSetInt,
 
         Count,
     };
