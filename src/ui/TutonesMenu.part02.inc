@@ -98,6 +98,8 @@ namespace Tutones::UI
                 ImVec2(pos.x + V11Theme::SubtabRailX + V11Theme::SubtabRailWidth, footerY - 8.0f),
                 ImGui::GetColorU32(V11Theme::RailBg), 3.0f);
 
+            BeginV11DescriptionFrame(Categories[m_Category].descriptions[m_Item]);
+
             ImGui::SetCursorPos(ImVec2(V11Theme::ContentHostX, V11Theme::HeaderHeight));
             ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
             constexpr ImGuiWindowFlags bodyFlags = ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoNavInputs | ImGuiWindowFlags_NoNavFocus;

@@ -1,5 +1,6 @@
 #include "LscBypassWidget.hpp"
 
+#include "V11Description.hpp"
 #include "V11Theme.hpp"
 #include "../features/vehicle/LscBypassRuntime.hpp"
 
@@ -23,6 +24,7 @@ namespace Tutones::UI
         if (ImGui::Checkbox("Remove LSC restrictions", &enabled))
             runtime.SetEnabled(enabled);
         ImGui::EndDisabled();
+        DescribeLastV11Item("Enable the verified Enhanced carmod_shop shadow-bytecode patches that remove the real script-side LSC use/menu restrictions. The toggle stays disabled until both exact patterns are supported.");
 
         if (!snapshot.running)
         {

@@ -1,5 +1,6 @@
 #include "VehicleGeneralPanel.hpp"
 
+#include "V11Description.hpp"
 #include "V11Theme.hpp"
 #include "../features/vehicle/VehicleModificationRuntime.hpp"
 #include "../game/GameState.hpp"
@@ -93,6 +94,7 @@ namespace Tutones::UI
 
             ImGui::SetNextItemWidth(230.0f);
             ImGui::InputTextWithHint("##vehicle_search", "Search make, name, or model ID", g_Search, sizeof(g_Search));
+            DescribeLastV11Item("Filter the built-in vehicle catalog by display name, make, or model ID.");
             ImGui::SameLine();
             const char* classPreview = g_ClassFilter < 0
                 ? "All classes"
@@ -110,6 +112,7 @@ namespace Tutones::UI
                 }
                 ImGui::EndCombo();
             }
+            DescribeLastV11Item("Limit the vehicle browser to one GTA vehicle class, or show every class.");
 
             if (ImGui::BeginListBox("##vehicle_catalog", ImVec2(-1.0f, 188.0f)))
             {
@@ -144,14 +147,18 @@ namespace Tutones::UI
 
             ImGui::SetNextItemWidth(-1.0f);
             ImGui::InputTextWithHint("##direct_model", "Direct model / add-on fallback", g_SpawnModel, sizeof(g_SpawnModel));
+            DescribeLastV11Item("Enter a model name directly, including supported add-on model names not found in the built-in catalog.");
             ImGui::Checkbox("Spawn inside", &g_SpawnInside);
+            DescribeLastV11Item("Place your player directly into the newly spawned vehicle when the spawn succeeds.");
             ImGui::SameLine();
             ImGui::Checkbox("Spawn maxed", &g_SpawnMaxed);
+            DescribeLastV11Item("Apply the runtime's supported maximum vehicle modifications after the vehicle is spawned.");
             if (ImGui::Button("Spawn selected vehicle", ImVec2(-1.0f, 0.0f)))
             {
                 const bool queued = runtime.QueueSpawnVehicle(g_SpawnModel, g_SpawnInside, g_SpawnMaxed);
                 g_Message = queued ? "Spawn request queued" : "Spawn request rejected";
             }
+            DescribeLastV11Item("Queue the selected or directly entered model for spawning on the GTA game thread.");
             if (snapshot.spawnPending)
                 ImGui::Text("Loading model 0x%08X...", snapshot.pendingSpawnModel);
         }
@@ -174,12 +181,16 @@ namespace Tutones::UI
                 ImGui::TextDisabled("Vehicle detected; workshop state is refreshing.");
 
             if (ImGui::Button("Repair", ImVec2(150.0f, 0.0f))) static_cast<void>(runtime.QueueRepair());
+            DescribeLastV11Item("Repair the current vehicle through the verified vehicle modification runtime.");
             ImGui::SameLine();
             if (ImGui::Button("Clean", ImVec2(150.0f, 0.0f))) static_cast<void>(runtime.QueueClean());
+            DescribeLastV11Item("Clean dirt and visible grime from the current vehicle.");
             ImGui::SameLine();
             if (ImGui::Button("Flip upright", ImVec2(-1.0f, 0.0f))) static_cast<void>(runtime.QueueFlipUpright());
+            DescribeLastV11Item("Rotate the current vehicle upright if it has rolled or landed awkwardly.");
             if (ImGui::Button("Max all supported LSC mods", ImVec2(-1.0f, 0.0f)))
                 static_cast<void>(runtime.QueueMaxVehicle());
+            DescribeLastV11Item("Apply the highest supported native LSC option to each modification slot exposed by this vehicle.");
 
             ImGui::Separator();
             ImGui::TextDisabled("LSC restrictions: Tutones applies supported native mod slots directly; rank/purchase gates are not part of this path.");
@@ -190,11 +201,13 @@ namespace Tutones::UI
             ImGui::TextColored(V11Theme::Accent, "Clone Nearest Vehicle");
             ImGui::TextWrapped("Copies the nearest supported vehicle's model, paint/custom RGB, mod slots, wheel family/variants, toggles, xenon/neon, tire smoke and tire settings, then spawns the clone in front of you.");
             ImGui::Checkbox("Enter cloned vehicle", &g_CloneInside);
+            DescribeLastV11Item("Enter the cloned vehicle automatically after the clone is created.");
             if (ImGui::Button("Clone nearest (30m)", ImVec2(-1.0f, 0.0f)))
             {
                 const bool queued = runtime.QueueCloneNearest(g_CloneInside);
                 g_Message = queued ? "Nearest clone queued" : "Clone request rejected";
             }
+            DescribeLastV11Item("Copy the nearest supported vehicle within 30 meters and reproduce its supported customization state.");
         }
 
         void RenderSavedGarage(Game::Mods::VehicleModificationRuntime& runtime, const Game::Mods::VehicleModificationSnapshot& snapshot)
@@ -203,15 +216,18 @@ namespace Tutones::UI
             ImGui::TextDisabled("Local full-custom presets. This is separate from Rockstar Online personal-garage script globals.");
             ImGui::SetNextItemWidth(270.0f);
             ImGui::InputTextWithHint("##preset_name", "Preset name", g_PresetName, sizeof(g_PresetName));
+            DescribeLastV11Item("Choose the local preset name used when saving the current vehicle customization.");
             ImGui::SameLine();
             if (ImGui::Button("Save current", ImVec2(-1.0f, 0.0f)))
             {
                 const bool queued = runtime.QueueSaveCurrentPreset(g_PresetName);
                 g_Message = queued ? "Full vehicle preset queued for save" : "Save rejected (enter a vehicle first)";
             }
+            DescribeLastV11Item("Save the current vehicle as a local Tutones preset. This does not write a Rockstar Online personal vehicle.");
 
             if (ImGui::Button("Refresh saved garage", ImVec2(-1.0f, 0.0f)))
                 RefreshSaved(runtime);
+            DescribeLastV11Item("Rescan the Tutones local saved-vehicle preset folder and refresh this list.");
             if (g_SavedPresets.empty())
             {
                 ImGui::TextDisabled("No local saved vehicles yet.");
@@ -228,6 +244,7 @@ namespace Tutones::UI
             }
 
             ImGui::Checkbox("Spawn loaded preset inside", &g_LoadPresetInside);
+            DescribeLastV11Item("Enter the vehicle automatically when spawning the selected local saved preset.");
             if (g_SelectedPreset >= 0 && g_SelectedPreset < static_cast<int>(g_SavedPresets.size()))
             {
                 if (ImGui::Button("Spawn saved vehicle", ImVec2(-1.0f, 0.0f)))
@@ -236,6 +253,7 @@ namespace Tutones::UI
                         g_SavedPresets[static_cast<std::size_t>(g_SelectedPreset)], g_LoadPresetInside);
                     g_Message = queued ? "Saved vehicle queued" : "Saved vehicle load rejected";
                 }
+                DescribeLastV11Item("Spawn the selected local preset and reapply its saved supported customization state.");
             }
             if (!snapshot.lastSavedPreset.empty())
                 ImGui::Text("Last preset: %s", snapshot.lastSavedPreset.c_str());
