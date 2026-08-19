@@ -1,0 +1,3 @@
+#include "V11ResourceIds.h"
+
+IDR_V11_BANNER_COMPOSITE RCDATA "../../assets/ui/v11_banner_composite.jpg"

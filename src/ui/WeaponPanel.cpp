@@ -1,5 +1,6 @@
 #include "WeaponPanel.hpp"
 
+#include "V11Theme.hpp"
 #include "../features/weapon/WeaponRuntime.hpp"
 
 #include <imgui.h>
@@ -13,7 +14,8 @@ namespace Tutones::UI
         using Game::WeaponFeatures::WeaponRuntime;
         using Game::WeaponFeatures::WeaponSnapshot;
 
-        constexpr ImVec4 Accent{147.0f / 255.0f, 190.0f / 255.0f, 66.0f / 255.0f, 1.0f};
+        const ImVec4 Accent = V11Theme::Accent;
+        constexpr ImVec4 Supported{43.0f / 255.0f, 231.0f / 255.0f, 111.0f / 255.0f, 1.0f};
 
         struct ExplosionEntry final
         {
@@ -117,6 +119,15 @@ namespace Tutones::UI
             return "Unknown";
         }
 
+        void SupportBadge(bool supported) noexcept
+        {
+            ImGui::SameLine(330.0f);
+            if (supported)
+                ImGui::TextColored(Supported, "SUPPORTED");
+            else
+                ImGui::TextDisabled("UNAVAILABLE");
+        }
+
         void RenderGeneral(const WeaponSnapshot& snapshot) noexcept
         {
             ImGui::TextUnformatted("Runtime status");
@@ -140,9 +151,14 @@ namespace Tutones::UI
             ImGui::BeginDisabled(!snapshot.nativeReady);
             if (ImGui::Checkbox("Infinite Ammo", &infiniteAmmo))
                 runtime.SetInfiniteAmmo(infiniteAmmo);
+            ImGui::EndDisabled();
+            SupportBadge(snapshot.nativeReady);
+
+            ImGui::BeginDisabled(!snapshot.nativeReady);
             if (ImGui::Checkbox("Infinite Clip", &infiniteClip))
                 runtime.SetInfiniteClip(infiniteClip);
             ImGui::EndDisabled();
+            SupportBadge(snapshot.nativeReady);
 
             if (!snapshot.nativeReady)
                 ImGui::TextDisabled("Waiting for the GTA native table.");
@@ -161,6 +177,7 @@ namespace Tutones::UI
             if (ImGui::Checkbox("Enable Aimbot", &aimbot))
                 runtime.SetAimbot(aimbot);
             ImGui::EndDisabled();
+            SupportBadge(snapshot.aimbotSupported);
             if (!snapshot.aimbotSupported)
                 ImGui::TextDisabled("Required assisted-aim patches were not resolved.");
 
@@ -169,16 +186,19 @@ namespace Tutones::UI
             if (ImGui::Checkbox("Aim For Head", &aimForHead))
                 runtime.SetAimForHead(aimForHead);
             ImGui::EndDisabled();
+            SupportBadge(snapshot.aimForHeadSupported);
 
             ImGui::BeginDisabled(!aimbot || !snapshot.targetDriversSupported);
             if (ImGui::Checkbox("Target Drivers", &targetDrivers))
                 runtime.SetTargetDrivers(targetDrivers);
             ImGui::EndDisabled();
+            SupportBadge(snapshot.targetDriversSupported);
 
             ImGui::BeginDisabled(!snapshot.releaseDeadTargetSupported);
             if (ImGui::Checkbox("Release Dead Target", &releaseDeadPed))
                 runtime.SetReleaseDeadPed(releaseDeadPed);
             ImGui::EndDisabled();
+            SupportBadge(snapshot.releaseDeadTargetSupported);
 
             ImGui::Spacing();
             ImGui::TextDisabled("Release Dead Target keeps Yim-style retarget behavior in a separate detour.");
@@ -194,7 +214,10 @@ namespace Tutones::UI
             ImGui::BeginDisabled(!snapshot.nativeReady);
             if (ImGui::Checkbox("Explosive Ammo", &explosiveAmmo))
                 runtime.SetExplosiveAmmo(explosiveAmmo);
+            ImGui::EndDisabled();
+            SupportBadge(snapshot.nativeReady);
 
+            ImGui::BeginDisabled(!snapshot.nativeReady);
             if (ImGui::BeginCombo("Explosion Type", ExplosionLabel(explosionType)))
             {
                 for (const auto& entry : ExplosionTypes)
@@ -231,9 +254,9 @@ namespace Tutones::UI
 
         ImGui::SetCursorPos(ImVec2(226.0f, 16.0f));
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(14.0f, 12.0f));
-        ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 4.0f);
-        ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(24.0f / 255.0f, 24.0f / 255.0f, 26.0f / 255.0f, 1.0f));
-        ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(1.0f, 1.0f, 1.0f, 0.04f));
+        ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 3.0f);
+        ImGui::PushStyleColor(ImGuiCol_ChildBg, V11Theme::PanelBg);
+        ImGui::PushStyleColor(ImGuiCol_Border, V11Theme::PanelBorder);
 
         if (ImGui::BeginChild("##weapon_panel", ImVec2(490.0f, 430.0f), true))
         {

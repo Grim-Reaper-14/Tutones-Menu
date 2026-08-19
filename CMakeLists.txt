@@ -65,6 +65,7 @@ add_library(TutonesMenu SHARED
     src/ui/PlayerOnlinePanel.cpp
     src/ui/PlayerPanel.cpp
     src/ui/TutonesMenu.cpp
+    src/ui/V11Resources.rc
     src/ui/VehicleGeneralPanel.cpp
     src/ui/VehicleModificationPanel.cpp
     src/ui/VehiclePaintPanel.cpp
@@ -96,6 +97,8 @@ target_link_libraries(TutonesMenu PRIVATE
     d3d12
     dxgi
     user32
+    ole32
+    windowscodecs
 )
 
 set_target_properties(TutonesMenu PROPERTIES
@@ -203,6 +206,8 @@ source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR}/src PREFIX "Source" FILES
     src/ui/PlayerPanel.hpp
     src/ui/TutonesMenu.cpp
     src/ui/TutonesMenu.hpp
+    src/ui/V11ResourceIds.h
+    src/ui/V11Resources.rc
     src/ui/VehicleGeneralPanel.cpp
     src/ui/VehicleGeneralPanel.hpp
     src/ui/VehicleModificationPanel.cpp

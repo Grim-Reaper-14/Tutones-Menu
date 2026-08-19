@@ -11,6 +11,7 @@
 #include "VehiclePaintPanel.hpp"
 #include "WeaponPanel.hpp"
 #include "../core/logging/Logger.hpp"
+#include "../render/Renderer.hpp"
 #include "../../byte_array.h"
 
 #include <imgui.h>
@@ -31,38 +32,51 @@ namespace Tutones::UI
             const char* icon;
             const char* name;
             std::array<const char*, 4> items;
+            std::array<const char*, 4> itemIcons;
             std::array<const char*, 4> descriptions;
             std::size_t itemCount;
+            bool backendImplemented;
         };
 
-        constexpr std::array<CategoryEntry, 7> Categories{{
-            {"B", "Home",
-                {{"Overview", "Quick Actions", "Favorites", nullptr}},
-                {{"Current V11 recovery status and verified feature layers.", "Fast access to the current Tutones feature surfaces.", "Pinned and frequently used menu actions.", nullptr}}, 3},
-            {"C", "Player",
+        constexpr std::array<CategoryEntry, 9> Categories{{
+            {"P", "PLAYER",
                 {{"General", "Online", "Movement", "Appearance"}},
-                {{"Health, wanted level, invincibility and player state.", "Online-only player state backed by verified Freemode globals.", "Run, swim, stamina and movement modifiers.", "Model and component appearance controls."}}, 4},
-            {"D", "Weapons",
+                {{"X", "O", "M", "A"}},
+                {{"Health, wanted level, invincibility and local player state.", "Online-only player state backed by verified Freemode globals.", "Run, swim, stamina and movement modifiers.", "Model and component appearance controls."}}, 4, true},
+            {"W", "WEAPONS",
                 {{"General", "Ammo", "Aimbot", "Bullet Effects"}},
-                {{"Weapon runtime capabilities and backend status.", "Infinite ammo and infinite clip state.", "Assisted-aim patches with dead-target retarget support.", "Impact-driven explosive ammunition configuration."}}, 4},
-            {"E", "Vehicle",
+                {{"X", "B", "X", "E"}},
+                {{"Weapon runtime capabilities and backend status.", "Infinite ammo and infinite clip state.", "Assisted-aim patches with dead-target retarget support.", "Impact-driven explosive ammunition configuration."}}, 4, true},
+            {"V", "VEHICLE",
                 {{"General", "Paint", "Modifications", "Personal Vehicles"}},
-                {{"Spawner, current vehicle, clone and saved vehicle tools.", "Vehicle color, custom RGB and finish controls.", "LSC mods, wheels, lights, neon and tire settings.", "Read-only Rockstar personal vehicles and garage-slot data from Enhanced MPSV."}}, 4},
-            {"F", "Game",
+                {{"V", "T", "R", "V"}},
+                {{"Spawner, current vehicle, clone and saved vehicle tools.", "Vehicle color, custom RGB and finish controls.", "LSC mods, wheels, lights, neon and tire settings.", "Rockstar personal vehicles, garage slots, Request and Repair state."}}, 4, true},
+            {"G", "GAME",
                 {{"Session", "Creator", nullptr, nullptr}},
-                {{"Verified GTA Online join types and Leave Online transitions.", "Creator remains disabled until its Enhanced transition path is verified.", nullptr, nullptr}}, 2},
-            {"G", "World",
+                {{"O", "K", nullptr, nullptr}},
+                {{"Verified GTA Online join types and Leave Online transitions.", "Creator stays disabled until its exact Enhanced transition path is verified.", nullptr, nullptr}}, 2, true},
+            {"O", "WORLD",
                 {{"General", "Time & Weather", "Teleport", nullptr}},
-                {{"World feature workspace.", "Clock and weather workspace.", "Teleport workspace.", nullptr}}, 3},
-            {"H", "Settings",
+                {{"O", "Q", "L", nullptr}},
+                {{"World feature workspace.", "Clock and weather workspace.", "Teleport workspace.", nullptr}}, 3, false},
+            {"D", "RECOVERY",
+                {{"Overview", "Stats", "Unlocks", nullptr}},
+                {{"D", "H", "U", nullptr}},
+                {{"Recovery workspace and capability status.", "Stat editing is not implemented in this V11 slice.", "Unlock workflows are not implemented in this V11 slice.", nullptr}}, 3, false},
+            {"N", "NETWORK",
+                {{"Overview", "Session", "Players", nullptr}},
+                {{"N", "O", "P", nullptr}},
+                {{"Network workspace and verified online capabilities.", "Session transitions live under Game in the current backend.", "Player-network tools are not implemented in this V11 slice.", nullptr}}, 3, false},
+            {"S", "PROTECTIONS",
+                {{"Overview", "Network Events", "Script Events", nullptr}},
+                {{"S", "N", "K", nullptr}},
+                {{"Protection workspace and capability status.", "Network-event protections are not implemented in this V11 slice.", "Script-event protections are not implemented in this V11 slice.", nullptr}}, 3, false},
+            {"C", "MENU SETTINGS",
                 {{"General", "Theme", "Controls", nullptr}},
-                {{"Tutones runtime and menu preferences.", "V11 appearance and theme settings.", "Keyboard and mouse input preferences.", nullptr}}, 3},
+                {{"C", "T", "C", nullptr}},
+                {{"Tutones runtime and menu preferences.", "V11 blue visual shell and banner styling.", "Keyboard and mouse input preferences.", nullptr}}, 3, false},
         }};
 
-        constexpr float MenuWidth = V11Theme::MenuWidth;
-        constexpr float MenuHeight = V11Theme::MenuHeight;
-        constexpr float LeftPanelWidth = V11Theme::LeftPanelWidth;
-        constexpr float IconRailWidth = V11Theme::IconRailWidth;
         const ImVec4 Accent = V11Theme::Accent;
         const ImVec4 AccentHover = V11Theme::AccentHover;
 
@@ -118,7 +132,11 @@ namespace Tutones::UI
             style.Colors[ImGuiCol_HeaderActive] = ImVec4(Accent.x, Accent.y, Accent.z, 0.58f);
             style.Colors[ImGuiCol_ButtonHovered] = ImVec4(Accent.x, Accent.y, Accent.z, 0.30f);
             style.Colors[ImGuiCol_ButtonActive] = ImVec4(Accent.x, Accent.y, Accent.z, 0.46f);
+            style.Colors[ImGuiCol_FrameBg] = V11Theme::ControlBg;
+            style.Colors[ImGuiCol_FrameBgHovered] = V11Theme::ControlHover;
             style.Colors[ImGuiCol_FrameBgActive] = ImVec4(Accent.x, Accent.y, Accent.z, 0.18f);
+            style.Colors[ImGuiCol_Border] = V11Theme::PanelBorder;
+            style.Colors[ImGuiCol_Separator] = V11Theme::Separator;
             style.Colors[ImGuiCol_SeparatorHovered] = ImVec4(Accent.x, Accent.y, Accent.z, 0.55f);
             style.Colors[ImGuiCol_SeparatorActive] = Accent;
         }
@@ -149,11 +167,11 @@ namespace Tutones::UI
 
             g_Medium = io.Fonts->AddFontFromMemoryTTF(PTRootUIMedium, static_cast<int>(sizeof(PTRootUIMedium)), 15.0f, &config);
             g_Bold = io.Fonts->AddFontFromMemoryTTF(PTRootUIBold, static_cast<int>(sizeof(PTRootUIBold)), 15.0f, &config);
-            g_TabIcons = io.Fonts->AddFontFromMemoryTTF(clarityfont, static_cast<int>(sizeof(clarityfont)), 15.0f, &config);
-            g_Logo = io.Fonts->AddFontFromMemoryTTF(clarityfont, static_cast<int>(sizeof(clarityfont)), 21.0f, &config);
-            g_TabTitle = io.Fonts->AddFontFromMemoryTTF(PTRootUIBold, static_cast<int>(sizeof(PTRootUIBold)), 19.0f, &config);
-            g_TabTitleIcon = io.Fonts->AddFontFromMemoryTTF(clarityfont, static_cast<int>(sizeof(clarityfont)), 18.0f, &config);
-            g_SubtabTitle = io.Fonts->AddFontFromMemoryTTF(PTRootUIBold, static_cast<int>(sizeof(PTRootUIBold)), 15.0f, &config);
+            g_TabIcons = io.Fonts->AddFontFromMemoryTTF(clarityfont, static_cast<int>(sizeof(clarityfont)), 18.0f, &config);
+            g_Logo = io.Fonts->AddFontFromMemoryTTF(clarityfont, static_cast<int>(sizeof(clarityfont)), 28.0f, &config);
+            g_TabTitle = io.Fonts->AddFontFromMemoryTTF(PTRootUIBold, static_cast<int>(sizeof(PTRootUIBold)), 21.0f, &config);
+            g_TabTitleIcon = io.Fonts->AddFontFromMemoryTTF(clarityfont, static_cast<int>(sizeof(clarityfont)), 20.0f, &config);
+            g_SubtabTitle = io.Fonts->AddFontFromMemoryTTF(PTRootUIBold, static_cast<int>(sizeof(PTRootUIBold)), 16.0f, &config);
 
             if (!g_Medium)
                 g_Medium = io.Fonts->AddFontDefault();
@@ -168,23 +186,12 @@ namespace Tutones::UI
 
             if (g_Medium && g_Bold && g_TabIcons)
             {
-                TUTONES_LOG_INFO("ui.fonts", "Loaded Tutones embedded fonts for V11 shell");
+                TUTONES_LOG_INFO("ui.fonts", "Loaded Tutones embedded fonts for V11 visual shell");
                 return true;
             }
 
             TUTONES_LOG_WARN("ui.fonts", "Tutones embedded fonts were incomplete; using ImGui fallback fonts");
             return g_Medium != nullptr;
         }
-
-        bool OriginalTabButton(const char* id, const char* icon, bool selected, const ImVec2& localPos) noexcept
-        {
-            ImGui::SetCursorPos(localPos);
-            const ImVec2 min = ImGui::GetCursorScreenPos();
-            const ImVec2 size{31.0f, 31.0f};
-            const ImVec2 max{min.x + size.x, min.y + size.y};
-            const ImGuiID itemId = ImGui::GetID(id);
-
-            const bool pressed = ImGui::InvisibleButton(id, size);
-            const bool hovered = ImGui::IsItemHovered();
-
-            auto& anim = g_TabAnimations[itemId];
+    }
+}

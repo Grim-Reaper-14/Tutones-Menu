@@ -33,6 +33,7 @@ namespace Tutones::Render
         [[nodiscard]] ID3D12Device* Device() const noexcept;
         [[nodiscard]] ID3D12CommandQueue* CommandQueue() const noexcept;
         [[nodiscard]] IDXGISwapChain3* SwapChain() const noexcept;
+        [[nodiscard]] std::uint64_t V11BannerTextureId() const noexcept;
 
     private:
         Renderer() = default;
@@ -46,6 +47,8 @@ namespace Tutones::Render
         void ShutdownImGui() noexcept;
         bool WaitForFrame(D3D12::FrameContext& frame) noexcept;
         void WaitForGpuIdle() noexcept;
+        bool CreateV11BannerTexture() noexcept;
+        void ReleaseV11BannerTexture() noexcept;
 
         static void AllocateSrvDescriptor(
             ImGui_ImplDX12_InitInfo* info,
@@ -64,8 +67,13 @@ namespace Tutones::Render
         ID3D12DescriptorHeap* m_SrvHeap{};
         ID3D12GraphicsCommandList* m_CommandList{};
         ID3D12Fence* m_Fence{};
+        ID3D12Resource* m_V11BannerTexture{};
         HANDLE m_FenceEvent{};
         HWND m_Window{};
+
+        D3D12_CPU_DESCRIPTOR_HANDLE m_V11BannerCpu{};
+        D3D12_GPU_DESCRIPTOR_HANDLE m_V11BannerGpu{};
+        std::uint32_t m_V11BannerSrvIndex{0xFFFFFFFFu};
 
         std::vector<D3D12::FrameContext> m_Frames;
         std::vector<std::uint32_t> m_FreeSrvIndices;

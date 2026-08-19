@@ -4,19 +4,157 @@
 #include "../hooking/Win32Hook.hpp"
 #include "../ui/Input.hpp"
 #include "../ui/TutonesMenu.hpp"
+#include "../ui/V11ResourceIds.h"
 
 #include <imgui.h>
 #include <imgui_impl_dx12.h>
 #include <imgui_impl_win32.h>
 
+#include <wincodec.h>
+#include <wrl/client.h>
+
 #include <algorithm>
+#include <cstring>
 #include <string>
+#include <vector>
 
 namespace Tutones::Render
 {
     namespace
     {
         constexpr std::uint32_t SrvHeapSize = 64;
+        constexpr std::uint32_t InvalidSrvIndex = 0xFFFFFFFFu;
+        int g_RendererModuleAnchor{};
+
+        HMODULE CurrentModule() noexcept
+        {
+            HMODULE module{};
+            if (!::GetModuleHandleExW(
+                    GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                    reinterpret_cast<LPCWSTR>(&g_RendererModuleAnchor),
+                    &module))
+                return nullptr;
+            return module;
+        }
+
+        bool DecodeBannerResource(
+            std::vector<std::uint8_t>& pixels,
+            std::uint32_t& width,
+            std::uint32_t& height) noexcept
+        {
+            width = 0;
+            height = 0;
+            pixels.clear();
+
+            const HMODULE module = CurrentModule();
+            if (!module)
+            {
+                TUTONES_LOG_WARN("render.banner", "Could not resolve Tutones module for V11 banner resource");
+                return false;
+            }
+
+            const HRSRC resource = ::FindResourceW(
+                module,
+                MAKEINTRESOURCEW(IDR_V11_BANNER_COMPOSITE),
+                MAKEINTRESOURCEW(10));
+            if (!resource)
+            {
+                TUTONES_LOG_WARN("render.banner", "V11 banner RCDATA resource was not found");
+                return false;
+            }
+
+            const HGLOBAL loaded = ::LoadResource(module, resource);
+            const DWORD resourceSize = ::SizeofResource(module, resource);
+            const void* resourceData = loaded ? ::LockResource(loaded) : nullptr;
+            if (!resourceData || resourceSize == 0)
+            {
+                TUTONES_LOG_WARN("render.banner", "V11 banner resource could not be loaded");
+                return false;
+            }
+
+            const HRESULT comResult = ::CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+            if (FAILED(comResult) && comResult != RPC_E_CHANGED_MODE)
+            {
+                TUTONES_LOG_WARN("render.banner", "COM initialization failed while decoding V11 banner");
+                return false;
+            }
+            const bool uninitializeCom = SUCCEEDED(comResult);
+
+            using Microsoft::WRL::ComPtr;
+            ComPtr<IWICImagingFactory> factory;
+            ComPtr<IWICStream> stream;
+            ComPtr<IWICBitmapDecoder> decoder;
+            ComPtr<IWICBitmapFrameDecode> frame;
+            ComPtr<IWICFormatConverter> converter;
+
+            HRESULT hr = ::CoCreateInstance(
+                CLSID_WICImagingFactory,
+                nullptr,
+                CLSCTX_INPROC_SERVER,
+                IID_PPV_ARGS(factory.GetAddressOf()));
+            if (SUCCEEDED(hr))
+                hr = factory->CreateStream(stream.GetAddressOf());
+            if (SUCCEEDED(hr))
+                hr = stream->InitializeFromMemory(
+                    const_cast<BYTE*>(static_cast<const BYTE*>(resourceData)),
+                    resourceSize);
+            if (SUCCEEDED(hr))
+                hr = factory->CreateDecoderFromStream(
+                    stream.Get(),
+                    nullptr,
+                    WICDecodeMetadataCacheOnLoad,
+                    decoder.GetAddressOf());
+            if (SUCCEEDED(hr))
+                hr = decoder->GetFrame(0, frame.GetAddressOf());
+            if (SUCCEEDED(hr))
+                hr = factory->CreateFormatConverter(converter.GetAddressOf());
+            if (SUCCEEDED(hr))
+                hr = converter->Initialize(
+                    frame.Get(),
+                    GUID_WICPixelFormat32bppRGBA,
+                    WICBitmapDitherTypeNone,
+                    nullptr,
+                    0.0,
+                    WICBitmapPaletteTypeCustom);
+
+            UINT decodedWidth{};
+            UINT decodedHeight{};
+            if (SUCCEEDED(hr))
+                hr = converter->GetSize(&decodedWidth, &decodedHeight);
+
+            if (SUCCEEDED(hr) && decodedWidth > 0 && decodedHeight > 0)
+            {
+                const std::size_t stride = static_cast<std::size_t>(decodedWidth) * 4u;
+                const std::size_t total = stride * static_cast<std::size_t>(decodedHeight);
+                if (total <= static_cast<std::size_t>(UINT32_MAX))
+                {
+                    pixels.resize(total);
+                    hr = converter->CopyPixels(
+                        nullptr,
+                        static_cast<UINT>(stride),
+                        static_cast<UINT>(total),
+                        pixels.data());
+                }
+                else
+                {
+                    hr = E_OUTOFMEMORY;
+                }
+            }
+
+            if (uninitializeCom)
+                ::CoUninitialize();
+
+            if (FAILED(hr) || pixels.empty())
+            {
+                pixels.clear();
+                TUTONES_LOG_WARN("render.banner", "WIC failed to decode the embedded V11 banner artwork");
+                return false;
+            }
+
+            width = decodedWidth;
+            height = decodedHeight;
+            return true;
+        }
     }
 
     Renderer& Renderer::Get() noexcept
@@ -231,6 +369,8 @@ namespace Tutones::Render
 
     void Renderer::ReleaseFrameResources() noexcept
     {
+        ReleaseV11BannerTexture();
+
         if (m_CommandList)
         {
             m_CommandList->Release();
@@ -320,6 +460,8 @@ namespace Tutones::Render
         }
 
         m_ImGuiInitialized = true;
+        if (!CreateV11BannerTexture())
+            TUTONES_LOG_WARN("render.banner", "V11 banner texture unavailable; vector fallback will be used");
         UI::TutonesMenu::Get().Reset();
         TUTONES_LOG_INFO("render.imgui", "Dear ImGui Win32 and DX12 backends initialized");
         return true;
@@ -331,12 +473,201 @@ namespace Tutones::Render
             return;
 
         TUTONES_LOG_INFO("render.imgui", "Shutting down Dear ImGui backends");
+        ReleaseV11BannerTexture();
         ImGui_ImplDX12_Shutdown();
         ImGui_ImplWin32_Shutdown();
         ImGui::DestroyContext();
         m_ImGuiInitialized = false;
         m_FrameBegun = false;
         TUTONES_LOG_INFO("render.imgui", "Dear ImGui shutdown complete");
+    }
+
+    bool Renderer::CreateV11BannerTexture() noexcept
+    {
+        ReleaseV11BannerTexture();
+        if (!m_Device || !m_CommandQueue || !m_SrvHeap || !m_Fence || !m_FenceEvent || m_SrvIncrement == 0)
+            return false;
+
+        std::vector<std::uint8_t> pixels;
+        std::uint32_t width{};
+        std::uint32_t height{};
+        if (!DecodeBannerResource(pixels, width, height))
+            return false;
+
+        using Microsoft::WRL::ComPtr;
+        ComPtr<ID3D12Resource> texture;
+        ComPtr<ID3D12Resource> upload;
+        ComPtr<ID3D12CommandAllocator> allocator;
+        ComPtr<ID3D12GraphicsCommandList> commandList;
+
+        D3D12_HEAP_PROPERTIES defaultHeap{};
+        defaultHeap.Type = D3D12_HEAP_TYPE_DEFAULT;
+
+        D3D12_RESOURCE_DESC textureDesc{};
+        textureDesc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+        textureDesc.Width = width;
+        textureDesc.Height = height;
+        textureDesc.DepthOrArraySize = 1;
+        textureDesc.MipLevels = 1;
+        textureDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+        textureDesc.SampleDesc.Count = 1;
+        textureDesc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+
+        HRESULT hr = m_Device->CreateCommittedResource(
+            &defaultHeap,
+            D3D12_HEAP_FLAG_NONE,
+            &textureDesc,
+            D3D12_RESOURCE_STATE_COPY_DEST,
+            nullptr,
+            IID_PPV_ARGS(texture.GetAddressOf()));
+        if (FAILED(hr))
+            return false;
+
+        const UINT uploadPitch = (width * 4u + D3D12_TEXTURE_DATA_PITCH_ALIGNMENT - 1u)
+            & ~(D3D12_TEXTURE_DATA_PITCH_ALIGNMENT - 1u);
+        const UINT64 uploadSize = static_cast<UINT64>(uploadPitch) * height;
+
+        D3D12_HEAP_PROPERTIES uploadHeap{};
+        uploadHeap.Type = D3D12_HEAP_TYPE_UPLOAD;
+        D3D12_RESOURCE_DESC uploadDesc{};
+        uploadDesc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+        uploadDesc.Width = uploadSize;
+        uploadDesc.Height = 1;
+        uploadDesc.DepthOrArraySize = 1;
+        uploadDesc.MipLevels = 1;
+        uploadDesc.SampleDesc.Count = 1;
+        uploadDesc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+
+        hr = m_Device->CreateCommittedResource(
+            &uploadHeap,
+            D3D12_HEAP_FLAG_NONE,
+            &uploadDesc,
+            D3D12_RESOURCE_STATE_GENERIC_READ,
+            nullptr,
+            IID_PPV_ARGS(upload.GetAddressOf()));
+        if (FAILED(hr))
+            return false;
+
+        void* mapped{};
+        D3D12_RANGE readRange{0, 0};
+        hr = upload->Map(0, &readRange, &mapped);
+        if (FAILED(hr) || !mapped)
+            return false;
+
+        const std::size_t sourcePitch = static_cast<std::size_t>(width) * 4u;
+        for (std::uint32_t y = 0; y < height; ++y)
+        {
+            std::memcpy(
+                static_cast<std::uint8_t*>(mapped) + static_cast<std::size_t>(y) * uploadPitch,
+                pixels.data() + static_cast<std::size_t>(y) * sourcePitch,
+                sourcePitch);
+        }
+        upload->Unmap(0, nullptr);
+
+        hr = m_Device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(allocator.GetAddressOf()));
+        if (FAILED(hr))
+            return false;
+        hr = m_Device->CreateCommandList(
+            0,
+            D3D12_COMMAND_LIST_TYPE_DIRECT,
+            allocator.Get(),
+            nullptr,
+            IID_PPV_ARGS(commandList.GetAddressOf()));
+        if (FAILED(hr))
+            return false;
+
+        D3D12_TEXTURE_COPY_LOCATION source{};
+        source.pResource = upload.Get();
+        source.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+        source.PlacedFootprint.Footprint.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+        source.PlacedFootprint.Footprint.Width = width;
+        source.PlacedFootprint.Footprint.Height = height;
+        source.PlacedFootprint.Footprint.Depth = 1;
+        source.PlacedFootprint.Footprint.RowPitch = uploadPitch;
+
+        D3D12_TEXTURE_COPY_LOCATION destination{};
+        destination.pResource = texture.Get();
+        destination.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+        destination.SubresourceIndex = 0;
+
+        commandList->CopyTextureRegion(&destination, 0, 0, 0, &source, nullptr);
+
+        D3D12_RESOURCE_BARRIER barrier{};
+        barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+        barrier.Transition.pResource = texture.Get();
+        barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+        barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_DEST;
+        barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
+        commandList->ResourceBarrier(1, &barrier);
+
+        hr = commandList->Close();
+        if (FAILED(hr))
+            return false;
+
+        ID3D12CommandList* lists[]{commandList.Get()};
+        m_CommandQueue->ExecuteCommandLists(1, lists);
+        const auto fenceValue = m_NextFenceValue++;
+        hr = m_CommandQueue->Signal(m_Fence, fenceValue);
+        if (FAILED(hr))
+            return false;
+        if (m_Fence->GetCompletedValue() < fenceValue)
+        {
+            hr = m_Fence->SetEventOnCompletion(fenceValue, m_FenceEvent);
+            if (FAILED(hr))
+                return false;
+            ::WaitForSingleObject(m_FenceEvent, INFINITE);
+        }
+
+        std::uint32_t descriptorIndex = InvalidSrvIndex;
+        {
+            std::scoped_lock lock(m_SrvMutex);
+            if (m_FreeSrvIndices.empty())
+            {
+                TUTONES_LOG_WARN("render.banner", "No SRV descriptor was available for V11 banner texture");
+                return false;
+            }
+            descriptorIndex = m_FreeSrvIndices.back();
+            m_FreeSrvIndices.pop_back();
+        }
+
+        D3D12_CPU_DESCRIPTOR_HANDLE cpu = m_SrvHeap->GetCPUDescriptorHandleForHeapStart();
+        D3D12_GPU_DESCRIPTOR_HANDLE gpu = m_SrvHeap->GetGPUDescriptorHandleForHeapStart();
+        cpu.ptr += static_cast<SIZE_T>(descriptorIndex) * m_SrvIncrement;
+        gpu.ptr += static_cast<UINT64>(descriptorIndex) * m_SrvIncrement;
+
+        D3D12_SHADER_RESOURCE_VIEW_DESC srv{};
+        srv.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+        srv.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+        srv.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+        srv.Texture2D.MostDetailedMip = 0;
+        srv.Texture2D.MipLevels = 1;
+        m_Device->CreateShaderResourceView(texture.Get(), &srv, cpu);
+
+        m_V11BannerTexture = texture.Detach();
+        m_V11BannerCpu = cpu;
+        m_V11BannerGpu = gpu;
+        m_V11BannerSrvIndex = descriptorIndex;
+        TUTONES_LOG_INFO("render.banner", "Embedded V11 header/description artwork uploaded to D3D12");
+        return true;
+    }
+
+    void Renderer::ReleaseV11BannerTexture() noexcept
+    {
+        if (m_V11BannerTexture)
+        {
+            m_V11BannerTexture->Release();
+            m_V11BannerTexture = nullptr;
+        }
+
+        if (m_V11BannerSrvIndex != InvalidSrvIndex)
+        {
+            std::scoped_lock lock(m_SrvMutex);
+            if (m_SrvHeap && m_SrvIncrement != 0)
+                m_FreeSrvIndices.push_back(m_V11BannerSrvIndex);
+            m_V11BannerSrvIndex = InvalidSrvIndex;
+        }
+        m_V11BannerCpu.ptr = 0;
+        m_V11BannerGpu.ptr = 0;
     }
 
     bool Renderer::WaitForFrame(D3D12::FrameContext& frame) noexcept
@@ -461,6 +792,7 @@ namespace Tutones::Render
 
         TUTONES_LOG_INFO("render.resize", "Preparing renderer resources for ResizeBuffers");
         WaitForGpuIdle();
+        ReleaseV11BannerTexture();
         if (m_ImGuiInitialized)
             ImGui_ImplDX12_InvalidateDeviceObjects();
         ReleaseFrameResources();
@@ -489,6 +821,9 @@ namespace Tutones::Render
             TUTONES_LOG_ERROR("render.resize", "Failed to recreate ImGui DX12 device objects after resize");
             return;
         }
+
+        if (m_ImGuiInitialized && !CreateV11BannerTexture())
+            TUTONES_LOG_WARN("render.banner", "V11 banner texture was not recreated after resize");
 
         std::string message("Renderer resize rebuild complete; size=");
         message += std::to_string(width);
@@ -600,4 +935,8 @@ namespace Tutones::Render
     ID3D12Device* Renderer::Device() const noexcept { return m_Device; }
     ID3D12CommandQueue* Renderer::CommandQueue() const noexcept { return m_CommandQueue; }
     IDXGISwapChain3* Renderer::SwapChain() const noexcept { return m_SwapChain; }
+    std::uint64_t Renderer::V11BannerTextureId() const noexcept
+    {
+        return m_V11BannerTexture ? m_V11BannerGpu.ptr : 0;
+    }
 }
