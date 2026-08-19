@@ -42,6 +42,18 @@ namespace Tutones::Game::Stats
             });
         }
 
+        [[nodiscard]] inline bool ResolveCharacterStat(std::string& statName, int characterIndex) noexcept
+        {
+            Normalize(statName);
+            if (statName.size() >= 3 && statName[0] == 'm' && statName[1] == 'p' && statName[2] == 'x')
+            {
+                if (characterIndex < 0 || characterIndex > 9)
+                    return false;
+                statName[2] = static_cast<char>('0' + characterIndex);
+            }
+            return true;
+        }
+
         [[nodiscard]] inline std::optional<int> ReadInt(std::uint32_t statHash) noexcept
         {
             int value{};
@@ -54,6 +66,15 @@ namespace Tutones::Game::Stats
                 return std::nullopt;
             return value;
         }
+
+        [[nodiscard]] inline bool WriteInt(std::uint32_t statHash, int value) noexcept
+        {
+            return Native::NativeInvoker::InvokeVoid(
+                Native::NativeId::StatSetInt,
+                statHash,
+                value,
+                std::int32_t{1});
+        }
     }
 
     [[nodiscard]] inline std::optional<int> GetCharIndex() noexcept
@@ -63,13 +84,8 @@ namespace Tutones::Game::Stats
 
     [[nodiscard]] inline std::optional<int> GetInt(std::string statName, int characterIndex)
     {
-        Detail::Normalize(statName);
-        if (statName.size() >= 3 && statName[0] == 'm' && statName[1] == 'p' && statName[2] == 'x')
-        {
-            if (characterIndex < 0 || characterIndex > 9)
-                return std::nullopt;
-            statName[2] = static_cast<char>('0' + characterIndex);
-        }
+        if (!Detail::ResolveCharacterStat(statName, characterIndex))
+            return std::nullopt;
         return Detail::ReadInt(Detail::Joaat(statName));
     }
 
@@ -79,10 +95,28 @@ namespace Tutones::Game::Stats
         if (statName.size() >= 3 && statName[0] == 'm' && statName[1] == 'p' && statName[2] == 'x')
         {
             const auto characterIndex = GetCharIndex();
-            if (!characterIndex || *characterIndex < 0 || *characterIndex > 9)
+            if (!characterIndex || !Detail::ResolveCharacterStat(statName, *characterIndex))
                 return std::nullopt;
-            statName[2] = static_cast<char>('0' + *characterIndex);
         }
         return Detail::ReadInt(Detail::Joaat(statName));
+    }
+
+    [[nodiscard]] inline bool SetInt(std::string statName, int value, int characterIndex)
+    {
+        if (!Detail::ResolveCharacterStat(statName, characterIndex))
+            return false;
+        return Detail::WriteInt(Detail::Joaat(statName), value);
+    }
+
+    [[nodiscard]] inline bool SetInt(std::string statName, int value)
+    {
+        Detail::Normalize(statName);
+        if (statName.size() >= 3 && statName[0] == 'm' && statName[1] == 'p' && statName[2] == 'x')
+        {
+            const auto characterIndex = GetCharIndex();
+            if (!characterIndex || !Detail::ResolveCharacterStat(statName, *characterIndex))
+                return false;
+        }
+        return Detail::WriteInt(Detail::Joaat(statName), value);
     }
 }
