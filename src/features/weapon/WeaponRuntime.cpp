@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <string>
 
 namespace Tutones::Game::WeaponFeatures
 {
@@ -35,6 +36,28 @@ namespace Tutones::Game::WeaponFeatures
             return true;
 
         Runtime::GameRuntime::Get().SetReleaseDeadTargetEnabled(m_ReleaseDeadPed.load(std::memory_order_acquire));
+
+        auto& pointers = GamePointers::Get();
+        const bool shouldNotTargetConfigured = pointers.ShouldNotTargetEntityPatch().IsConfigured();
+        const bool assistedAimTypeConfigured = pointers.GetAssistedAimTypePatch().IsConfigured();
+        const bool lockOnPosConfigured = pointers.GetLockOnPosPatch().IsConfigured();
+        const bool driverLockOnConfigured = pointers.ShouldAllowDriverLockOnPatch().IsConfigured();
+
+        std::string patchState("Weapon patch self-check: pointers=");
+        patchState += pointers.IsResolved() ? "resolved" : "not-resolved";
+        patchState += ", ShouldNotTargetEntity=";
+        patchState += shouldNotTargetConfigured ? "configured" : "missing";
+        patchState += ", GetAssistedAimType=";
+        patchState += assistedAimTypeConfigured ? "configured" : "missing";
+        patchState += ", GetLockOnPos=";
+        patchState += lockOnPosConfigured ? "configured" : "missing";
+        patchState += ", ShouldAllowDriverLockOn=";
+        patchState += driverLockOnConfigured ? "configured" : "missing";
+
+        if (pointers.IsResolved() && shouldNotTargetConfigured && assistedAimTypeConfigured)
+            TUTONES_LOG_INFO("weapon.runtime", patchState);
+        else
+            TUTONES_LOG_WARN("weapon.runtime", patchState);
 
         if (QueueNextTick())
         {
@@ -80,6 +103,7 @@ namespace Tutones::Game::WeaponFeatures
         snapshot.settings.explosionDamage = m_ExplosionDamage.load(std::memory_order_acquire);
         snapshot.settings.explosionCameraShake = m_ExplosionCameraShake.load(std::memory_order_acquire);
         snapshot.nativeReady = Native::NativeRegistry::Get().IsReady();
+        snapshot.pointersResolved = pointers.IsResolved();
         snapshot.aimbotSupported = pointers.ShouldNotTargetEntityPatch().IsConfigured()
             && pointers.GetAssistedAimTypePatch().IsConfigured();
         snapshot.aimForHeadSupported = pointers.GetLockOnPosPatch().IsConfigured();
