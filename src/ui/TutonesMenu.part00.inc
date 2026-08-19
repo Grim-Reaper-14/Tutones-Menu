@@ -63,7 +63,7 @@ namespace Tutones::UI
             {"D", "RECOVERY",
                 {{"Overview", "RP Multiplier", "Businesses", "Unlocks"}},
                 {{"D", "H", "C", "U"}},
-                {{"Live Enhanced Recovery capability and business-state overview.", "Override the current Enhanced XP multiplier while enabled, restoring the prior value when disabled.", "Special Cargo and Bunker state with ownership-gated, read-back-verified controls.", "Enhanced unlock groups remain pending until their packed-stat and script conditions are verified."}}, 4, true},
+                {{"Live Enhanced Recovery capability and business-state overview.", "Override the current Enhanced XP multiplier while enabled, restoring the prior value when disabled.", "Special Cargo and Bunker state with ownership-gated, read-back-verified controls.", "Enhanced unlock groups remain pending until their packed-stat and script conditions are verified."}}, 4, false},
             {"N", "NETWORK",
                 {{"Overview", "Session", "Players", nullptr}},
                 {{"N", "O", "P", nullptr}},
