@@ -98,6 +98,19 @@ namespace Tutones::UI
                 ImGui::SameLine();
                 ImGui::TextDisabled("Vehicles: %zu   Garages: %zu", snapshot.vehicles.size(), snapshot.garages.size());
 
+                if (snapshot.garageOwnershipStatsReady)
+                {
+                    ImGui::TextDisabled(
+                        "Ownership gate: active for MP%d   Owned garage sources: %zu",
+                        snapshot.garageCharacterIndex,
+                        snapshot.ownedGarageSources);
+                }
+                else
+                {
+                    ImGui::TextDisabled(
+                        "Ownership gate: partial - unreadable property stats are excluded; verified special service garages remain eligible.");
+                }
+
                 const char* preview = g_GarageFilter.empty() ? "All garages" : g_GarageFilter.c_str();
                 ImGui::SetNextItemWidth(-1.0f);
                 if (ImGui::BeginCombo("##personal_vehicle_garage", preview))
@@ -118,9 +131,9 @@ namespace Tutones::UI
                     }
                     ImGui::EndCombo();
                 }
-                DescribeLastV11Item("Filter the Enhanced personal-vehicle snapshot to one resolved garage, or show vehicles from every garage.");
+                DescribeLastV11Item("Filter the Enhanced personal-vehicle snapshot to one garage that passed the current ownership gate, or show vehicles from every resolved owned garage.");
 
-                if (ImGui::BeginListBox("##personal_vehicles", ImVec2(-1.0f, 168.0f)))
+                if (ImGui::BeginListBox("##personal_vehicles", ImVec2(-1.0f, 154.0f)))
                 {
                     for (const auto& vehicle : snapshot.vehicles)
                     {
@@ -136,7 +149,7 @@ namespace Tutones::UI
                         const bool selected = g_SelectedVehicleId == vehicle.id;
                         if (ImGui::Selectable(label, selected))
                             g_SelectedVehicleId = vehicle.id;
-                        DescribeLastV11Item("Select this Rockstar personal-vehicle entry to inspect its MPSV identity, plate, garage slot, and available actions.");
+                        DescribeLastV11Item("Select this Rockstar personal-vehicle entry to inspect its MPSV identity, plate, ownership-gated garage slot, and available actions.");
                         if (selected)
                             ImGui::SetItemDefaultFocus();
                     }
@@ -199,6 +212,7 @@ namespace Tutones::UI
             }
 
             ImGui::Separator();
+            ImGui::TextDisabled("Garage detection is ownership-gated; dynamic apartment/Hangar/Facility naming is still a separate fidelity pass.");
             ImGui::TextDisabled("Repair/Request use verified Enhanced MPSV/Freemode state; Bring and Save are not enabled here.");
         }
 

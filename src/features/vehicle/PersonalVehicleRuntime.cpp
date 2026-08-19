@@ -2,6 +2,7 @@
 
 #include "../../core/logging/Logger.hpp"
 #include "../../game/GamePointers.hpp"
+#include "../../game/Stats.hpp"
 #include "../../game/VehicleNatives.hpp"
 #include "../../game/native/NativeRegistry.hpp"
 #include "../../game/script/ScriptGlobal.hpp"
@@ -10,6 +11,7 @@
 #include "../../runtime/GameRuntime.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cstdio>
 #include <set>
 #include <string>
@@ -74,52 +76,106 @@ namespace Tutones::Game::PersonalVehicles
 
         struct GarageDefinition final
         {
+            int property;
             std::size_t offset;
             int size;
             const char* label;
+            const char* ownershipStat;
+            bool alwaysOwned;
         };
 
         constexpr GarageDefinition GarageDefinitions[] = {
-            {0, 13, "Property Garage 1"},
-            {13, 13, "Property Garage 2"},
-            {26, 13, "Property Garage 3"},
-            {39, 13, "Property Garage 4"},
-            {52, 13, "Property Garage 5"},
-            {65, 10, "MC Clubhouse"},
-            {75, 13, "Property Garage 6"},
-            {88, 20, "Office Garage 1"},
-            {108, 20, "Office Garage 2"},
-            {128, 20, "Office Garage 3"},
-            {148, 8, "Vehicle Warehouse"},
-            {159, 20, "Hangar"},
-            {179, 11, "Facility"},
-            {191, 1, "Nightclub Service Entrance"},
-            {192, 10, "Nightclub B2"},
-            {202, 10, "Nightclub B3"},
-            {212, 10, "Nightclub B4"},
-            {227, 10, "Arena Workshop"},
-            {237, 10, "Arena Workshop B1"},
-            {247, 10, "Arena Workshop B2"},
-            {258, 10, "Casino Penthouse Garage"},
-            {268, 10, "Arcade Garage"},
-            {281, 13, "Property Garage 7"},
-            {294, 13, "Property Garage 8"},
-            {307, 10, "Auto Shop"},
-            {317, 20, "Agency Garage"},
-            {337, 13, "Property Garage 9"},
-            {350, 13, "Property Garage 10"},
-            {363, 50, "Eclipse Blvd Garage"},
-            {415, 100, "Vinewood Club Garage"},
-            {515, 2, "Bail Office Garage"},
-            {537, 10, "Garment Factory Garage"},
-            {547, 20, "The Tongva Estate Garage"},
-            {567, 20, "Richman Villa Garage"},
-            {587, 20, "The Vinewood Residence Garage"},
-            {156, 1, "Mobile Operations Center"},
-            {224, 3, "Nightclub B1"},
-            {223, 1, "Terrorbyte"},
-            {278, 1, "Kosatka"},
+            {0, 0, 13, "Property Garage 1", "MPX_PROPERTY_HOUSE", false},
+            {1, 13, 13, "Property Garage 2", "MPX_MULTI_PROPERTY_1", false},
+            {2, 26, 13, "Property Garage 3", "MPX_MULTI_PROPERTY_2", false},
+            {3, 39, 13, "Property Garage 4", "MPX_MULTI_PROPERTY_3", false},
+            {4, 52, 13, "Property Garage 5", "MPX_MULTI_PROPERTY_4", false},
+            {6, 65, 10, "MC Clubhouse", "MPX_PROP_CLUBHOUSE", false},
+            {7, 75, 13, "Property Garage 6", "MPX_MULTI_PROPERTY_5", false},
+            {8, 88, 20, "Office Garage 1", "MPX_PROP_OFFICE_GAR1", false},
+            {9, 108, 20, "Office Garage 2", "MPX_PROP_OFFICE_GAR2", false},
+            {10, 128, 20, "Office Garage 3", "MPX_PROP_OFFICE_GAR3", false},
+            {11, 148, 8, "Vehicle Warehouse", "MPX_PROP_IE_WAREHOUSE", false},
+            {12, 159, 20, "Hangar", "MPX_PROP_HANGAR", false},
+            {13, 179, 11, "Facility", "MPX_PROP_DEFUNCBASE", false},
+            {14, 191, 1, "Nightclub Service Entrance", "MPX_PROP_NIGHTCLUB", false},
+            {15, 192, 10, "Nightclub B2", "MPX_PROP_MEGAWARE_GAR1", false},
+            {16, 202, 10, "Nightclub B3", "MPX_PROP_MEGAWARE_GAR2", false},
+            {17, 212, 10, "Nightclub B4", "MPX_PROP_MEGAWARE_GAR3", false},
+            {18, 227, 10, "Arena Workshop", "MPX_PROP_ARENAWARS_GAR1", false},
+            {19, 237, 10, "Arena Workshop B1", "MPX_PROP_ARENAWARS_GAR2", false},
+            {20, 247, 10, "Arena Workshop B2", "MPX_PROP_ARENAWARS_GAR3", false},
+            {21, 258, 10, "Casino Penthouse Garage", "MPX_PROP_CASINO_GAR1", false},
+            {22, 268, 10, "Arcade Garage", "MPX_PROP_ARCADE_GAR1", false},
+            {23, 281, 13, "Property Garage 7", "MPX_MULTI_PROPERTY_6", false},
+            {24, 294, 13, "Property Garage 8", "MPX_MULTI_PROPERTY_7", false},
+            {25, 307, 10, "Auto Shop", "MPX_PROP_AUTO_SHOP", false},
+            {26, 317, 20, "Agency Garage", "MPX_PROP_SECURITY_OFFICE_GAR", false},
+            {27, 337, 13, "Property Garage 9", "MPX_MULTI_PROPERTY_8", false},
+            {28, 350, 13, "Property Garage 10", "MPX_MULTI_PROPERTY_9", false},
+            {29, 363, 50, "Eclipse Blvd Garage", "MPX_MULTSTOREY_GAR_OWNED", false},
+            {30, 415, 100, "Vinewood Club Garage", nullptr, true},
+            {31, 515, 2, "Bail Office Garage", "MPX_PROP_BAIL_OFFICE", false},
+            {32, 537, 10, "Garment Factory Garage", "MPX_PROP_HACKER_DEN", false},
+            {33, 547, 20, "The Tongva Estate Garage", "MPX_MANSION_TH_OWNED", false},
+            {34, 567, 20, "Richman Villa Garage", "MPX_MANSION_AJ_OWNED", false},
+            {35, 587, 20, "The Vinewood Residence Garage", "MPX_MANSION_MD_OWNED", false},
+            {36, 156, 1, "Mobile Operations Center", nullptr, true},
+            {37, 224, 3, "Nightclub B1", nullptr, true},
+            {38, 223, 1, "Terrorbyte", nullptr, true},
+            {39, 278, 1, "Kosatka", nullptr, true},
         };
+        constexpr std::size_t GarageDefinitionCount = sizeof(GarageDefinitions) / sizeof(GarageDefinitions[0]);
+
+        struct GarageOwnershipState final
+        {
+            std::array<bool, GarageDefinitionCount> owned{};
+            std::size_t ownedSources{};
+            int characterIndex{-1};
+            bool statsReady{true};
+        };
+
+        [[nodiscard]] GarageOwnershipState ReadGarageOwnership() noexcept
+        {
+            GarageOwnershipState state{};
+            const auto characterIndex = Stats::GetCharIndex();
+            if (characterIndex)
+                state.characterIndex = *characterIndex;
+            else
+                state.statsReady = false;
+
+            for (std::size_t index = 0; index < GarageDefinitionCount; ++index)
+            {
+                const auto& definition = GarageDefinitions[index];
+                if (definition.alwaysOwned)
+                {
+                    state.owned[index] = true;
+                    ++state.ownedSources;
+                    continue;
+                }
+
+                if (!definition.ownershipStat || state.characterIndex < 0)
+                {
+                    state.statsReady = false;
+                    continue;
+                }
+
+                const auto value = Stats::GetInt(definition.ownershipStat, state.characterIndex);
+                if (!value)
+                {
+                    state.statsReady = false;
+                    continue;
+                }
+
+                if (*value > 0)
+                {
+                    state.owned[index] = true;
+                    ++state.ownedSources;
+                }
+            }
+
+            return state;
+        }
 
         [[nodiscard]] std::string ReadFixedLabel(const char* value, std::size_t maxLength)
         {
@@ -148,7 +204,7 @@ namespace Tutones::Game::PersonalVehicles
 
         [[nodiscard]] std::string GarageLabel(const GarageDefinition& definition, int slot)
         {
-            if (definition.offset == 363)
+            if (definition.property == 29)
             {
                 const int floor = ((slot - 1) / 10) + 1;
                 return std::string(definition.label) + " B" + std::to_string(floor);
@@ -156,10 +212,17 @@ namespace Tutones::Game::PersonalVehicles
             return definition.label;
         }
 
-        [[nodiscard]] std::string FindGarage(int vehicleId, std::int64_t** pages)
+        [[nodiscard]] std::string FindGarage(
+            int vehicleId,
+            std::int64_t** pages,
+            const GarageOwnershipState& ownership)
         {
-            for (const auto& definition : GarageDefinitions)
+            for (std::size_t definitionIndex = 0; definitionIndex < GarageDefinitionCount; ++definitionIndex)
             {
+                if (!ownership.owned[definitionIndex])
+                    continue;
+
+                const auto& definition = GarageDefinitions[definitionIndex];
                 for (int slot = 1; slot <= definition.size; ++slot)
                 {
                     const auto global = Script::ScriptGlobal(GarageSlotsGlobal).At(definition.offset).At(static_cast<std::size_t>(slot));
@@ -593,11 +656,15 @@ namespace Tutones::Game::PersonalVehicles
         }
 
         const std::size_t count = static_cast<std::size_t>(std::clamp(*arraySize, 0, static_cast<int>(MpsvMaxEntries)));
+        const GarageOwnershipState garageOwnership = ReadGarageOwnership();
         PersonalVehicleSnapshot next{};
         next.running = IsRunning();
         next.scriptGlobalsReady = true;
         next.nativeReady = true;
         next.sourceArraySize = count;
+        next.ownedGarageSources = garageOwnership.ownedSources;
+        next.garageCharacterIndex = garageOwnership.characterIndex;
+        next.garageOwnershipStatsReady = garageOwnership.statsReady;
         next.vehicles.reserve(count);
 
         if (bool* sessionStarted = GamePointers::Get().IsSessionStarted())
@@ -635,7 +702,7 @@ namespace Tutones::Game::PersonalVehicles
             vehicle.model = *modelPtr;
             vehicle.displayName = ResolveVehicleName(vehicle.model);
             vehicle.plate = ReadFixedLabel(entry.At(MpsvPlateOffset).As<char>(pages), 16);
-            vehicle.garage = FindGarage(vehicle.id, pages);
+            vehicle.garage = FindGarage(vehicle.id, pages, garageOwnership);
             if (const std::uint32_t* flags = entry.At(MpsvFlagsOffset).As<std::uint32_t>(pages))
             {
                 vehicle.destroyed = (*flags & DestroyedBit) != 0;

@@ -118,6 +118,8 @@ namespace Tutones::Game::Native
         GetPedLastWeaponImpactCoord,
         AddOwnedExplosion,
 
+        StatGetInt,
+
         Count,
     };
 
