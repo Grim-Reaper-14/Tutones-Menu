@@ -1,5 +1,6 @@
 #include "GamePanel.hpp"
 
+#include "V11Theme.hpp"
 #include "../features/game/GameSessionRuntime.hpp"
 #include "../features/game/GameSessionTypes.hpp"
 
@@ -16,7 +17,7 @@ namespace Tutones::UI
         using Game::SessionFeatures::JoinType;
         using Game::SessionFeatures::OnlineJoinTypes;
 
-        constexpr ImVec4 Accent{147.0f / 255.0f, 190.0f / 255.0f, 66.0f / 255.0f, 1.0f};
+        const ImVec4 Accent = V11Theme::Accent;
         std::size_t g_SelectedJoinType{};
         const char* g_SessionMessage{"Ready"};
 
@@ -109,9 +110,9 @@ namespace Tutones::UI
 
         ImGui::SetCursorPos(ImVec2(226.0f, 16.0f));
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(14.0f, 12.0f));
-        ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 4.0f);
-        ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(24.0f / 255.0f, 24.0f / 255.0f, 26.0f / 255.0f, 1.0f));
-        ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(1.0f, 1.0f, 1.0f, 0.04f));
+        ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 3.0f);
+        ImGui::PushStyleColor(ImGuiCol_ChildBg, V11Theme::PanelBg);
+        ImGui::PushStyleColor(ImGuiCol_Border, V11Theme::PanelBorder);
 
         if (ImGui::BeginChild("##game_panel", ImVec2(490.0f, 430.0f), true))
         {
