@@ -1,5 +1,6 @@
 #include "TutonesMenu.hpp"
 
+#include "../app/BuildInfo.hpp"
 #include "GamePanel.hpp"
 #include "Input.hpp"
 #include "PersonalVehiclePanel.hpp"
