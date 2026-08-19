@@ -31,6 +31,7 @@ add_library(TutonesMenu SHARED
     src/features/player/PlayerRuntime.cpp
     src/features/player/PlayerRuntimeActions.cpp
     src/features/player/PlayerRuntimeState.cpp
+    src/features/recovery/RecoveryRuntime.cpp
     src/features/vehicle/LscBypassRuntime.cpp
     src/features/vehicle/PersonalVehicleRuntime.cpp
     src/features/vehicle/VehicleModificationRuntime.cpp
@@ -64,6 +65,7 @@ add_library(TutonesMenu SHARED
     src/ui/PersonalVehiclePanel.cpp
     src/ui/PlayerOnlinePanel.cpp
     src/ui/PlayerPanel.cpp
+    src/ui/RecoveryPanel.cpp
     src/ui/TutonesMenu.cpp
     src/ui/V11Resources.rc
     src/ui/VehicleGeneralPanel.cpp
@@ -133,6 +135,8 @@ source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR}/src PREFIX "Source" FILES
     src/features/player/PlayerRuntime.hpp
     src/features/player/PlayerRuntimeActions.cpp
     src/features/player/PlayerRuntimeState.cpp
+    src/features/recovery/RecoveryRuntime.cpp
+    src/features/recovery/RecoveryRuntime.hpp
     src/features/vehicle/LscBypassRuntime.cpp
     src/features/vehicle/LscBypassRuntime.hpp
     src/features/vehicle/PersonalVehicleRuntime.cpp
@@ -204,6 +208,8 @@ source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR}/src PREFIX "Source" FILES
     src/ui/PlayerOnlinePanel.hpp
     src/ui/PlayerPanel.cpp
     src/ui/PlayerPanel.hpp
+    src/ui/RecoveryPanel.cpp
+    src/ui/RecoveryPanel.hpp
     src/ui/TutonesMenu.cpp
     src/ui/TutonesMenu.hpp
     src/ui/V11ResourceIds.h
