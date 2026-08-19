@@ -131,6 +131,14 @@ namespace Tutones::UI
             ImGui::PopStyleColor();
 
             RenderStatusPanel(m_Category, m_Item);
+            // RenderStatusPanel keeps the original compact spacing for the BUILD row. Draw the
+            // source/build identity into its intentionally empty value slot without shifting rows.
+            draw->AddText(
+                FontOrDefault(g_Bold),
+                12.0f,
+                ImVec2(pos.x + V11Theme::StatusX + 46.0f, pos.y + V11Theme::HeaderHeight + 158.0f),
+                ImGui::GetColorU32(V11Theme::MutedText),
+                ::Tutones::App::BuildInfo::Label);
             DrawDescriptionBanner(draw, pos, V11Theme::MenuWidth, m_Category, m_Item);
         }
 
