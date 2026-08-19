@@ -28,6 +28,7 @@ namespace Tutones::Core::Config
                 return false;
 
             const auto player = document.value("player", nlohmann::json::object());
+            const auto vehicle = document.value("vehicle", nlohmann::json::object());
             const auto weapons = document.value("weapons", nlohmann::json::object());
 
             m_Settings.version = document.value("version", m_Settings.version);
@@ -43,6 +44,8 @@ namespace Tutones::Core::Config
             m_Settings.player.everyoneIgnore = player.value("everyone_ignore", m_Settings.player.everyoneIgnore);
             m_Settings.player.runMultiplier = player.value("run_multiplier", m_Settings.player.runMultiplier);
             m_Settings.player.swimMultiplier = player.value("swim_multiplier", m_Settings.player.swimMultiplier);
+
+            m_Settings.vehicle.removeLscRestrictions = vehicle.value("remove_lsc_restrictions", m_Settings.vehicle.removeLscRestrictions);
 
             m_Settings.weapons.infiniteAmmo = weapons.value("infinite_ammo", m_Settings.weapons.infiniteAmmo);
             m_Settings.weapons.infiniteClip = weapons.value("infinite_clip", m_Settings.weapons.infiniteClip);
@@ -89,6 +92,9 @@ namespace Tutones::Core::Config
                     {"everyone_ignore", m_Settings.player.everyoneIgnore},
                     {"run_multiplier", m_Settings.player.runMultiplier},
                     {"swim_multiplier", m_Settings.player.swimMultiplier},
+                }},
+                {"vehicle", {
+                    {"remove_lsc_restrictions", m_Settings.vehicle.removeLscRestrictions},
                 }},
                 {"weapons", {
                     {"infinite_ammo", m_Settings.weapons.infiniteAmmo},

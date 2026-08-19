@@ -1,5 +1,6 @@
 #include "VehicleModificationPanel.hpp"
 
+#include "LscBypassWidget.hpp"
 #include "../features/vehicle/VehicleModificationRuntime.hpp"
 #include "../game/vehicle/VehicleCatalogs.hpp"
 
@@ -158,7 +159,8 @@ namespace Tutones::UI
                         g_LastObserved = -1;
                     }
 
-                    ImGui::TextDisabled("Direct native apply: LSC purchase/rank gates are not used; vehicle-supported mod count is still enforced.");
+                    ImGui::TextDisabled("Direct native workshop controls still enforce the vehicle-supported mod count.");
+                    RenderLscBypassWidget();
                     ImGui::Text("Available: %d | Installed: %d", snapshot.modCount, snapshot.currentMod);
 
                     if (IsToggleSlot(g_ModType))

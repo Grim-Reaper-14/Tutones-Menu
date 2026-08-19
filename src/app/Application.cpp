@@ -6,6 +6,7 @@
 #include "../core/logging/Logger.hpp"
 #include "../features/player/OffRadarRuntime.hpp"
 #include "../features/player/PlayerRuntime.hpp"
+#include "../features/vehicle/LscBypassRuntime.hpp"
 #include "../features/vehicle/PersonalVehicleRuntime.hpp"
 #include "../features/vehicle/VehicleModificationRuntime.hpp"
 #include "../features/vehicle/VehiclePaintRuntime.hpp"
@@ -36,6 +37,7 @@ namespace Tutones::App
             player.SetSwimMultiplier(settings.player.swimMultiplier);
 
             Game::PlayerFeatures::OffRadarRuntime::Get().SetEnabled(settings.offRadar);
+            Game::Mods::LscBypassRuntime::Get().SetEnabled(settings.vehicle.removeLscRestrictions);
 
             auto& weapons = Game::WeaponFeatures::WeaponRuntime::Get();
             weapons.SetInfiniteAmmo(settings.weapons.infiniteAmmo);
@@ -70,6 +72,7 @@ namespace Tutones::App
             settings.player.swimMultiplier = player.swimMultiplier;
 
             settings.offRadar = Game::PlayerFeatures::OffRadarRuntime::Get().Snapshot().enabled;
+            settings.vehicle.removeLscRestrictions = Game::Mods::LscBypassRuntime::Get().Enabled();
 
             const auto weapons = Game::WeaponFeatures::WeaponRuntime::Get().Snapshot().settings;
             settings.weapons.infiniteAmmo = weapons.infiniteAmmo;
@@ -155,11 +158,24 @@ namespace Tutones::App
             return false;
         }
 
-        TUTONES_LOG_INFO("app", "Game runtime ready; starting vehicle feature runtimes");
+        TUTONES_LOG_INFO("app", "Game runtime ready; starting LSC script-patch runtime");
+        if (!Game::Mods::LscBypassRuntime::Get().Start())
+        {
+            TUTONES_LOG_ERROR("app", "LSC restriction bypass runtime failed to start");
+            Game::Mods::LscBypassRuntime::Get().Stop();
+            Runtime::GameRuntime::Get().Shutdown();
+            Hooking::HookManager::Get().Shutdown();
+            Render::Renderer::Get().Shutdown();
+            Core::Services::Get().Shutdown();
+            return false;
+        }
+
+        TUTONES_LOG_INFO("app", "Script-patch runtime ready; starting vehicle feature runtimes");
         if (!Game::Paint::VehiclePaintRuntime::Get().Start())
         {
             TUTONES_LOG_ERROR("app", "Vehicle paint runtime failed to queue its first GTA script-thread tick");
             Game::Paint::VehiclePaintRuntime::Get().Stop();
+            Game::Mods::LscBypassRuntime::Get().Stop();
             Runtime::GameRuntime::Get().Shutdown();
             Hooking::HookManager::Get().Shutdown();
             Render::Renderer::Get().Shutdown();
@@ -172,6 +188,7 @@ namespace Tutones::App
             TUTONES_LOG_ERROR("app", "Vehicle modification runtime failed to queue its first GTA script-thread tick");
             Game::Mods::VehicleModificationRuntime::Get().Stop();
             Game::Paint::VehiclePaintRuntime::Get().Stop();
+            Game::Mods::LscBypassRuntime::Get().Stop();
             Runtime::GameRuntime::Get().Shutdown();
             Hooking::HookManager::Get().Shutdown();
             Render::Renderer::Get().Shutdown();
@@ -185,6 +202,7 @@ namespace Tutones::App
             Game::PersonalVehicles::PersonalVehicleRuntime::Get().Stop();
             Game::Mods::VehicleModificationRuntime::Get().Stop();
             Game::Paint::VehiclePaintRuntime::Get().Stop();
+            Game::Mods::LscBypassRuntime::Get().Stop();
             Runtime::GameRuntime::Get().Shutdown();
             Hooking::HookManager::Get().Shutdown();
             Render::Renderer::Get().Shutdown();
@@ -200,6 +218,7 @@ namespace Tutones::App
             Game::PersonalVehicles::PersonalVehicleRuntime::Get().Stop();
             Game::Mods::VehicleModificationRuntime::Get().Stop();
             Game::Paint::VehiclePaintRuntime::Get().Stop();
+            Game::Mods::LscBypassRuntime::Get().Stop();
             Runtime::GameRuntime::Get().Shutdown();
             Hooking::HookManager::Get().Shutdown();
             Render::Renderer::Get().Shutdown();
@@ -216,6 +235,7 @@ namespace Tutones::App
             Game::PersonalVehicles::PersonalVehicleRuntime::Get().Stop();
             Game::Mods::VehicleModificationRuntime::Get().Stop();
             Game::Paint::VehiclePaintRuntime::Get().Stop();
+            Game::Mods::LscBypassRuntime::Get().Stop();
             Runtime::GameRuntime::Get().Shutdown();
             Hooking::HookManager::Get().Shutdown();
             Render::Renderer::Get().Shutdown();
@@ -233,6 +253,7 @@ namespace Tutones::App
             Game::PersonalVehicles::PersonalVehicleRuntime::Get().Stop();
             Game::Mods::VehicleModificationRuntime::Get().Stop();
             Game::Paint::VehiclePaintRuntime::Get().Stop();
+            Game::Mods::LscBypassRuntime::Get().Stop();
             Runtime::GameRuntime::Get().Shutdown();
             Hooking::HookManager::Get().Shutdown();
             Render::Renderer::Get().Shutdown();
@@ -251,6 +272,7 @@ namespace Tutones::App
             Game::PersonalVehicles::PersonalVehicleRuntime::Get().Stop();
             Game::Mods::VehicleModificationRuntime::Get().Stop();
             Game::Paint::VehiclePaintRuntime::Get().Stop();
+            Game::Mods::LscBypassRuntime::Get().Stop();
             Runtime::GameRuntime::Get().Shutdown();
             Hooking::HookManager::Get().Shutdown();
             Render::Renderer::Get().Shutdown();
@@ -258,7 +280,7 @@ namespace Tutones::App
             return false;
         }
 
-        TUTONES_LOG_INFO("app", "Tutones Menu application initialized with render, input, GTA native runtime, vehicle, personal vehicle, player, online, and weapon feature layers");
+        TUTONES_LOG_INFO("app", "Tutones Menu application initialized with render, input, GTA native runtime, real LSC script-patch bypass, vehicle, personal vehicle, player, online, and weapon feature layers");
         TUTONES_LOG_DEBUG("app", "Runtime is waiting for primary render state and the first GTA script-thread tick");
         m_Running = true;
         return true;
@@ -281,13 +303,14 @@ namespace Tutones::App
         TUTONES_LOG_DEBUG("app", "Stopping Win32 menu input routing");
         UI::Input::Get().Shutdown();
 
-        TUTONES_LOG_DEBUG("app", "Stopping weapon, online, player, personal vehicle, and vehicle feature scheduling before GTA runtime teardown");
+        TUTONES_LOG_DEBUG("app", "Stopping weapon, online, player, personal vehicle, LSC patch, and vehicle feature scheduling before GTA runtime teardown");
         Game::WeaponFeatures::WeaponRuntime::Get().Stop();
         Game::PlayerFeatures::OffRadarRuntime::Get().Stop();
         Game::PlayerFeatures::PlayerRuntime::Get().Stop();
         Game::PersonalVehicles::PersonalVehicleRuntime::Get().Stop();
         Game::Mods::VehicleModificationRuntime::Get().Stop();
         Game::Paint::VehiclePaintRuntime::Get().Stop();
+        Game::Mods::LscBypassRuntime::Get().Stop();
 
         TUTONES_LOG_DEBUG("app", "Stopping GTA script/native runtime before MinHook teardown");
         Runtime::GameRuntime::Get().Shutdown();

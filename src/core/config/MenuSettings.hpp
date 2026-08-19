@@ -19,6 +19,11 @@ namespace Tutones::Core::Config
         float swimMultiplier{1.0f};
     };
 
+    struct VehicleMenuSettings final
+    {
+        bool removeLscRestrictions{};
+    };
+
     struct WeaponMenuSettings final
     {
         bool infiniteAmmo{};
@@ -38,6 +43,7 @@ namespace Tutones::Core::Config
         std::uint32_t version{1};
         PlayerMenuSettings player{};
         bool offRadar{};
+        VehicleMenuSettings vehicle{};
         WeaponMenuSettings weapons{};
     };
 

@@ -31,6 +31,7 @@ add_library(TutonesMenu SHARED
     src/features/player/PlayerRuntime.cpp
     src/features/player/PlayerRuntimeActions.cpp
     src/features/player/PlayerRuntimeState.cpp
+    src/features/vehicle/LscBypassRuntime.cpp
     src/features/vehicle/PersonalVehicleRuntime.cpp
     src/features/vehicle/VehicleModificationRuntime.cpp
     src/features/vehicle/VehiclePaintRuntime.cpp
@@ -44,6 +45,7 @@ add_library(TutonesMenu SHARED
     src/game/memory/PatternScanner.cpp
     src/game/native/NativeRegistry.cpp
     src/game/script/ScriptFunction.cpp
+    src/game/script/ScriptPatchRuntime.cpp
     src/game/script/ScriptPointer.cpp
     src/game/script/ScriptRuntime.cpp
     src/game/vehicle/TutonesVehiclePaintBackend.cpp
@@ -58,6 +60,7 @@ add_library(TutonesMenu SHARED
 
     src/ui/GamePanel.cpp
     src/ui/Input.cpp
+    src/ui/LscBypassWidget.cpp
     src/ui/PersonalVehiclePanel.cpp
     src/ui/PlayerOnlinePanel.cpp
     src/ui/PlayerPanel.cpp
@@ -127,6 +130,8 @@ source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR}/src PREFIX "Source" FILES
     src/features/player/PlayerRuntime.hpp
     src/features/player/PlayerRuntimeActions.cpp
     src/features/player/PlayerRuntimeState.cpp
+    src/features/vehicle/LscBypassRuntime.cpp
+    src/features/vehicle/LscBypassRuntime.hpp
     src/features/vehicle/PersonalVehicleRuntime.cpp
     src/features/vehicle/PersonalVehicleRuntime.hpp
     src/features/vehicle/VehicleModificationRuntime.cpp
@@ -159,6 +164,8 @@ source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR}/src PREFIX "Source" FILES
     src/game/script/ScriptFunction.hpp
     src/game/script/ScriptGlobal.hpp
     src/game/script/ScriptLocal.hpp
+    src/game/script/ScriptPatchRuntime.cpp
+    src/game/script/ScriptPatchRuntime.hpp
     src/game/script/ScriptPointer.cpp
     src/game/script/ScriptPointer.hpp
     src/game/script/ScriptRuntime.cpp
@@ -186,6 +193,8 @@ source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR}/src PREFIX "Source" FILES
     src/ui/GamePanel.hpp
     src/ui/Input.cpp
     src/ui/Input.hpp
+    src/ui/LscBypassWidget.cpp
+    src/ui/LscBypassWidget.hpp
     src/ui/PersonalVehiclePanel.cpp
     src/ui/PersonalVehiclePanel.hpp
     src/ui/PlayerOnlinePanel.cpp
