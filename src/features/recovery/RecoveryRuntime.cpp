@@ -9,8 +9,10 @@
 
 #include <algorithm>
 #include <chrono>
+#include <memory>
 #include <string>
 #include <thread>
+#include <utility>
 
 namespace Tutones::Game::Recovery
 {
@@ -119,7 +121,7 @@ namespace Tutones::Game::Recovery
 
         m_RpEnabled.store(false, std::memory_order_release);
 
-        auto restore = [this] {
+        const auto restore = [this] {
             auto* pages = GamePointers::Get().ScriptGlobals();
             if (pages && m_HaveOriginalRpMultiplier)
             {
@@ -136,14 +138,14 @@ namespace Tutones::Game::Recovery
         }
         else
         {
-            std::atomic<bool> restored{false};
-            if (Runtime::GameRuntime::Get().Enqueue([&restore, &restored] {
+            const auto restored = std::make_shared<std::atomic<bool>>(false);
+            if (Runtime::GameRuntime::Get().Enqueue([restore, restored] {
                     restore();
-                    restored.store(true, std::memory_order_release);
+                    restored->store(true, std::memory_order_release);
                 }))
             {
                 const auto deadline = Clock::now() + std::chrono::milliseconds(250);
-                while (!restored.load(std::memory_order_acquire) && Clock::now() < deadline)
+                while (!restored->load(std::memory_order_acquire) && Clock::now() < deadline)
                     std::this_thread::sleep_for(std::chrono::milliseconds(1));
             }
         }
