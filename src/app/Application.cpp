@@ -1,4 +1,5 @@
 #include "Application.hpp"
+#include "BuildInfo.hpp"
 
 #include "../core/CoreServices.hpp"
 #include "../core/config/MenuSettings.hpp"
@@ -16,6 +17,8 @@
 #include "../render/Renderer.hpp"
 #include "../runtime/GameRuntime.hpp"
 #include "../ui/Input.hpp"
+
+#include <string>
 
 namespace Tutones::App
 {
@@ -114,6 +117,14 @@ namespace Tutones::App
 
         if (!Core::Services::Get().Initialize(moduleDirectory))
             return false;
+
+        {
+            std::string buildMessage("Tutones build provenance: revision=");
+            buildMessage += BuildInfo::Revision;
+            buildMessage += ", build=";
+            buildMessage += BuildInfo::BuildNumber;
+            TUTONES_LOG_INFO("app", buildMessage);
+        }
 
         // Load persistent feature state while GameRuntime is still inactive. Player setters may
         // attempt an immediate apply, but GameRuntime::Enqueue rejects those operations here,
