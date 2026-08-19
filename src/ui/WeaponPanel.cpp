@@ -1,5 +1,6 @@
 #include "WeaponPanel.hpp"
 
+#include "V11Description.hpp"
 #include "V11Theme.hpp"
 #include "../features/weapon/WeaponRuntime.hpp"
 
@@ -152,12 +153,14 @@ namespace Tutones::UI
             if (ImGui::Checkbox("Infinite Ammo", &infiniteAmmo))
                 runtime.SetInfiniteAmmo(infiniteAmmo);
             ImGui::EndDisabled();
+            DescribeLastV11Item("Maintain infinite reserve ammunition for the local player's current weapons while the GTA native backend is ready.");
             SupportBadge(snapshot.nativeReady);
 
             ImGui::BeginDisabled(!snapshot.nativeReady);
             if (ImGui::Checkbox("Infinite Clip", &infiniteClip))
                 runtime.SetInfiniteClip(infiniteClip);
             ImGui::EndDisabled();
+            DescribeLastV11Item("Maintain the current weapon clip without normal reload depletion while the GTA native backend is ready.");
             SupportBadge(snapshot.nativeReady);
 
             if (!snapshot.nativeReady)
@@ -177,6 +180,7 @@ namespace Tutones::UI
             if (ImGui::Checkbox("Enable Aimbot", &aimbot))
                 runtime.SetAimbot(aimbot);
             ImGui::EndDisabled();
+            DescribeLastV11Item("Enable the verified assisted-aim patch set. The option stays unavailable when the required Enhanced signatures are not resolved.");
             SupportBadge(snapshot.aimbotSupported);
             if (!snapshot.aimbotSupported)
                 ImGui::TextDisabled("Required assisted-aim patches were not resolved.");
@@ -186,18 +190,21 @@ namespace Tutones::UI
             if (ImGui::Checkbox("Aim For Head", &aimForHead))
                 runtime.SetAimForHead(aimForHead);
             ImGui::EndDisabled();
+            DescribeLastV11Item("Use the verified lock-on position patch so assisted aim targets the head position when aimbot is enabled.");
             SupportBadge(snapshot.aimForHeadSupported);
 
             ImGui::BeginDisabled(!aimbot || !snapshot.targetDriversSupported);
             if (ImGui::Checkbox("Target Drivers", &targetDrivers))
                 runtime.SetTargetDrivers(targetDrivers);
             ImGui::EndDisabled();
+            DescribeLastV11Item("Use the verified driver lock-on patch so assisted aim can target drivers inside vehicles when aimbot is enabled.");
             SupportBadge(snapshot.targetDriversSupported);
 
             ImGui::BeginDisabled(!snapshot.releaseDeadTargetSupported);
             if (ImGui::Checkbox("Release Dead Target", &releaseDeadPed))
                 runtime.SetReleaseDeadPed(releaseDeadPed);
             ImGui::EndDisabled();
+            DescribeLastV11Item("When assisted aim is holding a dead ped, clear the target and try GTA's new-target search; release the dead target only if retargeting fails.");
             SupportBadge(snapshot.releaseDeadTargetSupported);
 
             ImGui::Spacing();
@@ -215,6 +222,7 @@ namespace Tutones::UI
             if (ImGui::Checkbox("Explosive Ammo", &explosiveAmmo))
                 runtime.SetExplosiveAmmo(explosiveAmmo);
             ImGui::EndDisabled();
+            DescribeLastV11Item("Create an explosion at the last valid firearm impact coordinate when the explosive-ammo effect is enabled and the native backend is ready.");
             SupportBadge(snapshot.nativeReady);
 
             ImGui::BeginDisabled(!snapshot.nativeReady);
@@ -233,11 +241,14 @@ namespace Tutones::UI
                 }
                 ImGui::EndCombo();
             }
+            DescribeLastV11Item("Choose the GTA explosion type created at valid firearm impact coordinates while Explosive Ammo is enabled.");
 
             if (ImGui::SliderFloat("Explosion Damage", &damage, 0.0f, 1000.0f, "%.1f"))
                 runtime.SetExplosionDamage(damage);
+            DescribeLastV11Item("Adjust the damage scale passed to the explosion effect created by Explosive Ammo.");
             if (ImGui::SliderFloat("Camera Shake", &shake, 0.0f, 10.0f, "%.2f"))
                 runtime.SetExplosionCameraShake(shake);
+            DescribeLastV11Item("Adjust the camera-shake value passed to explosions created by the Explosive Ammo effect.");
             ImGui::EndDisabled();
 
             if (!snapshot.nativeReady)

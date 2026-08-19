@@ -1,5 +1,6 @@
 #include "GamePanel.hpp"
 
+#include "V11Description.hpp"
 #include "V11Theme.hpp"
 #include "../features/game/GameSessionRuntime.hpp"
 #include "../features/game/GameSessionTypes.hpp"
@@ -51,6 +52,7 @@ namespace Tutones::UI
                 }
                 ImGui::EndCombo();
             }
+            DescribeLastV11Item("Choose the verified GTA Online join type that Tutones will pass through the current Enhanced session-transition path.");
 
             const bool canQueue = snapshot.scriptRuntimeReady && !snapshot.actionPending;
             ImGui::BeginDisabled(!canQueue);
@@ -58,11 +60,13 @@ namespace Tutones::UI
                 g_SessionMessage = runtime.QueueJoin(OnlineJoinTypes[g_SelectedJoinType].value)
                     ? "Session transition queued"
                     : "Session transition rejected";
+            DescribeLastV11Item("Queue the selected Online join type through the verified Enhanced shop_controller SendToClouds transition path.");
             ImGui::SameLine();
             if (ImGui::Button("Leave Online", ImVec2(-1.0f, 0.0f)))
                 g_SessionMessage = runtime.QueueLeaveOnline()
                     ? "Leave Online queued"
                     : "Leave Online rejected";
+            DescribeLastV11Item("Queue the verified Leave Online transition through the same Enhanced script-runtime session path.");
             ImGui::EndDisabled();
 
             if (!snapshot.scriptRuntimeReady)
