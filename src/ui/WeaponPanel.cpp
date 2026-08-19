@@ -134,6 +134,7 @@ namespace Tutones::UI
             ImGui::TextUnformatted("Runtime status");
             ImGui::Separator();
             ImGui::Text("Weapon runtime: %s", snapshot.running ? "online" : "offline");
+            ImGui::Text("Pointer foundation: %s", snapshot.pointersResolved ? "ready" : "waiting");
             ImGui::Text("Native backend: %s", snapshot.nativeReady ? "ready" : "waiting");
             ImGui::Text("Aimbot patches: %s", snapshot.aimbotSupported ? "ready" : "unavailable");
             ImGui::Text("Head lock patch: %s", snapshot.aimForHeadSupported ? "ready" : "unavailable");
@@ -141,7 +142,7 @@ namespace Tutones::UI
             ImGui::Text("Dead-target hook: %s", snapshot.releaseDeadTargetSupported ? "ready" : "unavailable");
 
             ImGui::Spacing();
-            ImGui::TextDisabled("Unsupported patch-backed options stay disabled instead of reporting fake success.");
+            ImGui::TextDisabled("Patch availability reflects this loaded DLL instance; startup logs include a one-line patch self-check.");
         }
 
         void RenderAmmo(WeaponRuntime& runtime, const WeaponSnapshot& snapshot) noexcept
@@ -180,10 +181,14 @@ namespace Tutones::UI
             if (ImGui::Checkbox("Enable Aimbot", &aimbot))
                 runtime.SetAimbot(aimbot);
             ImGui::EndDisabled();
-            DescribeLastV11Item("Enable the verified assisted-aim patch set. The option stays unavailable when the required Enhanced signatures are not resolved.");
+            DescribeLastV11Item("Enable the assisted-aim patch set when the live patch configuration in this loaded DLL instance is ready.");
             SupportBadge(snapshot.aimbotSupported);
             if (!snapshot.aimbotSupported)
-                ImGui::TextDisabled("Required assisted-aim patches were not resolved.");
+            {
+                ImGui::TextDisabled(snapshot.pointersResolved
+                    ? "Aimbot patch configuration is missing in this DLL instance. Check the current build ID and startup log."
+                    : "GTA pointer foundation is not ready in this DLL instance.");
+            }
 
             ImGui::Separator();
             ImGui::BeginDisabled(!aimbot || !snapshot.aimForHeadSupported);
