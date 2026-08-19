@@ -32,8 +32,10 @@
                 RenderVehicleGeneralPanel();
             else if (m_Item == 1)
                 RenderVehiclePaintPanel();
-            else
+            else if (m_Item == 2)
                 RenderVehicleModificationPanel();
+            else
+                RenderPersonalVehiclePanel();
             break;
 
         case 4:
