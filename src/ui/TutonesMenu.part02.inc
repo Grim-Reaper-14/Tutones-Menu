@@ -41,7 +41,7 @@ namespace Tutones::UI
             break;
 
         case 5:
-            DrawPanel(draw, windowPos, ImVec2(226.0f, 16.0f), ImVec2(490.0f, 430.0f), "RECOVERY", {selected, "UI target implemented.", "Stat / unlock backend is not implemented yet.", "No fake success paths are exposed."});
+            RenderRecoveryPanel(m_Item);
             break;
 
         case 6:
@@ -53,7 +53,7 @@ namespace Tutones::UI
             break;
 
         default:
-            DrawPanel(draw, windowPos, ImVec2(226.0f, 16.0f), ImVec2(490.0f, 430.0f), "MENU SETTINGS", {selected, "V11 blue visual shell", "Banner-style header + description frame", "Keyboard / mouse input", "Theme persistence wiring remains separate."});
+            DrawPanel(draw, windowPos, ImVec2(226.0f, 16.0f), ImVec2(490.0f, 430.0f), "MENU SETTINGS", {selected, "Tutone Menu blue visual shell", "Banner-style header + description frame", "Keyboard / mouse input", "Theme persistence wiring remains separate."});
             break;
         }
     }
@@ -79,7 +79,7 @@ namespace Tutones::UI
         ImGui::PushStyleColor(ImGuiCol_WindowBg, V11Theme::WindowBg);
 
         constexpr ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoNavInputs | ImGuiWindowFlags_NoNavFocus;
-        if (ImGui::Begin("Tutones Menu##v11", nullptr, flags))
+        if (ImGui::Begin("Tutone Menu##v11", nullptr, flags))
         {
             const ImVec2 pos = ImGui::GetWindowPos();
             auto* draw = ImGui::GetWindowDrawList();
