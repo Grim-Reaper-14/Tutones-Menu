@@ -10,6 +10,8 @@ on:
 jobs:
   build:
     runs-on: windows-latest
+    env:
+      TUTONES_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
 
     steps:
       - name: Checkout
@@ -24,6 +26,6 @@ jobs:
       - name: Upload DLL
         uses: actions/upload-artifact@v4
         with:
-          name: Tutones-Menu-windows-x64
+          name: Tutones-Menu-windows-x64-build-${{ github.run_number }}
           path: build/Release/Tutones-Menu.dll
           if-no-files-found: error
