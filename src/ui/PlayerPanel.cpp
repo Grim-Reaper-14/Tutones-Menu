@@ -1,5 +1,6 @@
 #include "PlayerPanel.hpp"
 
+#include "V11Description.hpp"
 #include "V11Theme.hpp"
 #include "../features/player/PlayerRuntime.hpp"
 
@@ -118,37 +119,50 @@ namespace Tutones::UI
             ImGui::Text("Ped: %d   Model: 0x%08X", snapshot.ped, snapshot.model);
             ImGui::Text("Current health: %d / %d", snapshot.health, snapshot.maxHealth);
             ImGui::SliderInt("Health", &g_Health, 0, maxHealth);
+            DescribeLastV11Item("Choose the health value that will be applied to your current local player ped.");
             if (ImGui::Button("Set health", ImVec2(180.0f, 0.0f)))
                 g_Message = runtime.QueueSetHealth(g_Health) ? "Health queued" : "Health rejected";
+            DescribeLastV11Item("Apply the selected health value to your local player through the player runtime.");
             ImGui::SameLine();
             if (ImGui::Button("Full heal", ImVec2(-1.0f, 0.0f)))
             {
                 g_Health = maxHealth;
                 g_Message = runtime.QueueHeal() ? "Heal queued" : "Heal rejected";
             }
+            DescribeLastV11Item("Restore your local player to the current maximum health value.");
 
             g_Armor = std::clamp(g_Armor, 0, 100);
             ImGui::SliderInt("Armor", &g_Armor, 0, 100);
+            DescribeLastV11Item("Choose the armor value to apply to your local player.");
             if (ImGui::Button("Set armor", ImVec2(-1.0f, 0.0f)))
                 g_Message = runtime.QueueSetArmor(g_Armor) ? "Armor queued" : "Armor rejected";
+            DescribeLastV11Item("Apply the selected armor value to your local player.");
 
             ImGui::Separator();
             g_Wanted = std::clamp(g_Wanted, 0, 5);
             ImGui::SliderInt("Wanted level", &g_Wanted, 0, 5);
+            DescribeLastV11Item("Choose the GTA wanted level that will be applied to your local player.");
             if (ImGui::Button("Apply wanted", ImVec2(180.0f, 0.0f)))
                 g_Message = runtime.QueueSetWantedLevel(g_Wanted) ? "Wanted queued" : "Wanted rejected";
+            DescribeLastV11Item("Apply the selected wanted level through the verified player runtime.");
             ImGui::SameLine();
             if (ImGui::Button("Clear wanted", ImVec2(-1.0f, 0.0f)))
             {
                 g_Wanted = 0;
                 g_Message = runtime.QueueClearWanted() ? "Wanted clear queued" : "Wanted clear rejected";
             }
+            DescribeLastV11Item("Clear your current wanted level immediately through the player runtime.");
 
             if (ImGui::Checkbox("Never wanted", &g_NeverWanted)) runtime.SetNeverWanted(g_NeverWanted);
+            DescribeLastV11Item("Continuously keep the local player's wanted level cleared while this setting is enabled.");
             if (ImGui::Checkbox("Invincible", &g_Invincible)) runtime.SetInvincible(g_Invincible);
+            DescribeLastV11Item("Maintain local-player invincibility using the current player runtime state.");
             if (ImGui::Checkbox("Invisible", &g_Invisible)) runtime.SetInvisible(g_Invisible);
+            DescribeLastV11Item("Toggle local-player visibility using the verified entity visibility path.");
             if (ImGui::Checkbox("Police ignore", &g_PoliceIgnore)) runtime.SetPoliceIgnore(g_PoliceIgnore);
+            DescribeLastV11Item("Ask GTA's police systems to ignore the local player while enabled.");
             if (ImGui::Checkbox("Everyone ignore", &g_EveryoneIgnore)) runtime.SetEveryoneIgnore(g_EveryoneIgnore);
+            DescribeLastV11Item("Ask ambient AI systems to ignore the local player while enabled.");
 
             ImGui::TextDisabled("%s", g_Message);
             RenderOperationStatus(snapshot);
@@ -159,13 +173,18 @@ namespace Tutones::UI
             ImGui::TextUnformatted("Movement multipliers");
             if (ImGui::SliderFloat("Run / sprint", &g_RunMultiplier, 1.0f, 1.49f, "%.2fx"))
                 runtime.SetRunMultiplier(g_RunMultiplier);
+            DescribeLastV11Item("Adjust the local player's run and sprint movement-rate multiplier within the supported GTA range.");
             if (ImGui::SliderFloat("Swim", &g_SwimMultiplier, 1.0f, 1.49f, "%.2fx"))
                 runtime.SetSwimMultiplier(g_SwimMultiplier);
+            DescribeLastV11Item("Adjust the local player's swim movement-rate multiplier within the supported GTA range.");
 
             ImGui::Separator();
             if (ImGui::Checkbox("Super jump", &g_SuperJump)) runtime.SetSuperJump(g_SuperJump);
+            DescribeLastV11Item("Maintain GTA's super-jump state for the local player on the script tick.");
             if (ImGui::Checkbox("Infinite stamina", &g_InfiniteStamina)) runtime.SetInfiniteStamina(g_InfiniteStamina);
+            DescribeLastV11Item("Restore/maintain local-player stamina on the GTA script tick while enabled.");
             if (ImGui::Checkbox("No ragdoll", &g_NoRagdoll)) runtime.SetNoRagdoll(g_NoRagdoll);
+            DescribeLastV11Item("Prevent the local player ped from entering normal ragdoll states while enabled.");
 
             ImGui::Spacing();
             ImGui::TextDisabled("Super jump and infinite stamina are maintained on the GTA script tick.");
@@ -177,8 +196,10 @@ namespace Tutones::UI
             ImGui::TextUnformatted("Player model");
             ImGui::SetNextItemWidth(-1.0f);
             ImGui::InputText("##player_model_name", g_ModelName, sizeof(g_ModelName));
+            DescribeLastV11Item("Enter a GTA ped model name to request and swap onto the local player.");
             if (ImGui::Button("Load ped model", ImVec2(-1.0f, 0.0f)))
                 g_Message = runtime.QueueModelByName(std::string(g_ModelName)) ? "Model request queued" : "Model request rejected";
+            DescribeLastV11Item("Request the entered ped model, wait for it to load, then swap the local player when supported.");
             ImGui::TextDisabled("Examples: mp_m_freemode_01, mp_f_freemode_01, player_zero");
 
             ImGui::Separator();
@@ -192,6 +213,7 @@ namespace Tutones::UI
                 g_LastAppearanceComponent = -1;
                 runtime.SetObservedComponent(g_Component, -1);
             }
+            DescribeLastV11Item("Choose which ped clothing/component slot the appearance editor should inspect and modify.");
 
             if (snapshot.observedComponent == g_Component && g_AppearanceSyncPending)
             {
@@ -218,6 +240,7 @@ namespace Tutones::UI
                 }
                 else
                     runtime.SetObservedComponent(g_Component, g_Drawable);
+                DescribeLastV11Item("Choose the drawable variation for the selected ped component slot.");
 
                 const bool textureReady = snapshot.textureQueryDrawable == g_Drawable;
                 if (textureReady)
@@ -225,6 +248,7 @@ namespace Tutones::UI
                     const int textureMax = std::max(0, snapshot.textureCount - 1);
                     g_Texture = std::clamp(g_Texture, 0, textureMax);
                     ImGui::SliderInt("Texture", &g_Texture, 0, textureMax);
+                    DescribeLastV11Item("Choose the texture variation available for the selected component drawable.");
                 }
                 else
                 {
@@ -233,15 +257,19 @@ namespace Tutones::UI
                 }
 
                 ImGui::SliderInt("Palette", &g_Palette, 0, 3);
+                DescribeLastV11Item("Choose the GTA palette index used with the selected component drawable and texture.");
                 if (ImGui::Button("Apply component", ImVec2(-1.0f, 0.0f)))
                     g_Message = runtime.QueueSetComponent(g_Component, g_Drawable, g_Texture, g_Palette) ? "Component queued" : "Component rejected";
+                DescribeLastV11Item("Apply the selected drawable, texture, and palette to this local-player clothing/component slot.");
             }
 
             if (ImGui::Button("Default outfit", ImVec2(180.0f, 0.0f)))
                 g_Message = runtime.QueueDefaultComponents() ? "Default outfit queued" : "Default outfit rejected";
+            DescribeLastV11Item("Reset the local ped's component variations to GTA's default component set.");
             ImGui::SameLine();
             if (ImGui::Button("Random outfit", ImVec2(-1.0f, 0.0f)))
                 g_Message = runtime.QueueRandomComponents() ? "Random outfit queued" : "Random outfit rejected";
+            DescribeLastV11Item("Ask GTA to randomize supported component variations for the current local ped.");
 
             ImGui::TextDisabled("%s", g_Message);
             RenderOperationStatus(snapshot);

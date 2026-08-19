@@ -1,5 +1,6 @@
 #include "PlayerOnlinePanel.hpp"
 
+#include "V11Description.hpp"
 #include "V11Theme.hpp"
 #include "../features/player/OffRadarRuntime.hpp"
 
@@ -35,6 +36,7 @@ namespace Tutones::UI
             if (ImGui::Checkbox("Off Radar", &enabled))
                 runtime.SetEnabled(enabled);
             ImGui::EndDisabled();
+            DescribeLastV11Item("Toggle the verified GTA Online Freemode broadcast-global Off Radar state. Tutones does not substitute local HUD or blip hiding when the required online script state is unavailable.");
 
             if (!runtime.IsRunning())
                 ImGui::TextDisabled("Off Radar runtime is offline.");
