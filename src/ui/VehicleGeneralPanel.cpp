@@ -1,5 +1,6 @@
 #include "VehicleGeneralPanel.hpp"
 
+#include "V11Theme.hpp"
 #include "../features/vehicle/VehicleModificationRuntime.hpp"
 #include "../game/GameState.hpp"
 #include "../game/vehicle/VehicleCatalogs.hpp"
@@ -85,7 +86,8 @@ namespace Tutones::UI
         void RenderSpawner(Game::Mods::VehicleModificationRuntime& runtime, const Game::Mods::VehicleModificationSnapshot& snapshot)
         {
             const auto catalog = runtime.CatalogSnapshot();
-            ImGui::Text("Vehicle catalog: %zu models", Game::VehicleCatalogs::VehicleModels.size());
+            ImGui::TextColored(V11Theme::Accent, "Vehicle Spawner");
+            ImGui::TextDisabled("Catalog: %zu models", Game::VehicleCatalogs::VehicleModels.size());
             if (catalog.ready < catalog.total)
                 ImGui::TextDisabled("Classifying models on GTA thread: %zu / %zu", catalog.ready, catalog.total);
 
@@ -159,6 +161,7 @@ namespace Tutones::UI
             const Game::Mods::VehicleModificationSnapshot& snapshot,
             const Game::GameSnapshot& gameState)
         {
+            ImGui::TextColored(V11Theme::Accent, "Current Vehicle");
             ImGui::Text("Player ped: %d", gameState.playerPed);
             ImGui::Text("Vehicle handle: %d", gameState.vehicle);
             ImGui::Text("In vehicle: %s", gameState.inVehicle ? "yes" : "no");
@@ -184,7 +187,7 @@ namespace Tutones::UI
 
         void RenderClone(Game::Mods::VehicleModificationRuntime& runtime)
         {
-            ImGui::TextUnformatted("Clone nearest vehicle");
+            ImGui::TextColored(V11Theme::Accent, "Clone Nearest Vehicle");
             ImGui::TextWrapped("Copies the nearest supported vehicle's model, paint/custom RGB, mod slots, wheel family/variants, toggles, xenon/neon, tire smoke and tire settings, then spawns the clone in front of you.");
             ImGui::Checkbox("Enter cloned vehicle", &g_CloneInside);
             if (ImGui::Button("Clone nearest (30m)", ImVec2(-1.0f, 0.0f)))
@@ -196,7 +199,7 @@ namespace Tutones::UI
 
         void RenderSavedGarage(Game::Mods::VehicleModificationRuntime& runtime, const Game::Mods::VehicleModificationSnapshot& snapshot)
         {
-            ImGui::TextUnformatted("Tutones Saved Garage");
+            ImGui::TextColored(V11Theme::Accent, "Tutones Saved Garage");
             ImGui::TextDisabled("Local full-custom presets. This is separate from Rockstar Online personal-garage script globals.");
             ImGui::SetNextItemWidth(270.0f);
             ImGui::InputTextWithHint("##preset_name", "Preset name", g_PresetName, sizeof(g_PresetName));
@@ -247,13 +250,13 @@ namespace Tutones::UI
 
         ImGui::SetCursorPos(ImVec2(226.0f, 16.0f));
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(14.0f, 12.0f));
-        ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 4.0f);
-        ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(24.0f / 255.0f, 24.0f / 255.0f, 26.0f / 255.0f, 1.0f));
-        ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(1.0f, 1.0f, 1.0f, 0.04f));
+        ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 3.0f);
+        ImGui::PushStyleColor(ImGuiCol_ChildBg, V11Theme::PanelBg);
+        ImGui::PushStyleColor(ImGuiCol_Border, V11Theme::PanelBorder);
 
         if (ImGui::BeginChild("##vehicle_general", ImVec2(490.0f, 430.0f), true))
         {
-            ImGui::TextUnformatted("Vehicle Hub");
+            ImGui::TextColored(V11Theme::Accent, "Vehicle Hub");
             ImGui::SameLine();
             ImGui::TextDisabled("%s", g_Message);
             ImGui::Separator();

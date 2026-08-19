@@ -1,6 +1,7 @@
 #include "VehicleModificationPanel.hpp"
 
 #include "LscBypassWidget.hpp"
+#include "V11Theme.hpp"
 #include "../features/vehicle/VehicleModificationRuntime.hpp"
 #include "../game/vehicle/VehicleCatalogs.hpp"
 
@@ -136,13 +137,15 @@ namespace Tutones::UI
 
         ImGui::SetCursorPos(ImVec2(226.0f, 16.0f));
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(14.0f, 12.0f));
-        ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 4.0f);
-        ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(24.0f / 255.0f, 24.0f / 255.0f, 26.0f / 255.0f, 1.0f));
-        ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(1.0f, 1.0f, 1.0f, 0.04f));
+        ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 3.0f);
+        ImGui::PushStyleColor(ImGuiCol_ChildBg, V11Theme::PanelBg);
+        ImGui::PushStyleColor(ImGuiCol_Border, V11Theme::PanelBorder);
 
         if (ImGui::BeginChild("##vehicle_modifications", ImVec2(490.0f, 430.0f), true))
         {
-            ImGui::TextUnformatted("LSC Vehicle Workshop");
+            ImGui::TextColored(V11Theme::Accent, "LSC Vehicle Workshop");
+            ImGui::SameLine();
+            ImGui::TextDisabled("Enhanced runtime");
             ImGui::Separator();
 
             if (!runtime.IsRunning())
@@ -153,6 +156,7 @@ namespace Tutones::UI
             {
                 if (ImGui::BeginTabItem("LSC Mods"))
                 {
+                    ImGui::TextColored(V11Theme::Accent, "Modification Slots");
                     if (ImGui::Combo("Mod slot", &g_ModType, ModNames.data(), static_cast<int>(ModNames.size())))
                     {
                         runtime.SetObservedModType(g_ModType);
@@ -205,6 +209,7 @@ namespace Tutones::UI
 
                 if (ImGui::BeginTabItem("Wheels"))
                 {
+                    ImGui::TextColored(V11Theme::Accent, "Wheel Workshop");
                     const int wheelSlot = g_WheelAxle == 0 ? 23 : 24;
                     if (g_ModType != wheelSlot)
                     {
@@ -262,6 +267,7 @@ namespace Tutones::UI
 
                 if (ImGui::BeginTabItem("Lights / Tires"))
                 {
+                    ImGui::TextColored(V11Theme::Accent, "Lighting & Tire Effects");
                     bool xenon = snapshot.xenon;
                     if (ImGui::Checkbox("Xenon headlights", &xenon))
                         static_cast<void>(runtime.QueueToggleMod(22, xenon));
@@ -284,7 +290,7 @@ namespace Tutones::UI
                             Game::VehicleCatalogs::HeadlightColors[static_cast<std::size_t>(g_XenonColor)].value));
 
                     ImGui::Separator();
-                    ImGui::TextUnformatted("Neon kit");
+                    ImGui::TextColored(V11Theme::Accent, "Neon Kit");
                     for (int i = 0; i < 4; ++i)
                     {
                         bool enabled = snapshot.neonEnabled[static_cast<std::size_t>(i)];
@@ -314,6 +320,7 @@ namespace Tutones::UI
                         static_cast<void>(runtime.QueueNeonColor(ToByte(g_NeonRgb[0]), ToByte(g_NeonRgb[1]), ToByte(g_NeonRgb[2])));
 
                     ImGui::Separator();
+                    ImGui::TextColored(V11Theme::Accent, "Tire Effects");
                     bool smokeEnabled = snapshot.tireSmoke;
                     if (ImGui::Checkbox("Tire smoke", &smokeEnabled))
                         static_cast<void>(runtime.QueueToggleMod(20, smokeEnabled));
@@ -348,6 +355,7 @@ namespace Tutones::UI
 
                 if (ImGui::BeginTabItem("Status"))
                 {
+                    ImGui::TextColored(V11Theme::Accent, "Workshop Runtime Status");
                     ImGui::Text("Vehicle: %d", snapshot.vehicle);
                     ImGui::Text("Slot: %d - %s", snapshot.observedModType, ModNames[static_cast<std::size_t>(snapshot.observedModType)]);
                     ImGui::Text("Count / installed: %d / %d", snapshot.modCount, snapshot.currentMod);

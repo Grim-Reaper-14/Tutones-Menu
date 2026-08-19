@@ -67,7 +67,7 @@ namespace Tutones::UI
 
         ImGui::SetCursorPos(ImVec2(226.0f, 16.0f));
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(14.0f, 12.0f));
-        ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 4.0f);
+        ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 3.0f);
         ImGui::PushStyleColor(ImGuiCol_ChildBg, V11Theme::PanelBg);
         ImGui::PushStyleColor(ImGuiCol_Border, V11Theme::PanelBorder);
 
@@ -92,6 +92,7 @@ namespace Tutones::UI
             }
             else
             {
+                ImGui::TextColored(V11Theme::Accent, "Garage Browser");
                 ImGui::Text("MPSV source slots: %zu", snapshot.sourceArraySize);
                 ImGui::SameLine();
                 ImGui::TextDisabled("Vehicles: %zu   Garages: %zu", snapshot.vehicles.size(), snapshot.garages.size());
@@ -117,7 +118,7 @@ namespace Tutones::UI
                     ImGui::EndCombo();
                 }
 
-                if (ImGui::BeginListBox("##personal_vehicles", ImVec2(-1.0f, 176.0f)))
+                if (ImGui::BeginListBox("##personal_vehicles", ImVec2(-1.0f, 168.0f)))
                 {
                     for (const auto& vehicle : snapshot.vehicles)
                     {
@@ -144,6 +145,7 @@ namespace Tutones::UI
                 });
                 if (selected != snapshot.vehicles.end())
                 {
+                    ImGui::TextColored(V11Theme::Accent, "Selected Vehicle");
                     ImGui::Text("ID %d   Model 0x%08X", selected->id, static_cast<unsigned int>(selected->model));
                     ImGui::Text("Plate: %s", selected->plate.empty() ? "(none)" : selected->plate.c_str());
                     ImGui::Text("Garage: %s", selected->garage.empty() ? "Unresolved" : selected->garage.c_str());

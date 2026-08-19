@@ -1,5 +1,6 @@
 #include "VehiclePaintPanel.hpp"
 
+#include "V11Theme.hpp"
 #include "../features/vehicle/VehiclePaintRuntime.hpp"
 #include "../game/GameState.hpp"
 #include "../game/vehicle/VehicleCatalogs.hpp"
@@ -58,7 +59,7 @@ namespace Tutones::UI
         {
             switch (type)
             {
-            case NativePaintType::Normal: return 4; // Classic list, normal native finish.
+            case NativePaintType::Normal: return 4;
             case NativePaintType::Metallic: return 1;
             case NativePaintType::Pearl: return 2;
             case NativePaintType::Matte: return 5;
@@ -192,7 +193,7 @@ namespace Tutones::UI
             bool primary) noexcept
         {
             ImGui::PushID(id);
-            ImGui::TextUnformatted(primary ? "Primary LSC paint" : "Secondary LSC paint");
+            ImGui::TextColored(V11Theme::Accent, primary ? "Primary LSC Paint" : "Secondary LSC Paint");
             if (ImGui::Combo("Finish", &paletteIndex, PaletteNames.data(), static_cast<int>(PaletteNames.size())))
             {
                 paletteIndex = std::clamp(paletteIndex, 0, static_cast<int>(PaletteNames.size()) - 1);
@@ -219,7 +220,7 @@ namespace Tutones::UI
         {
             ImGui::PushID(id);
             ImGui::Separator();
-            ImGui::TextUnformatted(primary ? "Custom primary RGB" : "Custom secondary RGB");
+            ImGui::TextColored(V11Theme::Accent, primary ? "Custom Primary RGB" : "Custom Secondary RGB");
             ImGui::SameLine();
             ImGui::TextDisabled(active ? "active" : "inactive");
             ImGui::ColorEdit3("RGB", color, ImGuiColorEditFlags_NoAlpha);
@@ -244,7 +245,7 @@ namespace Tutones::UI
         {
             auto& service = VehiclePaintRuntime::Get().Service();
 
-            ImGui::TextUnformatted("Pearlescent overlay");
+            ImGui::TextColored(V11Theme::Accent, "Pearlescent Overlay");
             static_cast<void>(RenderNamedColorCombo("Pearlescent", Game::VehicleCatalogs::ClassicColors, g_PaintUi.pearlescent));
             if (ImGui::Button("Apply pearlescent", ImVec2(-1.0f, 0.0f)))
             {
@@ -252,6 +253,7 @@ namespace Tutones::UI
             }
 
             ImGui::Separator();
+            ImGui::TextColored(V11Theme::Accent, "Wheel Color");
             const char* wheelFamilies[] = {"LSC / Classic", "Chameleon"};
             if (ImGui::Combo("Wheel color family", &g_PaintUi.wheelFamily, wheelFamilies, 2))
             {
@@ -274,6 +276,7 @@ namespace Tutones::UI
         void RenderStatus(const PaintServiceSnapshot& snapshot) noexcept
         {
             const auto& paint = snapshot.paint;
+            ImGui::TextColored(V11Theme::Accent, "Paint Runtime Status");
             ImGui::Text("Vehicle: %d", paint.vehicle);
             ImGui::Text("Primary finish: %s", NativePaintTypeName(paint.primaryPaintType));
             ImGui::Text("Primary color: %d", paint.primaryModColor);
@@ -304,13 +307,13 @@ namespace Tutones::UI
 
         ImGui::SetCursorPos(ImVec2(226.0f, 16.0f));
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(14.0f, 12.0f));
-        ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 4.0f);
-        ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(24.0f / 255.0f, 24.0f / 255.0f, 26.0f / 255.0f, 1.0f));
-        ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(1.0f, 1.0f, 1.0f, 0.04f));
+        ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 3.0f);
+        ImGui::PushStyleColor(ImGuiCol_ChildBg, V11Theme::PanelBg);
+        ImGui::PushStyleColor(ImGuiCol_Border, V11Theme::PanelBorder);
 
         if (ImGui::BeginChild("##vehicle_paint", ImVec2(490.0f, 430.0f), true))
         {
-            ImGui::TextUnformatted("LSC Paint Catalog");
+            ImGui::TextColored(V11Theme::Accent, "LSC Paint Catalog");
             ImGui::SameLine();
             ImGui::TextDisabled("%s", g_PaintUi.queueMessage);
             ImGui::Separator();
