@@ -121,6 +121,8 @@ namespace Tutones::Game::Native
             {0xB73833BDAAE31047ull, "IS_PED_PERFORMING_MELEE_ACTION"},
             {0x4800F32F989BED65ull, "GET_PED_LAST_WEAPON_IMPACT_COORD"},
             {0x8F03CD462437C002ull, "ADD_OWNED_EXPLOSION"},
+
+            {0x767FBC2AC802EF3Dull, "STAT_GET_INT"},
         }};
 
         struct NativeProgram final

@@ -36,10 +36,12 @@ namespace Tutones::Game::PersonalVehicles
         std::vector<PersonalVehicleEntry> vehicles;
         std::vector<std::string> garages;
         std::size_t sourceArraySize{};
+        std::size_t ownedGarageSources{};
         std::uint64_t revision{};
         int currentVehicleId{-1};
         int requestedVehicleId{-1};
         int lastActionVehicleId{-1};
+        int garageCharacterIndex{-1};
         PersonalVehicleAction lastAction{PersonalVehicleAction::None};
         bool lastActionSucceeded{};
         bool actionPending{};
@@ -48,6 +50,7 @@ namespace Tutones::Game::PersonalVehicles
         bool nativeReady{};
         bool sessionStarted{};
         bool requestSupported{};
+        bool garageOwnershipStatsReady{};
     };
 
     class PersonalVehicleRuntime final
