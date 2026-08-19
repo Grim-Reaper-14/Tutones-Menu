@@ -31,6 +31,7 @@ add_library(TutonesMenu SHARED
     src/features/player/PlayerRuntime.cpp
     src/features/player/PlayerRuntimeActions.cpp
     src/features/player/PlayerRuntimeState.cpp
+    src/features/vehicle/PersonalVehicleRuntime.cpp
     src/features/vehicle/VehicleModificationRuntime.cpp
     src/features/vehicle/VehiclePaintRuntime.cpp
     src/features/vehicle/VehiclePaintService.cpp
@@ -57,6 +58,7 @@ add_library(TutonesMenu SHARED
 
     src/ui/GamePanel.cpp
     src/ui/Input.cpp
+    src/ui/PersonalVehiclePanel.cpp
     src/ui/PlayerOnlinePanel.cpp
     src/ui/PlayerPanel.cpp
     src/ui/TutonesMenu.cpp
@@ -125,6 +127,8 @@ source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR}/src PREFIX "Source" FILES
     src/features/player/PlayerRuntime.hpp
     src/features/player/PlayerRuntimeActions.cpp
     src/features/player/PlayerRuntimeState.cpp
+    src/features/vehicle/PersonalVehicleRuntime.cpp
+    src/features/vehicle/PersonalVehicleRuntime.hpp
     src/features/vehicle/VehicleModificationRuntime.cpp
     src/features/vehicle/VehicleModificationRuntime.hpp
     src/features/vehicle/VehiclePaintRuntime.cpp
@@ -140,6 +144,7 @@ source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR}/src PREFIX "Source" FILES
     src/game/GameState.hpp
     src/game/Natives.hpp
     src/game/PlayerNatives.hpp
+    src/game/VehicleNatives.hpp
     src/game/memory/BytePatch.cpp
     src/game/memory/BytePatch.hpp
     src/game/memory/ModuleView.cpp
@@ -153,6 +158,7 @@ source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR}/src PREFIX "Source" FILES
     src/game/script/ScriptFunction.cpp
     src/game/script/ScriptFunction.hpp
     src/game/script/ScriptGlobal.hpp
+    src/game/script/ScriptLocal.hpp
     src/game/script/ScriptPointer.cpp
     src/game/script/ScriptPointer.hpp
     src/game/script/ScriptRuntime.cpp
@@ -180,6 +186,8 @@ source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR}/src PREFIX "Source" FILES
     src/ui/GamePanel.hpp
     src/ui/Input.cpp
     src/ui/Input.hpp
+    src/ui/PersonalVehiclePanel.cpp
+    src/ui/PersonalVehiclePanel.hpp
     src/ui/PlayerOnlinePanel.cpp
     src/ui/PlayerOnlinePanel.hpp
     src/ui/PlayerPanel.cpp

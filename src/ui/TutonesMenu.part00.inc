@@ -2,6 +2,7 @@
 
 #include "GamePanel.hpp"
 #include "Input.hpp"
+#include "PersonalVehiclePanel.hpp"
 #include "PlayerOnlinePanel.hpp"
 #include "PlayerPanel.hpp"
 #include "V11Theme.hpp"
@@ -45,8 +46,8 @@ namespace Tutones::UI
                 {{"General", "Ammo", "Aimbot", "Bullet Effects"}},
                 {{"Weapon runtime capabilities and backend status.", "Infinite ammo and infinite clip state.", "Assisted-aim patches with dead-target retarget support.", "Impact-driven explosive ammunition configuration."}}, 4},
             {"E", "Vehicle",
-                {{"General", "Paint", "Modifications", nullptr}},
-                {{"Spawner, current vehicle, clone and saved vehicle tools.", "Vehicle color, custom RGB and finish controls.", "LSC mods, wheels, lights, neon and tire settings.", nullptr}}, 3},
+                {{"General", "Paint", "Modifications", "Personal Vehicles"}},
+                {{"Spawner, current vehicle, clone and saved vehicle tools.", "Vehicle color, custom RGB and finish controls.", "LSC mods, wheels, lights, neon and tire settings.", "Read-only Rockstar personal vehicles and garage-slot data from Enhanced MPSV."}}, 4},
             {"F", "Game",
                 {{"Session", "Creator", nullptr, nullptr}},
                 {{"Verified GTA Online join types and Leave Online transitions.", "Creator remains disabled until its Enhanced transition path is verified.", nullptr, nullptr}}, 2},
