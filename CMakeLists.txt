@@ -158,6 +158,7 @@ source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR}/src PREFIX "Source" FILES
     src/game/script/ScriptFunction.cpp
     src/game/script/ScriptFunction.hpp
     src/game/script/ScriptGlobal.hpp
+    src/game/script/ScriptLocal.hpp
     src/game/script/ScriptPointer.cpp
     src/game/script/ScriptPointer.hpp
     src/game/script/ScriptRuntime.cpp

@@ -13,17 +13,33 @@ namespace Tutones::UI
 {
     namespace
     {
+        using Game::PersonalVehicles::PersonalVehicleAction;
+        using Game::PersonalVehicles::PersonalVehicleEntry;
+        using Game::PersonalVehicles::PersonalVehicleRuntime;
+        using Game::PersonalVehicles::PersonalVehicleSnapshot;
+
         int g_SelectedVehicleId{-1};
         std::string g_GarageFilter;
         std::uint64_t g_LastRevision{};
+        const char* g_Message{"Ready"};
 
-        [[nodiscard]] bool VehicleVisible(
-            const Game::PersonalVehicles::PersonalVehicleEntry& vehicle) noexcept
+        [[nodiscard]] bool VehicleVisible(const PersonalVehicleEntry& vehicle) noexcept
         {
             return g_GarageFilter.empty() || vehicle.garage == g_GarageFilter;
         }
 
-        void ValidateSelection(const Game::PersonalVehicles::PersonalVehicleSnapshot& snapshot) noexcept
+        [[nodiscard]] const char* ActionName(PersonalVehicleAction action) noexcept
+        {
+            switch (action)
+            {
+            case PersonalVehicleAction::Repair: return "Repair";
+            case PersonalVehicleAction::Request: return "Request";
+            case PersonalVehicleAction::None: break;
+            }
+            return "None";
+        }
+
+        void ValidateSelection(const PersonalVehicleSnapshot& snapshot) noexcept
         {
             if (g_LastRevision == snapshot.revision)
                 return;
@@ -45,7 +61,8 @@ namespace Tutones::UI
 
     void RenderPersonalVehiclePanel() noexcept
     {
-        const auto snapshot = Game::PersonalVehicles::PersonalVehicleRuntime::Get().Snapshot();
+        auto& runtime = PersonalVehicleRuntime::Get();
+        const PersonalVehicleSnapshot snapshot = runtime.Snapshot();
         ValidateSelection(snapshot);
 
         ImGui::SetCursorPos(ImVec2(226.0f, 16.0f));
@@ -58,12 +75,12 @@ namespace Tutones::UI
         {
             ImGui::TextColored(V11Theme::Accent, "Personal Vehicles");
             ImGui::SameLine();
-            ImGui::TextDisabled("Enhanced MPSV reader");
+            ImGui::TextDisabled("Enhanced MPSV runtime");
             ImGui::Separator();
 
             if (!snapshot.running)
             {
-                ImGui::TextDisabled("Personal vehicle reader is offline.");
+                ImGui::TextDisabled("Personal vehicle runtime is offline.");
             }
             else if (!snapshot.scriptGlobalsReady)
             {
@@ -100,7 +117,7 @@ namespace Tutones::UI
                     ImGui::EndCombo();
                 }
 
-                if (ImGui::BeginListBox("##personal_vehicles", ImVec2(-1.0f, 235.0f)))
+                if (ImGui::BeginListBox("##personal_vehicles", ImVec2(-1.0f, 176.0f)))
                 {
                     for (const auto& vehicle : snapshot.vehicles)
                     {
@@ -130,15 +147,52 @@ namespace Tutones::UI
                     ImGui::Text("ID %d   Model 0x%08X", selected->id, static_cast<unsigned int>(selected->model));
                     ImGui::Text("Plate: %s", selected->plate.empty() ? "(none)" : selected->plate.c_str());
                     ImGui::Text("Garage: %s", selected->garage.empty() ? "Unresolved" : selected->garage.c_str());
+                    ImGui::TextDisabled("State: %s%s%s",
+                        selected->destroyed ? "Destroyed " : "",
+                        selected->insured ? "Insured " : "",
+                        selected->impounded ? "Impounded" : "");
+
+                    const bool repairEnabled = !snapshot.actionPending && selected->destroyed && selected->insured;
+                    ImGui::BeginDisabled(!repairEnabled);
+                    if (ImGui::Button("Repair", ImVec2(150.0f, 0.0f)))
+                        g_Message = runtime.QueueRepair(selected->id) ? "Repair queued" : "Repair rejected";
+                    ImGui::EndDisabled();
+
+                    ImGui::SameLine();
+                    const bool requestEnabled = !snapshot.actionPending
+                        && snapshot.requestSupported
+                        && snapshot.sessionStarted
+                        && snapshot.requestedVehicleId == -1;
+                    ImGui::BeginDisabled(!requestEnabled);
+                    if (ImGui::Button("Request", ImVec2(-1.0f, 0.0f)))
+                        g_Message = runtime.QueueRequest(selected->id) ? "Request queued" : "Request rejected";
+                    ImGui::EndDisabled();
                 }
                 else
                 {
                     ImGui::TextDisabled("Select a personal vehicle to inspect its MPSV identity and garage slot.");
                 }
+
+                if (snapshot.actionPending)
+                    ImGui::TextDisabled("Personal vehicle action is running on the GTA script thread...");
+                else if (snapshot.lastAction != PersonalVehicleAction::None)
+                    ImGui::TextDisabled("Last action: %s ID %d - %s",
+                        ActionName(snapshot.lastAction),
+                        snapshot.lastActionVehicleId,
+                        snapshot.lastActionSucceeded ? "success" : "failed");
+                else
+                    ImGui::TextDisabled("%s", g_Message);
+
+                if (!snapshot.sessionStarted)
+                    ImGui::TextDisabled("Request requires an active GTA Online session.");
+                else if (!snapshot.requestSupported)
+                    ImGui::TextDisabled("Request support is unavailable because the shared script runtime is not ready.");
+                else if (snapshot.requestedVehicleId != -1)
+                    ImGui::TextDisabled("GTA already has personal vehicle request ID %d in progress.", snapshot.requestedVehicleId);
             }
 
             ImGui::Separator();
-            ImGui::TextDisabled("Read-only snapshot; refreshes every 10 seconds on the GTA script thread.");
+            ImGui::TextDisabled("Repair/Request use verified Enhanced MPSV/Freemode state; Bring and Save are not enabled here.");
         }
 
         ImGui::EndChild();
