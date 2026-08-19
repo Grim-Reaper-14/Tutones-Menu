@@ -93,6 +93,15 @@ namespace Tutones::Game::PlayerFeatures
         }
         else
         {
+            // Maintain God Mode continuously while the local ped is alive, but clear
+            // invincibility while dead so GTA can complete death/respawn state normally.
+            if (m_Invincible.load(std::memory_order_acquire))
+            {
+                const auto dead = PlayerNatives::IsEntityDead(*ped, true);
+                if (dead)
+                    static_cast<void>(PlayerNatives::SetEntityInvincible(*ped, !*dead, false));
+            }
+
             if (m_SuperJump.load(std::memory_order_acquire))
                 static_cast<void>(PlayerNatives::SetSuperJumpThisFrame(*player));
             if (m_InfiniteStamina.load(std::memory_order_acquire))

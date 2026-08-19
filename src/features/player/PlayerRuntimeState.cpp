@@ -76,8 +76,12 @@ namespace Tutones::Game::PlayerFeatures
 
     bool PlayerRuntime::ApplyPersistentState(Player player, Ped ped) noexcept
     {
+        const auto dead = PlayerNatives::IsEntityDead(ped, true);
+        const bool requestedInvincible = m_Invincible.load(std::memory_order_acquire);
+        const bool applyInvincible = requestedInvincible && (!dead || !*dead);
+
         bool success = true;
-        success = PlayerNatives::SetEntityInvincible(ped, m_Invincible.load(std::memory_order_acquire), false) && success;
+        success = PlayerNatives::SetEntityInvincible(ped, applyInvincible, false) && success;
         success = PlayerNatives::SetEntityVisible(ped, !m_Invisible.load(std::memory_order_acquire), false) && success;
         success = PlayerNatives::SetPedCanRagdoll(ped, !m_NoRagdoll.load(std::memory_order_acquire)) && success;
         success = PlayerNatives::SetPoliceIgnorePlayer(player, m_PoliceIgnore.load(std::memory_order_acquire)) && success;

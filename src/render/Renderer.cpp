@@ -26,6 +26,16 @@ namespace Tutones::Render
         constexpr std::uint32_t InvalidSrvIndex = 0xFFFFFFFFu;
         int g_RendererModuleAnchor{};
 
+        void LogBannerDecodeFailure(const char* stage, HRESULT result)
+        {
+            std::string message("V11 banner decode failed at ");
+            message += stage ? stage : "unknown stage";
+            message += " (HRESULT=";
+            message += std::to_string(static_cast<long>(result));
+            message += ')';
+            TUTONES_LOG_WARN("render.banner", message);
+        }
+
         HMODULE CurrentModule() noexcept
         {
             HMODULE module{};
@@ -75,69 +85,125 @@ namespace Tutones::Render
             const HRESULT comResult = ::CoInitializeEx(nullptr, COINIT_MULTITHREADED);
             if (FAILED(comResult) && comResult != RPC_E_CHANGED_MODE)
             {
-                TUTONES_LOG_WARN("render.banner", "COM initialization failed while decoding V11 banner");
+                LogBannerDecodeFailure("COM initialization", comResult);
                 return false;
             }
             const bool uninitializeCom = SUCCEEDED(comResult);
 
-            using Microsoft::WRL::ComPtr;
-            ComPtr<IWICImagingFactory> factory;
-            ComPtr<IWICStream> stream;
-            ComPtr<IWICBitmapDecoder> decoder;
-            ComPtr<IWICBitmapFrameDecode> frame;
-            ComPtr<IWICFormatConverter> converter;
-
-            HRESULT hr = ::CoCreateInstance(
-                CLSID_WICImagingFactory,
-                nullptr,
-                CLSCTX_INPROC_SERVER,
-                IID_PPV_ARGS(factory.GetAddressOf()));
-            if (SUCCEEDED(hr))
-                hr = factory->CreateStream(stream.GetAddressOf());
-            if (SUCCEEDED(hr))
-                hr = stream->InitializeFromMemory(
-                    const_cast<BYTE*>(static_cast<const BYTE*>(resourceData)),
-                    resourceSize);
-            if (SUCCEEDED(hr))
-                hr = factory->CreateDecoderFromStream(
-                    stream.Get(),
-                    nullptr,
-                    WICDecodeMetadataCacheOnLoad,
-                    decoder.GetAddressOf());
-            if (SUCCEEDED(hr))
-                hr = decoder->GetFrame(0, frame.GetAddressOf());
-            if (SUCCEEDED(hr))
-                hr = factory->CreateFormatConverter(converter.GetAddressOf());
-            if (SUCCEEDED(hr))
-                hr = converter->Initialize(
-                    frame.Get(),
-                    GUID_WICPixelFormat32bppRGBA,
-                    WICBitmapDitherTypeNone,
-                    nullptr,
-                    0.0,
-                    WICBitmapPaletteTypeCustom);
-
+            HRESULT hr = S_OK;
+            const char* stage = "create WIC imaging factory";
             UINT decodedWidth{};
             UINT decodedHeight{};
-            if (SUCCEEDED(hr))
-                hr = converter->GetSize(&decodedWidth, &decodedHeight);
+            bool decodedAsBgra = false;
 
-            if (SUCCEEDED(hr) && decodedWidth > 0 && decodedHeight > 0)
+            // Keep every WIC/COM object inside this scope so all interfaces are released before
+            // balancing CoInitializeEx below. The previous loader called CoUninitialize first.
             {
-                const std::size_t stride = static_cast<std::size_t>(decodedWidth) * 4u;
-                const std::size_t total = stride * static_cast<std::size_t>(decodedHeight);
-                if (total <= static_cast<std::size_t>(UINT32_MAX))
+                using Microsoft::WRL::ComPtr;
+                ComPtr<IWICImagingFactory> factory;
+                ComPtr<IStream> sourceStream;
+                ComPtr<IWICBitmapDecoder> decoder;
+                ComPtr<IWICBitmapFrameDecode> frame;
+                ComPtr<IWICFormatConverter> converter;
+
+                hr = ::CoCreateInstance(
+                    CLSID_WICImagingFactory,
+                    nullptr,
+                    CLSCTX_INPROC_SERVER,
+                    IID_PPV_ARGS(factory.GetAddressOf()));
+
+                if (SUCCEEDED(hr))
                 {
-                    pixels.resize(total);
-                    hr = converter->CopyPixels(
-                        nullptr,
-                        static_cast<UINT>(stride),
-                        static_cast<UINT>(total),
-                        pixels.data());
+                    stage = "create owned resource stream";
+                    hr = ::CreateStreamOnHGlobal(nullptr, TRUE, sourceStream.GetAddressOf());
                 }
-                else
+
+                if (SUCCEEDED(hr))
                 {
-                    hr = E_OUTOFMEMORY;
+                    stage = "copy embedded resource into stream";
+                    ULONG written{};
+                    hr = sourceStream->Write(resourceData, resourceSize, &written);
+                    if (SUCCEEDED(hr) && written != resourceSize)
+                        hr = STG_E_WRITEFAULT;
+                }
+
+                if (SUCCEEDED(hr))
+                {
+                    stage = "rewind embedded resource stream";
+                    LARGE_INTEGER start{};
+                    hr = sourceStream->Seek(start, STREAM_SEEK_SET, nullptr);
+                }
+
+                if (SUCCEEDED(hr))
+                {
+                    stage = "create WIC decoder from owned stream";
+                    hr = factory->CreateDecoderFromStream(
+                        sourceStream.Get(),
+                        nullptr,
+                        WICDecodeMetadataCacheOnLoad,
+                        decoder.GetAddressOf());
+                }
+
+                if (SUCCEEDED(hr))
+                {
+                    stage = "read WIC frame 0";
+                    hr = decoder->GetFrame(0, frame.GetAddressOf());
+                }
+
+                const auto initializeConverter = [&](REFWICPixelFormatGUID targetFormat) noexcept -> HRESULT
+                {
+                    converter.Reset();
+                    HRESULT result = factory->CreateFormatConverter(converter.GetAddressOf());
+                    if (FAILED(result))
+                        return result;
+                    return converter->Initialize(
+                        frame.Get(),
+                        targetFormat,
+                        WICBitmapDitherTypeNone,
+                        nullptr,
+                        0.0,
+                        WICBitmapPaletteTypeCustom);
+                };
+
+                if (SUCCEEDED(hr))
+                {
+                    stage = "initialize RGBA converter";
+                    hr = initializeConverter(GUID_WICPixelFormat32bppRGBA);
+                    if (FAILED(hr))
+                    {
+                        stage = "initialize BGRA converter fallback";
+                        hr = initializeConverter(GUID_WICPixelFormat32bppBGRA);
+                        decodedAsBgra = SUCCEEDED(hr);
+                    }
+                }
+
+                if (SUCCEEDED(hr))
+                {
+                    stage = "query decoded banner size";
+                    hr = converter->GetSize(&decodedWidth, &decodedHeight);
+                    if (SUCCEEDED(hr) && (decodedWidth == 0 || decodedHeight == 0))
+                        hr = E_FAIL;
+                }
+
+                if (SUCCEEDED(hr))
+                {
+                    const std::size_t stride = static_cast<std::size_t>(decodedWidth) * 4u;
+                    const std::size_t total = stride * static_cast<std::size_t>(decodedHeight);
+                    if (total > static_cast<std::size_t>(UINT32_MAX))
+                    {
+                        stage = "allocate decoded banner buffer";
+                        hr = E_OUTOFMEMORY;
+                    }
+                    else
+                    {
+                        pixels.resize(total);
+                        stage = "copy decoded banner pixels";
+                        hr = converter->CopyPixels(
+                            nullptr,
+                            static_cast<UINT>(stride),
+                            static_cast<UINT>(total),
+                            pixels.data());
+                    }
                 }
             }
 
@@ -147,12 +213,19 @@ namespace Tutones::Render
             if (FAILED(hr) || pixels.empty())
             {
                 pixels.clear();
-                TUTONES_LOG_WARN("render.banner", "WIC failed to decode the embedded V11 banner artwork");
+                LogBannerDecodeFailure(stage, FAILED(hr) ? hr : E_FAIL);
                 return false;
+            }
+
+            if (decodedAsBgra)
+            {
+                for (std::size_t i = 0; i + 3 < pixels.size(); i += 4)
+                    std::swap(pixels[i], pixels[i + 2]);
             }
 
             width = decodedWidth;
             height = decodedHeight;
+            TUTONES_LOG_INFO("render.banner", "Decoded embedded V11 banner artwork successfully");
             return true;
         }
     }

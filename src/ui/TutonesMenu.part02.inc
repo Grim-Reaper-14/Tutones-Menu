@@ -41,7 +41,7 @@ namespace Tutones::UI
             break;
 
         case 5:
-            DrawPanel(draw, windowPos, ImVec2(226.0f, 16.0f), ImVec2(490.0f, 430.0f), "RECOVERY", {selected, "UI target implemented.", "Stat / unlock backend is not implemented yet.", "No fake success paths are exposed."});
+            RenderRecoveryPanel(m_Item);
             break;
 
         case 6:
@@ -53,7 +53,7 @@ namespace Tutones::UI
             break;
 
         default:
-            DrawPanel(draw, windowPos, ImVec2(226.0f, 16.0f), ImVec2(490.0f, 430.0f), "MENU SETTINGS", {selected, "V11 blue visual shell", "Banner-style header + description frame", "Keyboard / mouse input", "Theme persistence wiring remains separate."});
+            DrawPanel(draw, windowPos, ImVec2(226.0f, 16.0f), ImVec2(490.0f, 430.0f), "MENU SETTINGS", {selected, "Tutone Menu blue visual shell", "Banner-style header + description frame", "Keyboard / mouse input", "Theme persistence wiring remains separate."});
             break;
         }
     }
@@ -79,7 +79,7 @@ namespace Tutones::UI
         ImGui::PushStyleColor(ImGuiCol_WindowBg, V11Theme::WindowBg);
 
         constexpr ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoNavInputs | ImGuiWindowFlags_NoNavFocus;
-        if (ImGui::Begin("Tutones Menu##v11", nullptr, flags))
+        if (ImGui::Begin("Tutone Menu##v11", nullptr, flags))
         {
             const ImVec2 pos = ImGui::GetWindowPos();
             auto* draw = ImGui::GetWindowDrawList();
@@ -100,6 +100,11 @@ namespace Tutones::UI
 
             BeginV11DescriptionFrame(Categories[m_Category].descriptions[m_Item]);
 
+            // Keep the existing feature-panel coordinate system, but render its child first.
+            // The body child intentionally begins left of the visual content so legacy panel
+            // offsets still land in the approved center column. That child overlaps the two
+            // navigation rails geometrically, so rail input must be rendered in a later,
+            // front-most transparent child to receive mouse hover/clicks reliably.
             ImGui::SetCursorPos(ImVec2(V11Theme::ContentHostX, V11Theme::HeaderHeight));
             ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
             constexpr ImGuiWindowFlags bodyFlags = ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoNavInputs | ImGuiWindowFlags_NoNavFocus;
@@ -108,9 +113,32 @@ namespace Tutones::UI
             ImGui::EndChild();
             ImGui::PopStyleColor();
 
-            RenderNavigationRail();
-            RenderCategoryRail();
+            // Input overlay for the category + subtab rails. The overlay stops before the
+            // center feature panel, so it cannot steal mouse input from weapon/vehicle/etc.
+            ImGui::SetCursorPos(ImVec2(0.0f, 0.0f));
+            ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
+            constexpr ImGuiWindowFlags railFlags = ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoNavInputs | ImGuiWindowFlags_NoNavFocus;
+            if (ImGui::BeginChild(
+                    "##v11_rail_input",
+                    ImVec2(V11Theme::SubtabRailX + V11Theme::SubtabRailWidth, V11Theme::FooterY),
+                    false,
+                    railFlags))
+            {
+                RenderNavigationRail();
+                RenderCategoryRail();
+            }
+            ImGui::EndChild();
+            ImGui::PopStyleColor();
+
             RenderStatusPanel(m_Category, m_Item);
+            // RenderStatusPanel keeps the original compact spacing for the BUILD row. Draw the
+            // source/build identity into its intentionally empty value slot without shifting rows.
+            draw->AddText(
+                FontOrDefault(g_Bold),
+                12.0f,
+                ImVec2(pos.x + V11Theme::StatusX + 46.0f, pos.y + V11Theme::HeaderHeight + 158.0f),
+                ImGui::GetColorU32(V11Theme::MutedText),
+                ::Tutones::App::BuildInfo::Label);
             DrawDescriptionBanner(draw, pos, V11Theme::MenuWidth, m_Category, m_Item);
         }
 

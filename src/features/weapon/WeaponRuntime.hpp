@@ -10,6 +10,7 @@ namespace Tutones::Game::WeaponFeatures
     {
         WeaponSettings settings{};
         bool nativeReady{};
+        bool pointersResolved{};
         bool aimbotSupported{};
         bool aimForHeadSupported{};
         bool targetDriversSupported{};

@@ -36,6 +36,15 @@ namespace Tutones::Game
             return Native::NativeInvoker::Invoke<int>(Native::NativeId::GetEntityMaxHealth, entity);
         }
 
+        [[nodiscard]] inline std::optional<bool> IsEntityDead(Entity entity, bool p1 = true) noexcept
+        {
+            const auto result = Native::NativeInvoker::Invoke<std::int32_t>(
+                Native::NativeId::IsEntityDead,
+                entity,
+                static_cast<std::int32_t>(p1));
+            return result ? std::optional<bool>(*result != 0) : std::nullopt;
+        }
+
         inline bool SetEntityHealth(Entity entity, int health, Entity instigator, Hash weaponType) noexcept
         {
             return Native::NativeInvoker::InvokeVoid(Native::NativeId::SetEntityHealth, entity, health, instigator, weaponType);

@@ -1,10 +1,12 @@
 #include "TutonesMenu.hpp"
 
+#include "../app/BuildInfo.hpp"
 #include "GamePanel.hpp"
 #include "Input.hpp"
 #include "PersonalVehiclePanel.hpp"
 #include "PlayerOnlinePanel.hpp"
 #include "PlayerPanel.hpp"
+#include "RecoveryPanel.hpp"
 #include "V11Theme.hpp"
 #include "VehicleGeneralPanel.hpp"
 #include "VehicleModificationPanel.hpp"
@@ -60,21 +62,21 @@ namespace Tutones::UI
                 {{"O", "Q", "L", nullptr}},
                 {{"World feature workspace.", "Clock and weather workspace.", "Teleport workspace.", nullptr}}, 3, false},
             {"D", "RECOVERY",
-                {{"Overview", "Stats", "Unlocks", nullptr}},
-                {{"D", "H", "U", nullptr}},
-                {{"Recovery workspace and capability status.", "Stat editing is not implemented in this V11 slice.", "Unlock workflows are not implemented in this V11 slice.", nullptr}}, 3, false},
+                {{"Overview", "RP Multiplier", "Businesses", "Unlocks"}},
+                {{"D", "H", "C", "U"}},
+                {{"Live Enhanced Recovery capability and business-state overview.", "Override the current Enhanced XP multiplier while enabled, restoring the prior value when disabled.", "Special Cargo and Bunker state with ownership-gated, read-back-verified controls.", "Enhanced unlock groups remain pending until their packed-stat and script conditions are verified."}}, 4, false},
             {"N", "NETWORK",
                 {{"Overview", "Session", "Players", nullptr}},
                 {{"N", "O", "P", nullptr}},
-                {{"Network workspace and verified online capabilities.", "Session transitions live under Game in the current backend.", "Player-network tools are not implemented in this V11 slice.", nullptr}}, 3, false},
+                {{"Network workspace and verified online capabilities.", "Session transitions live under Game in the current backend.", "Player-network tools are not implemented in the current build.", nullptr}}, 3, false},
             {"S", "PROTECTIONS",
                 {{"Overview", "Network Events", "Script Events", nullptr}},
                 {{"S", "N", "K", nullptr}},
-                {{"Protection workspace and capability status.", "Network-event protections are not implemented in this V11 slice.", "Script-event protections are not implemented in this V11 slice.", nullptr}}, 3, false},
+                {{"Protection workspace and capability status.", "Network-event protections are not implemented in the current build.", "Script-event protections are not implemented in the current build.", nullptr}}, 3, false},
             {"C", "MENU SETTINGS",
                 {{"General", "Theme", "Controls", nullptr}},
                 {{"C", "T", "C", nullptr}},
-                {{"Tutones runtime and menu preferences.", "V11 blue visual shell and banner styling.", "Keyboard and mouse input preferences.", nullptr}}, 3, false},
+                {{"Tutone Menu runtime and menu preferences.", "Blue visual shell and banner styling.", "Keyboard and mouse input preferences.", nullptr}}, 3, false},
         }};
 
         const ImVec4 Accent = V11Theme::Accent;

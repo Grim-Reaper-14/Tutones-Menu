@@ -14,6 +14,31 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+if(DEFINED ENV{TUTONES_SOURCE_SHA} AND NOT "$ENV{TUTONES_SOURCE_SHA}" STREQUAL "")
+    set(TUTONES_GIT_REVISION "$ENV{TUTONES_SOURCE_SHA}")
+else()
+    execute_process(
+        COMMAND git rev-parse HEAD
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+        OUTPUT_VARIABLE TUTONES_GIT_REVISION
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        ERROR_QUIET
+    )
+endif()
+if(NOT TUTONES_GIT_REVISION)
+    set(TUTONES_GIT_REVISION "unknown")
+endif()
+string(LENGTH "${TUTONES_GIT_REVISION}" TUTONES_GIT_REVISION_LENGTH)
+if(TUTONES_GIT_REVISION_LENGTH GREATER 12)
+    string(SUBSTRING "${TUTONES_GIT_REVISION}" 0 12 TUTONES_GIT_REVISION)
+endif()
+
+if(DEFINED ENV{GITHUB_RUN_NUMBER} AND NOT "$ENV{GITHUB_RUN_NUMBER}" STREQUAL "")
+    set(TUTONES_BUILD_NUMBER "$ENV{GITHUB_RUN_NUMBER}")
+else()
+    set(TUTONES_BUILD_NUMBER "local")
+endif()
+
 include(cmake/Dependencies.cmake)
 
 add_library(TutonesMenu SHARED
@@ -31,6 +56,7 @@ add_library(TutonesMenu SHARED
     src/features/player/PlayerRuntime.cpp
     src/features/player/PlayerRuntimeActions.cpp
     src/features/player/PlayerRuntimeState.cpp
+    src/features/recovery/RecoveryRuntime.cpp
     src/features/vehicle/LscBypassRuntime.cpp
     src/features/vehicle/PersonalVehicleRuntime.cpp
     src/features/vehicle/VehicleModificationRuntime.cpp
@@ -64,6 +90,7 @@ add_library(TutonesMenu SHARED
     src/ui/PersonalVehiclePanel.cpp
     src/ui/PlayerOnlinePanel.cpp
     src/ui/PlayerPanel.cpp
+    src/ui/RecoveryPanel.cpp
     src/ui/TutonesMenu.cpp
     src/ui/V11Resources.rc
     src/ui/VehicleGeneralPanel.cpp
@@ -79,6 +106,8 @@ target_include_directories(TutonesMenu PRIVATE
 target_compile_definitions(TutonesMenu PRIVATE
     WIN32_LEAN_AND_MEAN
     NOMINMAX
+    TUTONES_GIT_REVISION="${TUTONES_GIT_REVISION}"
+    TUTONES_BUILD_NUMBER="${TUTONES_BUILD_NUMBER}"
 )
 
 if(MSVC)
@@ -133,6 +162,8 @@ source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR}/src PREFIX "Source" FILES
     src/features/player/PlayerRuntime.hpp
     src/features/player/PlayerRuntimeActions.cpp
     src/features/player/PlayerRuntimeState.cpp
+    src/features/recovery/RecoveryRuntime.cpp
+    src/features/recovery/RecoveryRuntime.hpp
     src/features/vehicle/LscBypassRuntime.cpp
     src/features/vehicle/LscBypassRuntime.hpp
     src/features/vehicle/PersonalVehicleRuntime.cpp
@@ -204,6 +235,8 @@ source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR}/src PREFIX "Source" FILES
     src/ui/PlayerOnlinePanel.hpp
     src/ui/PlayerPanel.cpp
     src/ui/PlayerPanel.hpp
+    src/ui/RecoveryPanel.cpp
+    src/ui/RecoveryPanel.hpp
     src/ui/TutonesMenu.cpp
     src/ui/TutonesMenu.hpp
     src/ui/V11ResourceIds.h
