@@ -30,6 +30,7 @@ namespace Tutones::UI
         int g_Armor{};
         int g_Wanted{};
         bool g_GodMode{};
+        bool g_Bulletproof{};
         bool g_Invisible{};
         bool g_PoliceIgnore{};
         bool g_EveryoneIgnore{};
@@ -122,6 +123,7 @@ namespace Tutones::UI
             g_Armor = snapshot.armor;
             g_Wanted = snapshot.wantedLevel;
             g_GodMode = snapshot.invincible;
+            g_Bulletproof = snapshot.bulletproof;
             g_Invisible = snapshot.invisible;
             g_PoliceIgnore = snapshot.policeIgnore;
             g_EveryoneIgnore = snapshot.everyoneIgnore;
@@ -195,6 +197,8 @@ namespace Tutones::UI
             ImGui::TextColored(Accent, "Persistent protections");
             if (RenderToggleSwitch("God Mode", g_GodMode)) runtime.SetInvincible(g_GodMode);
             DescribeLastV11Item("Maintain God Mode while alive and clear invincibility during death/respawn so GTA can recover normally.");
+            if (RenderToggleSwitch("Bulletproof", g_Bulletproof)) runtime.SetBulletproof(g_Bulletproof);
+            DescribeLastV11Item("Block bullet damage only. Fire, explosions, collisions, melee, steam, and water damage remain normal.");
             if (RenderToggleSwitch("Never Wanted", g_NeverWanted)) runtime.SetNeverWanted(g_NeverWanted);
             DescribeLastV11Item("Continuously keep the local player's wanted level cleared while this setting is enabled.");
             if (RenderToggleSwitch("Invisible", g_Invisible)) runtime.SetInvisible(g_Invisible);

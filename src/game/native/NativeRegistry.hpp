@@ -78,6 +78,7 @@ namespace Tutones::Game::Native
         IsEntityDead,
         SetEntityHealth,
         SetEntityInvincible,
+        SetEntityProofs,
         SetEntityVisible,
         GetPedArmour,
         SetPedArmour,

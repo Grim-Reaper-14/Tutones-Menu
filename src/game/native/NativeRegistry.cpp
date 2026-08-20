@@ -82,6 +82,7 @@ namespace Tutones::Game::Native
             {0x1C2F771CDC87A3A5ull, "IS_ENTITY_DEAD"},
             {0xD25E9BDC14A0B649ull, "SET_ENTITY_HEALTH"},
             {0x935364B4448CD584ull, "SET_ENTITY_INVINCIBLE"},
+            {0xD0F1DB0E50B367ADull, "SET_ENTITY_PROOFS"},
             {0x4285E11B28063EE0ull, "SET_ENTITY_VISIBLE"},
             {0xE5E6F6EFCE07789Aull, "GET_PED_ARMOUR"},
             {0x10A676E622A468AAull, "SET_PED_ARMOUR"},
