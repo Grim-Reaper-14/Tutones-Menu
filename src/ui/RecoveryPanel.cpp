@@ -24,6 +24,7 @@ namespace Tutones::UI
         std::array<int, 5> g_WarehouseCrates{};
         int g_BunkerSupplies{};
         int g_BunkerProduct{};
+        int g_PickupAmount{1000};
         float g_RpMultiplier{1.0f};
         bool g_RpEnabled{};
         const char* g_Message{"Ready"};
@@ -36,6 +37,7 @@ namespace Tutones::UI
             case RecoveryAction::SetWarehouseCrates: return "Special Cargo crates";
             case RecoveryAction::SetBunkerSupplies: return "Bunker supplies";
             case RecoveryAction::SetBunkerProduct: return "Bunker product";
+            case RecoveryAction::EarnFromPickup: return "Pickup earnings";
             }
             return "Unknown";
         }
@@ -76,10 +78,14 @@ namespace Tutones::UI
                 "Last action: %s - %s",
                 ActionName(snapshot.lastAction),
                 snapshot.lastActionSucceeded ? "success" : "failed");
-            ImGui::TextDisabled("Target: %d   Value: %d", snapshot.lastActionTarget, snapshot.lastActionValue);
+
+            if (snapshot.lastAction == RecoveryAction::EarnFromPickup)
+                ImGui::TextDisabled("Amount: %d", snapshot.lastActionValue);
+            else
+                ImGui::TextDisabled("Target: %d   Value: %d", snapshot.lastActionTarget, snapshot.lastActionValue);
         }
 
-        void RenderOverview(const RecoverySnapshot& snapshot) noexcept
+        void RenderOverview(RecoveryRuntime& runtime, const RecoverySnapshot& snapshot) noexcept
         {
             ImGui::TextUnformatted("Enhanced Recovery runtime");
             ImGui::Separator();
@@ -99,6 +105,22 @@ namespace Tutones::UI
                 ownedWarehouses += warehouse.owned ? 1 : 0;
             ImGui::Text("Special Cargo warehouses: %d / 5", ownedWarehouses);
             ImGui::Text("Bunker: %s", snapshot.bunker.owned ? (snapshot.bunker.setup ? "owned / setup" : "owned / setup pending") : "not owned");
+
+            ImGui::Spacing();
+            ImGui::TextColored(Accent, "Money");
+            g_PickupAmount = std::max(1, g_PickupAmount);
+            ImGui::SetNextItemWidth(280.0f);
+            ImGui::InputInt("Pickup amount", &g_PickupAmount, 1000, 10000);
+            g_PickupAmount = std::max(1, g_PickupAmount);
+            DescribeLastV11Item("Choose the amount passed to GTA Online's NETWORK_EARN_FROM_PICKUP transaction native.");
+
+            ImGui::BeginDisabled(snapshot.actionPending || !snapshot.nativeReady || !snapshot.sessionStarted);
+            if (ImGui::Button("Earn from pickup", ImVec2(-1.0f, 0.0f)))
+                g_Message = runtime.QueueEarnFromPickup(g_PickupAmount) ? "Pickup earnings queued" : "Pickup earnings rejected";
+            ImGui::EndDisabled();
+            DescribeLastV11Item("Queue one NETWORK_EARN_FROM_PICKUP call on the GTA script thread using the selected amount.");
+            ImGui::TextDisabled("One-shot transaction. GTA Online may accept, reject, or cap amounts according to its current transaction rules.");
+            ImGui::TextDisabled("%s", g_Message);
 
             ImGui::Spacing();
             ImGui::TextDisabled("Business values are read from the active MP character slot.");
@@ -271,7 +293,7 @@ namespace Tutones::UI
             if (!runtime.IsRunning())
                 ImGui::TextDisabled("Recovery runtime is offline.");
             else if (subtab == 0)
-                RenderOverview(snapshot);
+                RenderOverview(runtime, snapshot);
             else if (subtab == 1)
                 RenderRpMultiplier(runtime, snapshot);
             else if (subtab == 2)
