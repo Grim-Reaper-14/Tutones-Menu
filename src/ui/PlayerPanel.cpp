@@ -31,6 +31,8 @@ namespace Tutones::UI
         int g_Wanted{};
         bool g_GodMode{};
         bool g_Bulletproof{};
+        bool g_AquaLungs{};
+        bool g_InfiniteOxygen{};
         bool g_Invisible{};
         bool g_PoliceIgnore{};
         bool g_EveryoneIgnore{};
@@ -199,6 +201,10 @@ namespace Tutones::UI
             DescribeLastV11Item("Maintain God Mode while alive and clear invincibility during death/respawn so GTA can recover normally.");
             if (RenderToggleSwitch("Bulletproof", g_Bulletproof)) runtime.SetBulletproof(g_Bulletproof);
             DescribeLastV11Item("Block bullet damage only. Fire, explosions, collisions, melee, steam, and water damage remain normal.");
+            if (RenderToggleSwitch("Aqua Lungs", g_AquaLungs)) runtime.SetAquaLungs(g_AquaLungs);
+            DescribeLastV11Item("Continuously refill the breath bar underwater. Infinite Oxygen takes precedence when both are enabled.");
+            if (RenderToggleSwitch("Infinite Oxygen", g_InfiniteOxygen)) runtime.SetInfiniteOxygen(g_InfiniteOxygen);
+            DescribeLastV11Item("Continuously extend underwater time using Yim-style Unlimited Oxygen behavior. Disabling restores GTA's normal underwater limit.");
             if (RenderToggleSwitch("Never Wanted", g_NeverWanted)) runtime.SetNeverWanted(g_NeverWanted);
             DescribeLastV11Item("Continuously keep the local player's wanted level cleared while this setting is enabled.");
             if (RenderToggleSwitch("Invisible", g_Invisible)) runtime.SetInvisible(g_Invisible);

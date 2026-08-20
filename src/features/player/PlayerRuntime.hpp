@@ -77,6 +77,8 @@ namespace Tutones::Game::PlayerFeatures
         void SetObservedComponent(int componentId, int drawableId = -1) noexcept;
         void SetInvincible(bool enabled);
         void SetBulletproof(bool enabled);
+        void SetAquaLungs(bool enabled) noexcept;
+        void SetInfiniteOxygen(bool enabled);
         void SetInvisible(bool enabled);
         void SetNoRagdoll(bool enabled);
         void SetSuperJump(bool enabled) noexcept;
@@ -118,6 +120,8 @@ namespace Tutones::Game::PlayerFeatures
         std::atomic<int> m_ObservedDrawable{-1};
         std::atomic<bool> m_Invincible{false};
         std::atomic<bool> m_Bulletproof{false};
+        std::atomic<bool> m_AquaLungs{false};
+        std::atomic<bool> m_InfiniteOxygen{false};
         std::atomic<bool> m_Invisible{false};
         std::atomic<bool> m_NoRagdoll{false};
         std::atomic<bool> m_SuperJump{false};

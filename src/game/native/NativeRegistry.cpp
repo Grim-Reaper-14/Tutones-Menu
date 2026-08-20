@@ -125,6 +125,9 @@ namespace Tutones::Game::Native
 
             {0xDF7F16323520B858ull, "STAT_GET_INT"},
             {0x1164A75E490C27B6ull, "STAT_SET_INT"},
+
+            {0x0ACCC8916441860Aull, "SET_PED_MAX_TIME_UNDERWATER"},
+            {0x932BEE6E64F0144Eull, "_SET_PLAYER_UNDERWATER_TIME_REMAINING"},
         }};
 
         struct NativeProgram final

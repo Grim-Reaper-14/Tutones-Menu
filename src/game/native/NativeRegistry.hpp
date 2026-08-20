@@ -122,6 +122,9 @@ namespace Tutones::Game::Native
         StatGetInt,
         StatSetInt,
 
+        SetPedMaxTimeUnderwater,
+        SetPlayerUnderwaterTimeRemaining,
+
         Count,
     };
 

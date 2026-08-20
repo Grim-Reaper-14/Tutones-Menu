@@ -1,5 +1,6 @@
 #include "PlayerRuntime.hpp"
 
+#include "../../game/native/NativeInvoker.hpp"
 #include "../../runtime/GameRuntime.hpp"
 
 #include <algorithm>
@@ -11,6 +12,18 @@ namespace Tutones::Game::PlayerFeatures
     {
         constexpr int MinComponent = 0;
         constexpr int MaxComponent = 11;
+        constexpr float FullOxygenPercentage = 100.0f;
+        constexpr float InfiniteUnderwaterSeconds = 2147483647.0f;
+
+        bool SetPedMaxTimeUnderwater(Ped ped, float seconds) noexcept
+        {
+            return Native::NativeInvoker::InvokeVoid(Native::NativeId::SetPedMaxTimeUnderwater, ped, seconds);
+        }
+
+        bool SetPlayerUnderwaterTimeRemaining(Player player, float percentage) noexcept
+        {
+            return Native::NativeInvoker::InvokeVoid(Native::NativeId::SetPlayerUnderwaterTimeRemaining, player, percentage);
+        }
     }
 
     PlayerRuntime& PlayerRuntime::Get() noexcept
@@ -52,6 +65,28 @@ namespace Tutones::Game::PlayerFeatures
     {
         m_ObservedComponent.store(std::clamp(componentId, MinComponent, MaxComponent), std::memory_order_release);
         m_ObservedDrawable.store(drawableId, std::memory_order_release);
+    }
+
+    void PlayerRuntime::SetAquaLungs(bool enabled) noexcept
+    {
+        m_AquaLungs.store(enabled, std::memory_order_release);
+    }
+
+    void PlayerRuntime::SetInfiniteOxygen(bool enabled)
+    {
+        const bool previous = m_InfiniteOxygen.exchange(enabled, std::memory_order_acq_rel);
+        if (previous == enabled)
+            return;
+
+        if (!enabled)
+        {
+            static_cast<void>(QueuePlayerOperation(PlayerAction::ApplyPersistent, [this](Player player, Ped ped) {
+                bool success = SetPedMaxTimeUnderwater(ped, -1.0f);
+                if (m_AquaLungs.load(std::memory_order_acquire))
+                    success = SetPlayerUnderwaterTimeRemaining(player, FullOxygenPercentage) && success;
+                return success;
+            }));
+        }
     }
 
     Hash PlayerRuntime::Joaat(std::string_view value) noexcept
@@ -106,6 +141,13 @@ namespace Tutones::Game::PlayerFeatures
                 static_cast<void>(PlayerNatives::SetSuperJumpThisFrame(*player));
             if (m_InfiniteStamina.load(std::memory_order_acquire))
                 static_cast<void>(PlayerNatives::RestorePlayerStamina(*player, 1.0f));
+
+            const bool infiniteOxygen = m_InfiniteOxygen.load(std::memory_order_acquire);
+            if (infiniteOxygen)
+                static_cast<void>(SetPedMaxTimeUnderwater(*ped, InfiniteUnderwaterSeconds));
+            else if (m_AquaLungs.load(std::memory_order_acquire))
+                static_cast<void>(SetPlayerUnderwaterTimeRemaining(*player, FullOxygenPercentage));
+
             if (m_NeverWanted.load(std::memory_order_acquire))
                 static_cast<void>(PlayerNatives::ClearPlayerWantedLevel(*player));
 
