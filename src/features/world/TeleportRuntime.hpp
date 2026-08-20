@@ -107,8 +107,23 @@ namespace Tutones::Game::World
         static_assert(offsetof(NativeProgram, nativeEntrypoints) == 0x40);
         static_assert(sizeof(NativeProgram) == 0x80);
 
-        // GTA V Enhanced handler hashes from the current YimMenuV2 crossmap.
-        static constexpr std::array<std::uint64_t, 7> HandlerHashes{
+        enum HandlerIndex : std::size_t
+        {
+            GetFirstBlip,
+            GetNextBlip,
+            DoesBlipExist,
+            GetBlipCoords,
+            SetEntityCoords,
+            RequestCollision,
+            GetGroundZ,
+            IsWaypointActive,
+            GetWaypointBlipEnum,
+            GetClosestBlip,
+            HandlerCount,
+        };
+
+        // Current GTA V Enhanced mappings verified against YimMenuV2's crossmap.
+        static constexpr std::array<std::uint64_t, HandlerCount> HandlerHashes{
             0xD56419CB9E15983Full, // GET_FIRST_BLIP_INFO_ID
             0xA3F6143A8F610118ull, // GET_NEXT_BLIP_INFO_ID
             0xC450B06E5AAA0985ull, // DOES_BLIP_EXIST
@@ -116,8 +131,11 @@ namespace Tutones::Game::World
             0x62C438C53BB57AFDull, // SET_ENTITY_COORDS_NO_OFFSET
             0xEA2D52183C7EA9CFull, // REQUEST_COLLISION_AT_COORD
             0xB1EAADCB692D69CEull, // GET_GROUND_Z_FOR_3D_COORD
+            0x02213DC34A224533ull, // IS_WAYPOINT_ACTIVE
+            0x2A3612A4B836469Eull, // GET_WAYPOINT_BLIP_ENUM_ID
+            0xB981254932E1095Eull, // GET_CLOSEST_BLIP_INFO_ID
         };
-        static constexpr int WaypointSprite = 8;
+
         static constexpr std::size_t MaxBlips = 64;
         static constexpr std::size_t MaxGroundAttempts = 45;
 
@@ -164,53 +182,66 @@ namespace Tutones::Game::World
             return true;
         }
 
+        template <typename Ret, typename... Args>
+        [[nodiscard]] bool Call(std::size_t index, Ret& out, Args... args) const
+        {
+            if (index >= m_Handlers.size() || !m_Handlers[index])
+                return false;
+            Native::CallContext ctx;
+            if (!(ctx.PushArg(args) && ...))
+                return false;
+            m_Handlers[index](&ctx);
+            ctx.FixVectors();
+            out = ctx.GetReturnValue<Ret>();
+            return true;
+        }
+
         [[nodiscard]] int BlipIterator(std::size_t handlerIndex, int sprite) const
         {
-            Native::CallContext ctx;
-            if (!m_Handlers[handlerIndex] || !ctx.PushArg(sprite))
-                return 0;
-            m_Handlers[handlerIndex](&ctx);
-            ctx.FixVectors();
-            return ctx.GetReturnValue<std::int32_t>();
+            int result{};
+            return Call(handlerIndex, result, sprite) ? result : 0;
         }
 
         [[nodiscard]] bool BlipExists(int blip) const
         {
-            Native::CallContext ctx;
-            if (!m_Handlers[2] || blip == 0 || !ctx.PushArg(blip))
-                return false;
-            m_Handlers[2](&ctx);
-            ctx.FixVectors();
-            return ctx.GetReturnValue<std::int32_t>() != 0;
+            std::int32_t result{};
+            return blip != 0 && Call(DoesBlipExist, result, blip) && result != 0;
         }
 
         [[nodiscard]] bool BlipCoords(int blip, Native::NativeVector3& out) const
         {
-            Native::CallContext ctx;
-            if (!m_Handlers[3] || !BlipExists(blip) || !ctx.PushArg(blip))
+            if (!BlipExists(blip) || !Call(GetBlipCoords, out, blip))
                 return false;
-            m_Handlers[3](&ctx);
-            ctx.FixVectors();
-            out = ctx.GetReturnValue<Native::NativeVector3>();
             return std::isfinite(out.x) && std::isfinite(out.y) && std::isfinite(out.z);
         }
 
-        [[nodiscard]] bool FirstCoords(int sprite, Native::NativeVector3& out) const
+        [[nodiscard]] bool WaypointCoords(Native::NativeVector3& out) const
         {
-            const int blip = BlipIterator(0, sprite);
-            return blip != 0 && BlipCoords(blip, out);
+            std::int32_t active{};
+            if (!Call(IsWaypointActive, active) || active == 0)
+                return false;
+
+            int waypointEnum{};
+            if (!Call(GetWaypointBlipEnum, waypointEnum) || waypointEnum == 0)
+                return false;
+
+            int blip{};
+            if (!Call(GetClosestBlip, blip, waypointEnum) || blip == 0)
+                return false;
+
+            return BlipCoords(blip, out);
         }
 
         [[nodiscard]] std::vector<int> CollectBlips(int sprite) const
         {
             std::vector<int> blips;
             blips.reserve(16);
-            int blip = BlipIterator(0, sprite);
+            int blip = BlipIterator(GetFirstBlip, sprite);
             while (blip != 0 && blips.size() < MaxBlips)
             {
                 if (BlipExists(blip))
                     blips.push_back(blip);
-                blip = BlipIterator(1, sprite);
+                blip = BlipIterator(GetNextBlip, sprite);
             }
             return blips;
         }
@@ -230,35 +261,40 @@ namespace Tutones::Game::World
             return *ped;
         }
 
-        bool SetCoords(Entity entity, float x, float y, float z) const
+        bool MoveEntity(Entity entity, float x, float y, float z) const
         {
+            if (entity == 0 || !m_Handlers[SetEntityCoords])
+                return false;
             Native::CallContext ctx;
-            if (!m_Handlers[4] || entity == 0
-                || !ctx.PushArg(entity) || !ctx.PushArg(x) || !ctx.PushArg(y) || !ctx.PushArg(z)
+            if (!ctx.PushArg(entity) || !ctx.PushArg(x) || !ctx.PushArg(y) || !ctx.PushArg(z)
                 || !ctx.PushArg(std::int32_t{1}) || !ctx.PushArg(std::int32_t{1}) || !ctx.PushArg(std::int32_t{1}))
                 return false;
-            m_Handlers[4](&ctx);
+            m_Handlers[SetEntityCoords](&ctx);
             ctx.FixVectors();
             return true;
         }
 
-        void RequestCollision(float x, float y, float z) const
+        void StreamCollision(float x, float y, float z) const
         {
-            Native::CallContext ctx;
-            if (!m_Handlers[5] || !ctx.PushArg(x) || !ctx.PushArg(y) || !ctx.PushArg(z))
+            if (!m_Handlers[RequestCollision])
                 return;
-            m_Handlers[5](&ctx);
-            ctx.FixVectors();
+            Native::CallContext ctx;
+            if (ctx.PushArg(x) && ctx.PushArg(y) && ctx.PushArg(z))
+            {
+                m_Handlers[RequestCollision](&ctx);
+                ctx.FixVectors();
+            }
         }
 
-        [[nodiscard]] bool GroundZ(float x, float y, float probeZ, float& out) const
+        [[nodiscard]] bool ProbeGround(float x, float y, float probeZ, float& out) const
         {
+            if (!m_Handlers[GetGroundZ])
+                return false;
             Native::CallContext ctx;
-            if (!m_Handlers[6]
-                || !ctx.PushArg(x) || !ctx.PushArg(y) || !ctx.PushArg(probeZ) || !ctx.PushArg(&out)
+            if (!ctx.PushArg(x) || !ctx.PushArg(y) || !ctx.PushArg(probeZ) || !ctx.PushArg(&out)
                 || !ctx.PushArg(std::int32_t{0}) || !ctx.PushArg(std::int32_t{0}))
                 return false;
-            m_Handlers[6](&ctx);
+            m_Handlers[GetGroundZ](&ctx);
             ctx.FixVectors();
             return ctx.GetReturnValue<std::int32_t>() != 0 && std::isfinite(out);
         }
@@ -269,7 +305,7 @@ namespace Tutones::Game::World
                 return Fail("Teleport natives are unavailable");
 
             Native::NativeVector3 coords{};
-            if (!FirstCoords(WaypointSprite, coords))
+            if (!WaypointCoords(coords))
                 return Fail(automatic ? "Auto waypoint disappeared" : "Set a waypoint first");
             BeginWaypoint(coords, automatic);
         }
@@ -289,8 +325,8 @@ namespace Tutones::Game::World
             m_GroundAttempt = 0;
             m_GroundAutomatic = automatic;
 
-            RequestCollision(coords.x, coords.y, 1000.0f);
-            if (!SetCoords(entity, coords.x, coords.y, 1000.0f))
+            StreamCollision(coords.x, coords.y, 1000.0f);
+            if (!MoveEntity(entity, coords.x, coords.y, 1000.0f))
                 return Fail("Failed to stream waypoint destination");
 
             SetPending(automatic ? "Auto waypoint: resolving ground" : "Waypoint: resolving ground");
@@ -305,14 +341,14 @@ namespace Tutones::Game::World
             if (!Native::NativeRegistry::Get().CanInvokeOnCurrentThread() || !ResolveHandlers())
                 return Fail("Teleport natives became unavailable");
 
-            RequestCollision(m_GroundX, m_GroundY, 1000.0f);
+            StreamCollision(m_GroundX, m_GroundY, 1000.0f);
             constexpr std::array<float, 8> Heights{1000.0f, 800.0f, 600.0f, 400.0f, 250.0f, 150.0f, 75.0f, 25.0f};
             float ground{};
             for (const float height : Heights)
             {
-                if (!GroundZ(m_GroundX, m_GroundY, height, ground))
+                if (!ProbeGround(m_GroundX, m_GroundY, height, ground))
                     continue;
-                const bool moved = SetCoords(m_GroundEntity, m_GroundX, m_GroundY, ground + 1.0f);
+                const bool moved = MoveEntity(m_GroundEntity, m_GroundX, m_GroundY, ground + 1.0f);
                 m_Pending.store(false, std::memory_order_release);
                 SetResult(moved, moved
                     ? (m_GroundAutomatic ? "Auto waypoint teleport complete" : "Waypoint teleport complete")
@@ -326,7 +362,7 @@ namespace Tutones::Game::World
 
             const float fallback = std::isfinite(m_GroundFallbackZ) && m_GroundFallbackZ > 1.0f
                 ? m_GroundFallbackZ + 1.0f : 50.0f;
-            const bool moved = SetCoords(m_GroundEntity, m_GroundX, m_GroundY, fallback);
+            const bool moved = MoveEntity(m_GroundEntity, m_GroundX, m_GroundY, fallback);
             m_Pending.store(false, std::memory_order_release);
             SetResult(moved, moved
                 ? "Ground unresolved; used safe waypoint fallback height"
@@ -356,7 +392,7 @@ namespace Tutones::Game::World
                 return Fail("Failed to read destination coordinates");
 
             const Entity entity = LocalTeleportEntity();
-            const bool moved = entity != 0 && SetCoords(entity, coords.x, coords.y, coords.z + 1.0f);
+            const bool moved = entity != 0 && MoveEntity(entity, coords.x, coords.y, coords.z + 1.0f);
             m_Pending.store(false, std::memory_order_release);
 
             std::string message(group.label);
@@ -386,11 +422,13 @@ namespace Tutones::Game::World
             if (Native::NativeRegistry::Get().CanInvokeOnCurrentThread() && ResolveHandlers())
             {
                 Native::NativeVector3 coords{};
-                if (FirstCoords(WaypointSprite, coords))
+                if (WaypointCoords(coords))
                 {
                     const bool had = m_HaveAutoWaypoint.load(std::memory_order_acquire);
-                    const bool moved = !had || std::fabs(coords.x - m_LastWaypointX) > 2.0f || std::fabs(coords.y - m_LastWaypointY) > 2.0f;
-                    if (moved && !m_Pending.exchange(true, std::memory_order_acq_rel))
+                    const bool changed = !had
+                        || std::fabs(coords.x - m_LastWaypointX) > 2.0f
+                        || std::fabs(coords.y - m_LastWaypointY) > 2.0f;
+                    if (changed && !m_Pending.exchange(true, std::memory_order_acq_rel))
                     {
                         m_LastWaypointX = coords.x;
                         m_LastWaypointY = coords.y;
@@ -452,6 +490,6 @@ namespace Tutones::Game::World
         bool m_HaveResult{};
         bool m_LastSucceeded{};
         std::string m_Message{"Ready"};
-        std::array<Native::NativeHandler, HandlerHashes.size()> m_Handlers{};
+        std::array<Native::NativeHandler, HandlerCount> m_Handlers{};
     };
 }

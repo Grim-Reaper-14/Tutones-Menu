@@ -8,6 +8,8 @@
 #include "PlayerOnlinePanel.hpp"
 #include "PlayerPanel.hpp"
 #include "RecoveryPanel.hpp"
+#include "SettingsPanel.hpp"
+#include "ThemeManager.hpp"
 #include "V11Theme.hpp"
 #include "VehicleGeneralPanel.hpp"
 #include "VehicleModificationPanel.hpp"
@@ -53,7 +55,7 @@ namespace Tutones::UI
             {"V", "VEHICLE",
                 {{"General", "Paint", "Modifications", "Personal Vehicles"}},
                 {{"V", "T", "R", "V"}},
-                {{"Spawner, current vehicle, clone and saved vehicle tools.", "Vehicle color, custom RGB and finish controls.", "LSC mods, wheels, lights, neon and tire settings.", "Rockstar personal vehicles, garage slots, Request and Repair state."}}, 4, true},
+                {{"Spawner, current vehicle, clone and saved vehicle tools.", "Vehicle color, custom RGB and finish controls.", "LSC mods, wheels, lights, neon and tire settings.", "Rockstar personal vehicles, garage slots, Request, Repair and Save Personal Vehicle state."}}, 4, true},
             {"G", "GAME",
                 {{"Session", "Creator", nullptr, nullptr}},
                 {{"O", "K", nullptr, nullptr}},
@@ -61,11 +63,11 @@ namespace Tutones::UI
             {"O", "WORLD",
                 {{"General", "Time & Weather", "Teleport", nullptr}},
                 {{"O", "Q", "L", nullptr}},
-                {{"World feature workspace.", "Clock and weather workspace.", "Teleport workspace.", nullptr}}, 3, false},
+                {{"World feature workspace.", "Clock and weather workspace.", "Waypoint and shop teleport workspace.", nullptr}}, 3, true},
             {"D", "RECOVERY",
                 {{"Overview", "RP Multiplier", "Businesses", "Unlocks"}},
                 {{"D", "H", "C", "U"}},
-                {{"Live Enhanced Recovery capability and business-state overview.", "Override the current Enhanced XP multiplier while enabled, restoring the prior value when disabled.", "Special Cargo and Bunker state with ownership-gated, read-back-verified controls.", "Enhanced unlock groups remain pending until their packed-stat and script conditions are verified."}}, 4, false},
+                {{"Live Enhanced Recovery capability and business-state overview.", "Override the current Enhanced XP multiplier while enabled, restoring the prior value when disabled.", "Special Cargo and Bunker state with ownership-gated, read-back-verified controls.", "Enhanced DLC clothing unlock groups with packed-stat read-back verification."}}, 4, true},
             {"N", "NETWORK",
                 {{"Services", "Quality of Life", "Player State", nullptr}},
                 {{"N", "O", "P", nullptr}},
@@ -77,11 +79,11 @@ namespace Tutones::UI
             {"C", "MENU SETTINGS",
                 {{"General", "Theme", "Controls", nullptr}},
                 {{"C", "T", "C", nullptr}},
-                {{"Tutone Menu runtime and menu preferences.", "Blue visual shell and banner styling.", "Keyboard and mouse input preferences.", nullptr}}, 3, false},
+                {{"Save, load and reload persistent stateful settings.", "Named ImGui themes, folder images and Windows font selection.", "Refresh and reapply theme resources without restarting GTA.", nullptr}}, 3, true},
         }};
 
-        const ImVec4 Accent = V11Theme::Accent;
-        const ImVec4 AccentHover = V11Theme::AccentHover;
+        const ImVec4& Accent = V11Theme::Accent;
+        const ImVec4& AccentHover = V11Theme::AccentHover;
 
         ImFont* g_Medium{};
         ImFont* g_Bold{};
@@ -121,6 +123,11 @@ namespace Tutones::UI
 
         ImFont* FontOrDefault(ImFont* font) noexcept
         {
+            if (ImFont* selected = ThemeManager::Get().ActiveFont())
+            {
+                if (!font || font == g_Medium || font == g_Bold || font == g_TabTitle || font == g_SubtabTitle)
+                    return selected;
+            }
             return font ? font : ImGui::GetFont();
         }
 
@@ -151,7 +158,10 @@ namespace Tutones::UI
                 return false;
 
             if (g_FontContext == context && g_Medium && g_Bold && g_TabIcons)
+            {
+                ThemeManager::Get().SetFallbackFont(g_Medium);
                 return true;
+            }
 
             g_FontContext = context;
             g_Medium = nullptr;
@@ -185,7 +195,8 @@ namespace Tutones::UI
             if (!g_TabTitleIcon) g_TabTitleIcon = g_TabIcons;
             if (!g_SubtabTitle) g_SubtabTitle = g_Bold;
 
-            io.FontDefault = g_Medium;
+            ThemeManager::Get().SetFallbackFont(g_Medium);
+            io.FontDefault = ThemeManager::Get().ActiveFont() ? ThemeManager::Get().ActiveFont() : g_Medium;
 
             if (g_Medium && g_Bold && g_TabIcons)
             {

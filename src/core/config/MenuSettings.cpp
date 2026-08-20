@@ -30,8 +30,9 @@ namespace Tutones::Core::Config
             const auto player = document.value("player", nlohmann::json::object());
             const auto vehicle = document.value("vehicle", nlohmann::json::object());
             const auto weapons = document.value("weapons", nlohmann::json::object());
+            const auto ui = document.value("ui", nlohmann::json::object());
 
-            m_Settings.version = document.value("version", m_Settings.version);
+            m_Settings.version = 2; // migrate older files to the current schema on the next save
             m_Settings.offRadar = document.value("off_radar", m_Settings.offRadar);
 
             m_Settings.player.invincible = player.value("invincible", m_Settings.player.invincible);
@@ -57,6 +58,8 @@ namespace Tutones::Core::Config
             m_Settings.weapons.explosionType = weapons.value("explosion_type", m_Settings.weapons.explosionType);
             m_Settings.weapons.explosionDamage = weapons.value("explosion_damage", m_Settings.weapons.explosionDamage);
             m_Settings.weapons.explosionCameraShake = weapons.value("explosion_camera_shake", m_Settings.weapons.explosionCameraShake);
+
+            m_Settings.ui.activeTheme = ui.value("active_theme", m_Settings.ui.activeTheme);
 
             m_Loaded = true;
             return true;
@@ -107,6 +110,9 @@ namespace Tutones::Core::Config
                     {"explosion_type", m_Settings.weapons.explosionType},
                     {"explosion_damage", m_Settings.weapons.explosionDamage},
                     {"explosion_camera_shake", m_Settings.weapons.explosionCameraShake},
+                }},
+                {"ui", {
+                    {"active_theme", m_Settings.ui.activeTheme},
                 }},
             };
 

@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <string>
 
 namespace Tutones::Core::Config
 {
@@ -38,13 +39,19 @@ namespace Tutones::Core::Config
         float explosionCameraShake{0.1f};
     };
 
+    struct UiMenuSettings final
+    {
+        std::string activeTheme{"default.json"};
+    };
+
     struct MenuSettingsData final
     {
-        std::uint32_t version{1};
+        std::uint32_t version{2};
         PlayerMenuSettings player{};
         bool offRadar{};
         VehicleMenuSettings vehicle{};
         WeaponMenuSettings weapons{};
+        UiMenuSettings ui{};
     };
 
     class MenuSettingsService final

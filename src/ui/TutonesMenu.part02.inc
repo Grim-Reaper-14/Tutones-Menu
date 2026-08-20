@@ -54,8 +54,11 @@ namespace Tutones::UI
             DrawPanel(draw, windowPos, ImVec2(226.0f, 16.0f), ImVec2(490.0f, 430.0f), "PROTECTIONS", {selected, "Protection UI target only.", "Network/script event protection backends are pending."});
             break;
 
+        case 8:
+            RenderSettingsPanel(m_Item);
+            break;
+
         default:
-            DrawPanel(draw, windowPos, ImVec2(226.0f, 16.0f), ImVec2(490.0f, 430.0f), "MENU SETTINGS", {selected, "Tutone Menu blue visual shell", "Banner-style header + description frame", "Keyboard / mouse input", "Theme persistence wiring remains separate."});
             break;
         }
     }
@@ -64,8 +67,13 @@ namespace Tutones::UI
     {
         if (!Input::Get().IsMenuOpen())
             return;
+
+        auto& themes = ThemeManager::Get();
+        if (!themes.EnsureInitialized())
+            return;
         if (!EnsureOriginalFonts())
             return;
+        themes.ApplyPendingResources();
 
         ApplyV11Style();
         ProcessInput();
@@ -89,7 +97,33 @@ namespace Tutones::UI
 
             draw->AddRectFilled(pos, ImVec2(pos.x + V11Theme::MenuWidth, pos.y + V11Theme::MenuHeight), ImGui::GetColorU32(V11Theme::WindowBg));
             DrawTopBanner(draw, pos, V11Theme::MenuWidth);
-            draw->AddRectFilled(ImVec2(pos.x, pos.y + V11Theme::HeaderHeight), ImVec2(pos.x + V11Theme::MenuWidth, footerY), ImGui::GetColorU32(V11Theme::BodyBg));
+
+            const ImTextureRef headerTexture = themes.HeaderTexture();
+            if (headerTexture.GetTexID() != ImTextureID_Invalid)
+            {
+                const ImVec2 headerMax{pos.x + V11Theme::MenuWidth, pos.y + V11Theme::HeaderHeight};
+                if (themes.HeaderIsCustom())
+                    draw->AddImage(headerTexture, pos, headerMax);
+                else
+                    draw->AddImage(headerTexture, pos, headerMax, ImVec2(0.0f, 0.045f), ImVec2(1.0f, 0.605f));
+            }
+
+            const ImVec2 bodyMin{pos.x, pos.y + V11Theme::HeaderHeight};
+            const ImVec2 bodyMax{pos.x + V11Theme::MenuWidth, footerY};
+            draw->AddRectFilled(bodyMin, bodyMax, ImGui::GetColorU32(V11Theme::BodyBg));
+
+            const ImTextureRef backgroundTexture = themes.BackgroundTexture();
+            if (backgroundTexture.GetTexID() != ImTextureID_Invalid)
+            {
+                const float alpha = std::clamp(themes.Current().backgroundOpacity, 0.0f, 1.0f);
+                draw->AddImage(
+                    backgroundTexture,
+                    bodyMin,
+                    bodyMax,
+                    ImVec2(0.0f, 0.0f),
+                    ImVec2(1.0f, 1.0f),
+                    IM_COL32(255, 255, 255, static_cast<int>(alpha * 255.0f)));
+            }
 
             draw->AddRectFilled(
                 ImVec2(pos.x + V11Theme::CategoryRailX, pos.y + V11Theme::HeaderHeight + 8.0f),
@@ -102,11 +136,6 @@ namespace Tutones::UI
 
             BeginV11DescriptionFrame(Categories[m_Category].descriptions[m_Item]);
 
-            // Keep the existing feature-panel coordinate system, but render its child first.
-            // The body child intentionally begins left of the visual content so legacy panel
-            // offsets still land in the approved center column. That child overlaps the two
-            // navigation rails geometrically, so rail input must be rendered in a later,
-            // front-most transparent child to receive mouse hover/clicks reliably.
             ImGui::SetCursorPos(ImVec2(V11Theme::ContentHostX, V11Theme::HeaderHeight));
             ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
             constexpr ImGuiWindowFlags bodyFlags = ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoNavInputs | ImGuiWindowFlags_NoNavFocus;
@@ -115,8 +144,6 @@ namespace Tutones::UI
             ImGui::EndChild();
             ImGui::PopStyleColor();
 
-            // Input overlay for the category + subtab rails. The overlay stops before the
-            // center feature panel, so it cannot steal mouse input from weapon/vehicle/etc.
             ImGui::SetCursorPos(ImVec2(0.0f, 0.0f));
             ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
             constexpr ImGuiWindowFlags railFlags = ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoNavInputs | ImGuiWindowFlags_NoNavFocus;
@@ -133,15 +160,47 @@ namespace Tutones::UI
             ImGui::PopStyleColor();
 
             RenderStatusPanel(m_Category, m_Item);
-            // RenderStatusPanel keeps the original compact spacing for the BUILD row. Draw the
-            // source/build identity into its intentionally empty value slot without shifting rows.
             draw->AddText(
                 FontOrDefault(g_Bold),
                 12.0f,
                 ImVec2(pos.x + V11Theme::StatusX + 46.0f, pos.y + V11Theme::HeaderHeight + 158.0f),
                 ImGui::GetColorU32(V11Theme::MutedText),
                 ::Tutones::App::BuildInfo::Label);
+
             DrawDescriptionBanner(draw, pos, V11Theme::MenuWidth, m_Category, m_Item);
+            const ImTextureRef footerTexture = themes.FooterTexture();
+            if (footerTexture.GetTexID() != ImTextureID_Invalid)
+            {
+                const ImVec2 footerMin{pos.x, footerY};
+                const ImVec2 footerMax{pos.x + V11Theme::MenuWidth, footerY + V11Theme::FooterHeight};
+                if (themes.FooterIsCustom())
+                    draw->AddImage(footerTexture, footerMin, footerMax);
+                else
+                    draw->AddImage(footerTexture, footerMin, footerMax, ImVec2(0.0f, 0.635f), ImVec2(1.0f, 0.965f));
+
+                const char* description = CurrentV11Description();
+                if (!description)
+                    description = Categories[m_Category].descriptions[m_Item];
+                if (!description)
+                    description = "No description is available for this option yet.";
+
+                const ImVec2 textMin{footerMin.x + 172.0f, footerMin.y + 24.0f};
+                const ImVec2 textMax{footerMax.x - 150.0f, footerMax.y - 18.0f};
+                draw->AddRectFilled(
+                    ImVec2(textMin.x - 12.0f, textMin.y - 8.0f),
+                    ImVec2(textMax.x + 12.0f, textMax.y + 8.0f),
+                    IM_COL32(2, 5, 10, 205),
+                    3.0f);
+                draw->AddText(FontOrDefault(g_Bold), 22.0f, textMin, ImGui::GetColorU32(Accent), "DESCRIPTION");
+                draw->AddText(
+                    FontOrDefault(g_Medium),
+                    15.0f,
+                    ImVec2(textMin.x, textMin.y + 34.0f),
+                    IM_COL32(235, 239, 247, 255),
+                    description,
+                    nullptr,
+                    textMax.x - textMin.x);
+            }
         }
 
         ImGui::End();

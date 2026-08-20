@@ -3,6 +3,7 @@
 #include "V11Description.hpp"
 #include "V11Theme.hpp"
 #include "../features/vehicle/PersonalVehicleRuntime.hpp"
+#include "../features/vehicle/SavePersonalVehicleRuntime.hpp"
 
 #include <imgui.h>
 
@@ -18,6 +19,7 @@ namespace Tutones::UI
         using Game::PersonalVehicles::PersonalVehicleEntry;
         using Game::PersonalVehicles::PersonalVehicleRuntime;
         using Game::PersonalVehicles::PersonalVehicleSnapshot;
+        using Game::PersonalVehicles::SavePersonalVehicleRuntime;
 
         int g_SelectedVehicleId{-1};
         std::string g_GarageFilter;
@@ -63,7 +65,9 @@ namespace Tutones::UI
     void RenderPersonalVehiclePanel() noexcept
     {
         auto& runtime = PersonalVehicleRuntime::Get();
+        auto& saveRuntime = SavePersonalVehicleRuntime::Get();
         const PersonalVehicleSnapshot snapshot = runtime.Snapshot();
+        const auto saveSnapshot = saveRuntime.Snapshot();
         ValidateSelection(snapshot);
 
         ImGui::SetCursorPos(ImVec2(226.0f, 16.0f));
@@ -77,6 +81,25 @@ namespace Tutones::UI
             ImGui::TextColored(V11Theme::Accent, "Personal Vehicles");
             ImGui::SameLine();
             ImGui::TextDisabled("Enhanced MPSV runtime");
+            ImGui::Separator();
+
+            ImGui::TextColored(V11Theme::Accent, "Save Current Vehicle");
+            const bool saveEnabled = snapshot.sessionStarted && snapshot.nativeReady && !saveSnapshot.pending;
+            ImGui::BeginDisabled(!saveEnabled);
+            if (ImGui::Button("Save Current to Personal Garage", ImVec2(-1.0f, 0.0f)))
+                saveRuntime.QueueSaveCurrent();
+            ImGui::EndDisabled();
+            DescribeLastV11Item("Open GTA Online's AM_MP_VEHICLE_REWARD garage selector and save the vehicle you are currently driving as a Rockstar personal vehicle. This is separate from Tutones local Saved Garage presets.");
+
+            if (saveSnapshot.pending)
+                ImGui::TextDisabled("%s", saveSnapshot.message.c_str());
+            else if (saveSnapshot.haveResult)
+                ImGui::TextDisabled("Save result: %s - %s", saveSnapshot.lastSucceeded ? "success" : "failed", saveSnapshot.message.c_str());
+            else if (!snapshot.sessionStarted)
+                ImGui::TextDisabled("Save Personal Vehicle requires an active GTA Online session.");
+            else
+                ImGui::TextDisabled("Stay in the vehicle while GTA's garage selector is open.");
+
             ImGui::Separator();
 
             if (!snapshot.running)
@@ -133,7 +156,7 @@ namespace Tutones::UI
                 }
                 DescribeLastV11Item("Filter the Enhanced personal-vehicle snapshot to one garage that passed the current ownership gate, or show vehicles from every resolved owned garage.");
 
-                if (ImGui::BeginListBox("##personal_vehicles", ImVec2(-1.0f, 154.0f)))
+                if (ImGui::BeginListBox("##personal_vehicles", ImVec2(-1.0f, 118.0f)))
                 {
                     for (const auto& vehicle : snapshot.vehicles)
                     {
@@ -203,17 +226,14 @@ namespace Tutones::UI
                 else
                     ImGui::TextDisabled("%s", g_Message);
 
-                if (!snapshot.sessionStarted)
-                    ImGui::TextDisabled("Request requires an active GTA Online session.");
-                else if (!snapshot.requestSupported)
+                if (!snapshot.requestSupported && snapshot.sessionStarted)
                     ImGui::TextDisabled("Request support is unavailable because the shared script runtime is not ready.");
                 else if (snapshot.requestedVehicleId != -1)
                     ImGui::TextDisabled("GTA already has personal vehicle request ID %d in progress.", snapshot.requestedVehicleId);
             }
 
             ImGui::Separator();
-            ImGui::TextDisabled("Garage detection is ownership-gated; dynamic apartment/Hangar/Facility naming is still a separate fidelity pass.");
-            ImGui::TextDisabled("Repair/Request use verified Enhanced MPSV/Freemode state; Bring and Save are not enabled here.");
+            ImGui::TextDisabled("Rockstar Personal Garage uses GTA's vehicle-reward script; Tutones Saved Garage remains local-only preset storage.");
         }
 
         ImGui::EndChild();
