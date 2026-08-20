@@ -10,13 +10,29 @@
 
 namespace Tutones::Game::Native
 {
-    struct alignas(16) NativeVector3 final
+    // GTA script-native vectors use one 64-bit VM slot per float component.
+    // This matches YimMenuV2's rage::scrVector layout (x @ 0, y @ 8, z @ 16).
+    struct NativeVector3 final
+    {
+        alignas(8) float x{};
+        alignas(8) float y{};
+        alignas(8) float z{};
+    };
+
+    static_assert(sizeof(NativeVector3) == 0x18);
+
+    // Native handlers keep temporary vector-ref sources as the engine's packed
+    // 16-byte fvector3 representation. Keep this separate from NativeVector3
+    // or FixVectors will copy y/z into the wrong script slots.
+    struct alignas(16) NativeVectorRefSource final
     {
         float x{};
         float y{};
         float z{};
         float pad{};
     };
+
+    static_assert(sizeof(NativeVectorRefSource) == 0x10);
 
     class NativeCallContext
     {
@@ -61,21 +77,31 @@ namespace Tutones::Game::Native
             const auto count = std::clamp(m_NumVectorRefs, 0, 4);
             for (int i = 0; i < count; ++i)
             {
-                if (m_VectorRefTargets[i])
-                    *m_VectorRefTargets[i] = m_VectorRefSources[i];
+                if (!m_VectorRefTargets[i])
+                    continue;
+
+                m_VectorRefTargets[i]->x = m_VectorRefSources[i].x;
+                m_VectorRefTargets[i]->y = m_VectorRefSources[i].y;
+                m_VectorRefTargets[i]->z = m_VectorRefSources[i].z;
             }
             m_NumVectorRefs = 0;
         }
 
     protected:
-        void* m_ReturnValue{};
-        std::uint32_t m_ArgCount{};
-        void* m_Args{};
-        std::int32_t m_NumVectorRefs{};
-        NativeVector3* m_VectorRefTargets[4]{};
-        NativeVector3 m_VectorRefSources[4]{};
+        void* m_ReturnValue{};                         // 0x00
+        std::uint32_t m_ArgCount{};                    // 0x08
+        void* m_Args{};                                // 0x10
+        std::int32_t m_NumVectorRefs{};                // 0x18
+        NativeVector3* m_VectorRefTargets[4]{};        // 0x20
+        NativeVectorRefSource m_VectorRefSources[4]{}; // 0x40
     };
 
+    static_assert(offsetof(NativeCallContext, m_ReturnValue) == 0x00);
+    static_assert(offsetof(NativeCallContext, m_ArgCount) == 0x08);
+    static_assert(offsetof(NativeCallContext, m_Args) == 0x10);
+    static_assert(offsetof(NativeCallContext, m_NumVectorRefs) == 0x18);
+    static_assert(offsetof(NativeCallContext, m_VectorRefTargets) == 0x20);
+    static_assert(offsetof(NativeCallContext, m_VectorRefSources) == 0x40);
     static_assert(sizeof(NativeCallContext) == 0x80);
 
     using NativeHash = std::uint64_t;
