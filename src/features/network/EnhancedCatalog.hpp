@@ -38,12 +38,31 @@ namespace Tutones::Game::NetworkFeatures
         Refund
     };
 
+    enum class RewardGroup : std::uint8_t
+    {
+        General,
+        Freemode,
+        Business,
+        Heist,
+        Award,
+        Refund,
+        RawResolvedDlc
+    };
+
+    enum class RewardResolution : std::uint8_t
+    {
+        NamedService,
+        RawResolved
+    };
+
     struct RewardDefinition final
     {
         std::string_view label;
         std::string_view serviceName;
         std::string_view script;
         RewardKind kind{};
+        RewardGroup group{};
+        RewardResolution resolution{};
         std::uint32_t hash{};
         std::size_t tunableBase{};
         std::size_t tunableOffset{};
@@ -75,7 +94,9 @@ namespace Tutones::Game::NetworkFeatures
     }
 
     inline constexpr std::size_t CooldownCatalogSize = 8;
-    inline constexpr std::size_t RewardCatalogSize = 35;
+    inline constexpr std::size_t NamedRewardCatalogSize = 250;
+    inline constexpr std::size_t RawResolvedRewardCatalogSize = 3;
+    inline constexpr std::size_t RewardCatalogSize = NamedRewardCatalogSize + RawResolvedRewardCatalogSize;
 
     using CooldownObservations = std::array<CatalogObservation, CooldownCatalogSize>;
     using RewardObservations = std::array<CatalogObservation, RewardCatalogSize>;
@@ -86,5 +107,7 @@ namespace Tutones::Game::NetworkFeatures
     [[nodiscard]] RewardObservations SampleRewardTunables(std::int64_t** globals) noexcept;
     [[nodiscard]] const char* CooldownSourceName(CooldownSource source) noexcept;
     [[nodiscard]] const char* RewardKindName(RewardKind kind) noexcept;
+    [[nodiscard]] const char* RewardGroupName(RewardGroup group) noexcept;
+    [[nodiscard]] const char* RewardResolutionName(RewardResolution resolution) noexcept;
     [[nodiscard]] std::string FormatDuration(std::int64_t milliseconds);
 }

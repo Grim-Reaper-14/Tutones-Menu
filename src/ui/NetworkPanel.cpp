@@ -98,6 +98,7 @@ namespace Tutones::UI
             }
 
             ImGui::SeparatorText("Reward / transaction hash catalog");
+            ImGui::TextDisabled("253 entries: 250 named services + 3 raw-resolved Enhanced DLC reward hashes.");
             ImGui::TextDisabled("Read-only catalog: no NETSHOP transaction is started from this panel.");
             static ImGuiTextFilter filter;
             filter.Draw("Filter hashes", -1.0f);
@@ -108,14 +109,32 @@ namespace Tutones::UI
                 for (std::size_t index = 0; index < rewards.size(); ++index)
                 {
                     const auto& reward = rewards[index];
+                    const bool serviceMatch = !reward.serviceName.empty() && filter.PassFilter(reward.serviceName.data());
                     if (filter.IsActive()
                         && !filter.PassFilter(reward.label.data())
-                        && !filter.PassFilter(reward.serviceName.data()))
+                        && !serviceMatch
+                        && !filter.PassFilter(RewardGroupName(reward.group))
+                        && !filter.PassFilter(RewardResolutionName(reward.resolution)))
                         continue;
 
                     ImGui::PushID(static_cast<int>(1000 + index));
                     ImGui::Text("%s  0x%08X", reward.label.data(), reward.hash);
-                    ImGui::TextDisabled("%s | %s", RewardKindName(reward.kind), reward.serviceName.data());
+                    if (!reward.serviceName.empty())
+                    {
+                        ImGui::TextDisabled("%s | %s | %s | %s",
+                            RewardKindName(reward.kind),
+                            RewardGroupName(reward.group),
+                            RewardResolutionName(reward.resolution),
+                            reward.serviceName.data());
+                    }
+                    else
+                    {
+                        ImGui::TextDisabled("%s | %s | %s",
+                            RewardKindName(reward.kind),
+                            RewardGroupName(reward.group),
+                            RewardResolutionName(reward.resolution));
+                        ImGui::TextDisabled("Numeric reward case verified in the Enhanced decompile; no symbolic service name is claimed.");
+                    }
 
                     const auto& observed = snapshot.rewards[index];
                     if (reward.tunableBase != 0)
@@ -134,9 +153,12 @@ namespace Tutones::UI
                         std::snprintf(buffer, sizeof(buffer), "0x%08X", reward.hash);
                         ImGui::SetClipboardText(buffer);
                     }
-                    ImGui::SameLine();
-                    if (ImGui::SmallButton("Copy service name"))
-                        ImGui::SetClipboardText(reward.serviceName.data());
+                    if (!reward.serviceName.empty())
+                    {
+                        ImGui::SameLine();
+                        if (ImGui::SmallButton("Copy service name"))
+                            ImGui::SetClipboardText(reward.serviceName.data());
+                    }
 
                     ImGui::PopID();
                     ImGui::Separator();
