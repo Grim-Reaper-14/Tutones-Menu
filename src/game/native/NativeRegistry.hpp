@@ -124,6 +124,7 @@ namespace Tutones::Game::Native
 
         SetPedMaxTimeUnderwater,
         SetPlayerUnderwaterTimeRemaining,
+        NetworkEarnFromPickup,
 
         Count,
     };
