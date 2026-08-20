@@ -21,10 +21,9 @@ namespace Tutones::UI
         using namespace Game::Paint;
         using Game::VehicleCatalogs::IndexedName;
 
-        constexpr std::array<PaintPalette, 10> PrimarySecondaryPalettes{
-            PaintPalette::Normal,
-            PaintPalette::Metallic,
-            PaintPalette::Pearl,
+        // Match YimMenuV2's primary/secondary color families. These are named subsets
+        // of GTA's global indexed vehicle colors; custom RGB remains a separate override.
+        constexpr std::array<PaintPalette, 7> PrimarySecondaryPalettes{
             PaintPalette::Chrome,
             PaintPalette::Classic,
             PaintPalette::Matte,
@@ -34,16 +33,15 @@ namespace Tutones::UI
             PaintPalette::Chameleon,
         };
 
-        constexpr std::array<const char*, 10> PaletteNames{{
-            "Normal", "Metallic", "Pearlescent", "Chrome", "Classic",
-            "Matte", "Metals", "Utility", "Worn", "Chameleon",
+        constexpr std::array<const char*, 7> PaletteNames{{
+            "Chrome", "Classic", "Matte", "Metals", "Utility", "Worn", "Chameleon",
         }};
 
         struct PaintUiState final
         {
             VehicleHandle vehicle{};
-            int primaryPalette{};
-            int secondaryPalette{};
+            int primaryPalette{1};
+            int secondaryPalette{1};
             int primaryIndex{};
             int secondaryIndex{};
             int pearlescent{};
@@ -56,18 +54,24 @@ namespace Tutones::UI
 
         PaintUiState g_PaintUi;
 
-        [[nodiscard]] int PaletteIndexFromNative(NativePaintType type) noexcept
+        [[nodiscard]] bool ContainsColor(std::span<const IndexedName> colors, int value) noexcept
         {
-            switch (type)
+            for (const auto& entry : colors)
+                if (entry.value == value)
+                    return true;
+            return false;
+        }
+
+        [[nodiscard]] int PaletteIndexFromColor(int value) noexcept
+        {
+            for (std::size_t i = 0; i < PrimarySecondaryPalettes.size(); ++i)
             {
-            case NativePaintType::Normal: return 4;
-            case NativePaintType::Metallic: return 1;
-            case NativePaintType::Pearl: return 2;
-            case NativePaintType::Matte: return 5;
-            case NativePaintType::Metal: return 6;
-            case NativePaintType::Chrome: return 3;
+                if (ContainsColor(Game::VehicleCatalogs::ColorsForPalette(PrimarySecondaryPalettes[i]), value))
+                    return static_cast<int>(i);
             }
-            return 4;
+
+            // Unknown/vehicle-specific indexed colors stay editable through the broad Classic list.
+            return 1;
         }
 
         [[nodiscard]] const char* NativePaintTypeName(NativePaintType type) noexcept
@@ -152,10 +156,10 @@ namespace Tutones::UI
                 return;
 
             g_PaintUi.vehicle = paint.vehicle;
-            g_PaintUi.primaryPalette = paint.primaryColor >= 161 ? 9 : PaletteIndexFromNative(paint.primaryPaintType);
-            g_PaintUi.secondaryPalette = paint.secondaryColor >= 161 ? 9 : PaletteIndexFromNative(paint.secondaryPaintType);
-            g_PaintUi.primaryIndex = paint.primaryColor >= 161 ? paint.primaryColor : paint.primaryModColor;
-            g_PaintUi.secondaryIndex = paint.secondaryColor >= 161 ? paint.secondaryColor : paint.secondaryModColor;
+            g_PaintUi.primaryPalette = PaletteIndexFromColor(paint.primaryColor);
+            g_PaintUi.secondaryPalette = PaletteIndexFromColor(paint.secondaryColor);
+            g_PaintUi.primaryIndex = paint.primaryColor;
+            g_PaintUi.secondaryIndex = paint.secondaryColor;
             g_PaintUi.pearlescent = paint.pearlescentColor;
             g_PaintUi.wheel = paint.wheelColor;
             g_PaintUi.wheelFamily = paint.wheelColor >= 161 ? 1 : 0;
@@ -195,15 +199,15 @@ namespace Tutones::UI
             bool primary) noexcept
         {
             ImGui::PushID(id);
-            ImGui::TextColored(V11Theme::Accent, primary ? "Primary LSC Paint" : "Secondary LSC Paint");
-            if (ImGui::Combo("Finish", &paletteIndex, PaletteNames.data(), static_cast<int>(PaletteNames.size())))
+            ImGui::TextColored(V11Theme::Accent, primary ? "Primary Paint" : "Secondary Paint");
+            if (ImGui::Combo("Color family", &paletteIndex, PaletteNames.data(), static_cast<int>(PaletteNames.size())))
             {
                 paletteIndex = std::clamp(paletteIndex, 0, static_cast<int>(PaletteNames.size()) - 1);
                 ResetColorForPalette(PrimarySecondaryPalettes[static_cast<std::size_t>(paletteIndex)], colorIndex);
             }
             DescribeLastV11Item(primary
-                ? "Choose the native finish family used for the vehicle's primary paint color."
-                : "Choose the native finish family used for the vehicle's secondary paint color.");
+                ? "Choose the Yim-style GTA indexed color family used for the vehicle's primary paint."
+                : "Choose the Yim-style GTA indexed color family used for the vehicle's secondary paint.");
 
             const PaintPalette palette = PrimarySecondaryPalettes[static_cast<std::size_t>(paletteIndex)];
             const auto colors = Game::VehicleCatalogs::ColorsForPalette(palette);
@@ -212,21 +216,24 @@ namespace Tutones::UI
                 colors,
                 colorIndex,
                 primary
-                    ? "Choose the indexed primary color from the selected LSC paint family."
-                    : "Choose the indexed secondary color from the selected LSC paint family."));
+                    ? "Choose the global GTA primary color index from the selected family."
+                    : "Choose the global GTA secondary color index from the selected family."));
 
-            ImGui::TextDisabled("Index %d", colorIndex);
+            ImGui::TextDisabled("GTA color index %d", colorIndex);
             auto& service = VehiclePaintRuntime::Get().Service();
             if (ImGui::Button(applyLabel, ImVec2(-1.0f, 0.0f)))
             {
                 const bool queued = primary
                     ? service.QueuePrimary({palette, colorIndex})
                     : service.QueueSecondary({palette, colorIndex});
-                QueueResult(queued, primary ? "Primary paint queued" : "Secondary paint queued", "Paint action rejected");
+                QueueResult(
+                    queued,
+                    primary ? "Primary queued for read-back" : "Secondary queued for read-back",
+                    "Paint action rejected");
             }
             DescribeLastV11Item(primary
-                ? "Apply the selected indexed finish and color to the vehicle's primary paint through the paint runtime."
-                : "Apply the selected indexed finish and color to the vehicle's secondary paint through the paint runtime.");
+                ? "Apply the selected primary color while preserving secondary, then verify GTA read-back."
+                : "Apply the selected secondary color while preserving primary, then verify GTA read-back.");
             ImGui::PopID();
         }
 
@@ -247,20 +254,20 @@ namespace Tutones::UI
             {
                 const RgbColor rgb = ToRgb(color);
                 const bool queued = primary ? service.QueueCustomPrimary(rgb) : service.QueueCustomSecondary(rgb);
-                QueueResult(queued, "Custom RGB queued", "Custom RGB rejected");
+                QueueResult(queued, "Custom RGB queued for read-back", "Custom RGB rejected");
             }
             DescribeLastV11Item(primary
-                ? "Apply the selected custom RGB override to the vehicle's primary color."
-                : "Apply the selected custom RGB override to the vehicle's secondary color.");
+                ? "Apply and verify the selected custom RGB override for the primary color."
+                : "Apply and verify the selected custom RGB override for the secondary color.");
             ImGui::SameLine();
             if (ImGui::Button("Clear custom", ImVec2(-1.0f, 0.0f)))
             {
                 const bool queued = primary ? service.QueueClearCustomPrimary() : service.QueueClearCustomSecondary();
-                QueueResult(queued, "Clear custom queued", "Clear custom rejected");
+                QueueResult(queued, "Clear custom queued for read-back", "Clear custom rejected");
             }
             DescribeLastV11Item(primary
-                ? "Remove the custom primary RGB override and return to indexed paint behavior."
-                : "Remove the custom secondary RGB override and return to indexed paint behavior.");
+                ? "Remove the custom primary RGB override and verify indexed paint is active again."
+                : "Remove the custom secondary RGB override and verify indexed paint is active again.");
             ImGui::PopID();
         }
 
@@ -276,9 +283,9 @@ namespace Tutones::UI
                 "Choose the indexed pearlescent overlay color used with compatible vehicle paint finishes."));
             if (ImGui::Button("Apply pearlescent", ImVec2(-1.0f, 0.0f)))
             {
-                QueueResult(service.QueuePearlescent(g_PaintUi.pearlescent), "Pearlescent queued", "Pearlescent rejected");
+                QueueResult(service.QueuePearlescent(g_PaintUi.pearlescent), "Pearlescent queued for read-back", "Pearlescent rejected");
             }
-            DescribeLastV11Item("Apply the selected pearlescent overlay color to the current vehicle.");
+            DescribeLastV11Item("Apply the selected pearlescent overlay while preserving wheel color, then verify read-back.");
 
             ImGui::Separator();
             ImGui::TextColored(V11Theme::Accent, "Wheel Color");
@@ -302,9 +309,9 @@ namespace Tutones::UI
                 "Choose the indexed wheel color from the selected wheel-color family."));
             if (ImGui::Button("Apply wheel color", ImVec2(-1.0f, 0.0f)))
             {
-                QueueResult(service.QueueWheel(g_PaintUi.wheel), "Wheel color queued", "Wheel color rejected");
+                QueueResult(service.QueueWheel(g_PaintUi.wheel), "Wheel color queued for read-back", "Wheel color rejected");
             }
-            DescribeLastV11Item("Apply the selected indexed wheel color to the current vehicle.");
+            DescribeLastV11Item("Apply the selected wheel color while preserving pearlescent, then verify read-back.");
         }
 
         void RenderStatus(const PaintServiceSnapshot& snapshot) noexcept
@@ -312,22 +319,25 @@ namespace Tutones::UI
             const auto& paint = snapshot.paint;
             ImGui::TextColored(V11Theme::Accent, "Paint Runtime Status");
             ImGui::Text("Vehicle: %d", paint.vehicle);
-            ImGui::Text("Primary finish: %s", NativePaintTypeName(paint.primaryPaintType));
-            ImGui::Text("Primary color: %d", paint.primaryModColor);
-            ImGui::Text("Secondary finish: %s", NativePaintTypeName(paint.secondaryPaintType));
-            ImGui::Text("Secondary color: %d", paint.secondaryModColor);
-            ImGui::Text("Indexed pair: %d / %d", paint.primaryColor, paint.secondaryColor);
+            ImGui::Text("Primary indexed color: %d", paint.primaryColor);
+            ImGui::Text("Secondary indexed color: %d", paint.secondaryColor);
             ImGui::Text("Pearl / wheel: %d / %d", paint.pearlescentColor, paint.wheelColor);
             ImGui::Text("Custom primary: %s", paint.primaryCustom ? "yes" : "no");
             ImGui::Text("Custom secondary: %s", paint.secondaryCustom ? "yes" : "no");
+            ImGui::TextDisabled(
+                "Native metadata: P %s/%d | S %s/%d",
+                NativePaintTypeName(paint.primaryPaintType),
+                paint.primaryModColor,
+                NativePaintTypeName(paint.secondaryPaintType),
+                paint.secondaryModColor);
             ImGui::Separator();
             ImGui::Text("Last operation: %s", OperationName(snapshot.lastOperation));
             if (snapshot.lastOperation != PaintOperation::None)
             {
                 if (snapshot.lastOperationRejectedAsStale)
-                    ImGui::TextDisabled("Rejected: vehicle changed before execution.");
+                    ImGui::TextDisabled("Result: vehicle changed before execution.");
                 else
-                    ImGui::Text("Result: %s", snapshot.lastOperationSucceeded ? "success" : "failed");
+                    ImGui::Text("Result: %s", snapshot.lastOperationSucceeded ? "verified" : "failed verification");
             }
         }
     }
@@ -347,7 +357,7 @@ namespace Tutones::UI
 
         if (ImGui::BeginChild("##vehicle_paint", ImVec2(490.0f, 430.0f), true))
         {
-            ImGui::TextColored(V11Theme::Accent, "LSC Paint Catalog");
+            ImGui::TextColored(V11Theme::Accent, "Vehicle Paint");
             ImGui::SameLine();
             ImGui::TextDisabled("%s", g_PaintUi.queueMessage);
             ImGui::Separator();
@@ -363,7 +373,7 @@ namespace Tutones::UI
             else if (!snapshot.paint.valid)
             {
                 ImGui::Text("Vehicle detected: %d", gameState.vehicle);
-                ImGui::TextDisabled("Paint state is refreshing. Base paint reads no longer depend on optional custom metadata.");
+                ImGui::TextDisabled("Paint state is refreshing from GTA indexed colors.");
             }
             else if (ImGui::BeginTabBar("##vehicle_paint_tabs"))
             {

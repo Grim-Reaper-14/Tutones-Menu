@@ -94,9 +94,12 @@ namespace Tutones::Game::Paint
         bool lastOperationRejectedAsStale{};
     };
 
+    // GTA's named LSC families are subsets of the indexed vehicle-color table.
+    // The family changes which IDs the UI offers; SET_VEHICLE_COLOURS performs
+    // the actual primary/secondary write for every supported family.
     [[nodiscard]] constexpr bool UsesIndexedVehicleColourPath(PaintPalette palette) noexcept
     {
-        return palette == PaintPalette::Worn || palette == PaintPalette::Chameleon;
+        return palette != PaintPalette::Alloy;
     }
 
     [[nodiscard]] constexpr int NativePaintTypeValue(PaintPalette palette) noexcept

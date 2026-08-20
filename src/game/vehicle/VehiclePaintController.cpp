@@ -28,6 +28,8 @@ namespace Tutones::Game::Paint
         out.secondaryModColor = secondary;
         out.primaryModPearlescent = pearlescent;
 
+        // Keep the mod-color metadata for status/debugging, but the editor uses the
+        // indexed GET_VEHICLE_COLOURS pair as the authoritative base paint state.
         int primaryPaintType{};
         int primaryModColor{};
         int primaryModPearlescent{};
@@ -70,72 +72,74 @@ namespace Tutones::Game::Paint
 
     bool VehiclePaintController::SetPrimary(VehicleHandle vehicle, PaintChoice choice) noexcept
     {
-        if (vehicle == 0 || !PaintChoiceAllowed(PaintTarget::Primary, choice))
+        if (vehicle == 0 || !PaintChoiceAllowed(PaintTarget::Primary, choice)
+            || !UsesIndexedVehicleColourPath(choice.palette))
+        {
             return false;
-
-        bool written{};
-        if (UsesIndexedVehicleColourPath(choice.palette))
-        {
-            int primary{};
-            int secondary{};
-            if (!m_Backend.GetVehicleColours(vehicle, primary, secondary))
-                return false;
-            written = m_Backend.SetVehicleColours(vehicle, choice.colorIndex, secondary);
-        }
-        else
-        {
-            const int paintType = NativePaintTypeValue(choice.palette);
-            if (!IsNativePaintType(paintType))
-                return false;
-
-            int currentPaintType{};
-            int currentColor{};
-            int currentPearlescent{};
-            if (!m_Backend.GetVehicleModColor1(vehicle, currentPaintType, currentColor, currentPearlescent))
-            {
-                int wheel{};
-                if (!m_Backend.GetVehicleExtraColours(vehicle, currentPearlescent, wheel))
-                    currentPearlescent = 0;
-            }
-            written = m_Backend.SetVehicleModColor1(vehicle, paintType, choice.colorIndex, currentPearlescent);
         }
 
-        if (!written)
+        int primary{};
+        int secondary{};
+        if (!m_Backend.GetVehicleColours(vehicle, primary, secondary))
+            return false;
+        if (!m_Backend.SetVehicleColours(vehicle, choice.colorIndex, secondary))
             return false;
 
-        // A custom RGB override hides indexed/LSC paint. Clear it after a successful
-        // base write, but do not turn a successful paint operation into a failure just
-        // because the optional custom-clear metadata path is unavailable on this build.
-        static_cast<void>(m_Backend.ClearCustomPrimaryColour(vehicle));
-        return true;
+        int observedPrimary{};
+        int observedSecondary{};
+        if (!m_Backend.GetVehicleColours(vehicle, observedPrimary, observedSecondary)
+            || observedPrimary != choice.colorIndex
+            || observedSecondary != secondary)
+        {
+            return false;
+        }
+
+        // Indexed paint is hidden by a custom RGB override. Clear and verify it so
+        // a successful button press always means the selected base paint is visible.
+        if (!m_Backend.ClearCustomPrimaryColour(vehicle))
+            return false;
+        bool custom{};
+        if (!m_Backend.IsPrimaryColourCustom(vehicle, custom) || custom)
+            return false;
+
+        return m_Backend.GetVehicleColours(vehicle, observedPrimary, observedSecondary)
+            && observedPrimary == choice.colorIndex
+            && observedSecondary == secondary;
     }
 
     bool VehiclePaintController::SetSecondary(VehicleHandle vehicle, PaintChoice choice) noexcept
     {
-        if (vehicle == 0 || !PaintChoiceAllowed(PaintTarget::Secondary, choice))
+        if (vehicle == 0 || !PaintChoiceAllowed(PaintTarget::Secondary, choice)
+            || !UsesIndexedVehicleColourPath(choice.palette))
+        {
             return false;
-
-        bool written{};
-        if (UsesIndexedVehicleColourPath(choice.palette))
-        {
-            int primary{};
-            int secondary{};
-            if (!m_Backend.GetVehicleColours(vehicle, primary, secondary))
-                return false;
-            written = m_Backend.SetVehicleColours(vehicle, primary, choice.colorIndex);
-        }
-        else
-        {
-            const int paintType = NativePaintTypeValue(choice.palette);
-            if (!IsNativePaintType(paintType))
-                return false;
-            written = m_Backend.SetVehicleModColor2(vehicle, paintType, choice.colorIndex);
         }
 
-        if (!written)
+        int primary{};
+        int secondary{};
+        if (!m_Backend.GetVehicleColours(vehicle, primary, secondary))
             return false;
-        static_cast<void>(m_Backend.ClearCustomSecondaryColour(vehicle));
-        return true;
+        if (!m_Backend.SetVehicleColours(vehicle, primary, choice.colorIndex))
+            return false;
+
+        int observedPrimary{};
+        int observedSecondary{};
+        if (!m_Backend.GetVehicleColours(vehicle, observedPrimary, observedSecondary)
+            || observedPrimary != primary
+            || observedSecondary != choice.colorIndex)
+        {
+            return false;
+        }
+
+        if (!m_Backend.ClearCustomSecondaryColour(vehicle))
+            return false;
+        bool custom{};
+        if (!m_Backend.IsSecondaryColourCustom(vehicle, custom) || custom)
+            return false;
+
+        return m_Backend.GetVehicleColours(vehicle, observedPrimary, observedSecondary)
+            && observedPrimary == primary
+            && observedSecondary == choice.colorIndex;
     }
 
     bool VehiclePaintController::SetPearlescent(VehicleHandle vehicle, int colorIndex) noexcept
@@ -148,8 +152,14 @@ namespace Tutones::Game::Paint
         int wheel{};
         if (!m_Backend.GetVehicleExtraColours(vehicle, pearlescent, wheel))
             return false;
+        if (!m_Backend.SetVehicleExtraColours(vehicle, colorIndex, wheel))
+            return false;
 
-        return m_Backend.SetVehicleExtraColours(vehicle, colorIndex, wheel);
+        int observedPearlescent{};
+        int observedWheel{};
+        return m_Backend.GetVehicleExtraColours(vehicle, observedPearlescent, observedWheel)
+            && observedPearlescent == colorIndex
+            && observedWheel == wheel;
     }
 
     bool VehiclePaintController::SetWheel(VehicleHandle vehicle, int colorIndex) noexcept
@@ -165,27 +175,57 @@ namespace Tutones::Game::Paint
         int wheel{};
         if (!m_Backend.GetVehicleExtraColours(vehicle, pearlescent, wheel))
             return false;
+        if (!m_Backend.SetVehicleExtraColours(vehicle, pearlescent, colorIndex))
+            return false;
 
-        return m_Backend.SetVehicleExtraColours(vehicle, pearlescent, colorIndex);
+        int observedPearlescent{};
+        int observedWheel{};
+        return m_Backend.GetVehicleExtraColours(vehicle, observedPearlescent, observedWheel)
+            && observedPearlescent == pearlescent
+            && observedWheel == colorIndex;
     }
 
     bool VehiclePaintController::SetCustomPrimary(VehicleHandle vehicle, RgbColor color) noexcept
     {
-        return vehicle != 0 && m_Backend.SetCustomPrimaryColour(vehicle, color);
+        if (vehicle == 0 || !m_Backend.SetCustomPrimaryColour(vehicle, color))
+            return false;
+
+        bool custom{};
+        RgbColor observed{};
+        return m_Backend.IsPrimaryColourCustom(vehicle, custom)
+            && custom
+            && m_Backend.GetCustomPrimaryColour(vehicle, observed)
+            && observed == color;
     }
 
     bool VehiclePaintController::SetCustomSecondary(VehicleHandle vehicle, RgbColor color) noexcept
     {
-        return vehicle != 0 && m_Backend.SetCustomSecondaryColour(vehicle, color);
+        if (vehicle == 0 || !m_Backend.SetCustomSecondaryColour(vehicle, color))
+            return false;
+
+        bool custom{};
+        RgbColor observed{};
+        return m_Backend.IsSecondaryColourCustom(vehicle, custom)
+            && custom
+            && m_Backend.GetCustomSecondaryColour(vehicle, observed)
+            && observed == color;
     }
 
     bool VehiclePaintController::ClearCustomPrimary(VehicleHandle vehicle) noexcept
     {
-        return vehicle != 0 && m_Backend.ClearCustomPrimaryColour(vehicle);
+        if (vehicle == 0 || !m_Backend.ClearCustomPrimaryColour(vehicle))
+            return false;
+
+        bool custom{};
+        return m_Backend.IsPrimaryColourCustom(vehicle, custom) && !custom;
     }
 
     bool VehiclePaintController::ClearCustomSecondary(VehicleHandle vehicle) noexcept
     {
-        return vehicle != 0 && m_Backend.ClearCustomSecondaryColour(vehicle);
+        if (vehicle == 0 || !m_Backend.ClearCustomSecondaryColour(vehicle))
+            return false;
+
+        bool custom{};
+        return m_Backend.IsSecondaryColourCustom(vehicle, custom) && !custom;
     }
 }
