@@ -129,6 +129,7 @@ namespace Tutones::Game::Native
             {0x0ACCC8916441860Aull, "SET_PED_MAX_TIME_UNDERWATER"},
             {0x932BEE6E64F0144Eull, "_SET_PLAYER_UNDERWATER_TIME_REMAINING"},
             {0x1D8AF8B06B2F7D3Aull, "NETWORK_EARN_FROM_PICKUP"},
+            {0xA7E4AA8D29D3DAC1ull, "STOP_CUTSCENE_IMMEDIATELY"},
         }};
 
         struct NativeProgram final
