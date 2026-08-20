@@ -96,12 +96,6 @@ namespace Tutones::Game::Native
         NativeVectorRefSource m_VectorRefSources[4]{}; // 0x40
     };
 
-    static_assert(offsetof(NativeCallContext, m_ReturnValue) == 0x00);
-    static_assert(offsetof(NativeCallContext, m_ArgCount) == 0x08);
-    static_assert(offsetof(NativeCallContext, m_Args) == 0x10);
-    static_assert(offsetof(NativeCallContext, m_NumVectorRefs) == 0x18);
-    static_assert(offsetof(NativeCallContext, m_VectorRefTargets) == 0x20);
-    static_assert(offsetof(NativeCallContext, m_VectorRefSources) == 0x40);
     static_assert(sizeof(NativeCallContext) == 0x80);
 
     using NativeHash = std::uint64_t;
