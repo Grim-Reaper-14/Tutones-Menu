@@ -1,3 +1,5 @@
+#include "WorldPanel.hpp"
+
 namespace Tutones::UI
 {
     void TutonesMenu::RenderContent() noexcept
@@ -37,7 +39,7 @@ namespace Tutones::UI
             break;
 
         case 4:
-            DrawPanel(draw, windowPos, ImVec2(226.0f, 16.0f), ImVec2(490.0f, 430.0f), "WORLD", {selected, "Visual shell is wired.", "World backend work is still pending."});
+            RenderWorldPanel(m_Item);
             break;
 
         case 5:
