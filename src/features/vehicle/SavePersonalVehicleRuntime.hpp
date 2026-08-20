@@ -20,6 +20,27 @@
 
 namespace Tutones::Game::PersonalVehicles
 {
+    namespace SavePersonalVehicleDetail
+    {
+        [[nodiscard]] constexpr std::uint32_t Joaat(const char* text) noexcept
+        {
+            std::uint32_t hash{};
+            while (text && *text)
+            {
+                char c = *text++;
+                if (c >= 'A' && c <= 'Z')
+                    c = static_cast<char>(c - 'A' + 'a');
+                hash += static_cast<std::uint8_t>(c);
+                hash += hash << 10;
+                hash ^= hash >> 6;
+            }
+            hash += hash << 3;
+            hash ^= hash >> 11;
+            hash += hash << 15;
+            return hash;
+        }
+    }
+
     struct SavePersonalVehicleSnapshot final
     {
         bool pending{};
@@ -66,33 +87,17 @@ namespace Tutones::Game::PersonalVehicles
     private:
         using Clock = std::chrono::steady_clock;
 
-        static constexpr std::uint32_t Joaat(const char* text) noexcept
-        {
-            std::uint32_t hash{};
-            while (text && *text)
-            {
-                char c = *text++;
-                if (c >= 'A' && c <= 'Z')
-                    c = static_cast<char>(c - 'A' + 'a');
-                hash += static_cast<std::uint8_t>(c);
-                hash += hash << 10;
-                hash ^= hash >> 6;
-            }
-            hash += hash << 3;
-            hash ^= hash >> 11;
-            hash += hash << 15;
-            return hash;
-        }
-
-        static constexpr std::uint32_t FreemodeHash = Joaat("freemode");
-        static constexpr std::uint32_t VehicleRewardHash = Joaat("am_mp_vehicle_reward");
+        static constexpr std::uint32_t FreemodeHash = SavePersonalVehicleDetail::Joaat("freemode");
+        static constexpr std::uint32_t VehicleRewardHash = SavePersonalVehicleDetail::Joaat("am_mp_vehicle_reward");
         static constexpr std::size_t FreemodeGeneralGlobal = 2733326;
         static constexpr std::size_t PersonalVehicleIndexOffset = 301;
         static constexpr auto FlowTimeout = std::chrono::seconds(45);
 
         static constexpr std::array<std::uint32_t, 7> BlacklistedModels{
-            Joaat("rcbandito"), Joaat("minitank"), Joaat("thruster"),
-            Joaat("terbyte"), Joaat("avenger"), Joaat("policet3"), Joaat("brickade2")
+            SavePersonalVehicleDetail::Joaat("rcbandito"), SavePersonalVehicleDetail::Joaat("minitank"),
+            SavePersonalVehicleDetail::Joaat("thruster"), SavePersonalVehicleDetail::Joaat("terbyte"),
+            SavePersonalVehicleDetail::Joaat("avenger"), SavePersonalVehicleDetail::Joaat("policet3"),
+            SavePersonalVehicleDetail::Joaat("brickade2")
         };
 
         SavePersonalVehicleRuntime() = default;
