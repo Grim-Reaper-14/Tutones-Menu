@@ -1,6 +1,7 @@
 #include "NetworkPanel.hpp"
 
 #include "V11Description.hpp"
+#include "EnhancedHashCatalogWidget.hpp"
 #include "V11Theme.hpp"
 #include "../features/game/GameSessionRuntime.hpp"
 #include "../features/network/EnhancedCatalog.hpp"
@@ -142,6 +143,8 @@ namespace Tutones::UI
                 }
             }
             ImGui::EndChild();
+
+            RenderAdditionalTransactionLists();
         }
 
         void RenderServices(GameSessionRuntime& runtime) noexcept
