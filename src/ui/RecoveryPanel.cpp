@@ -2,6 +2,7 @@
 
 #include "V11Description.hpp"
 #include "V11Theme.hpp"
+#include "../features/recovery/ClothingUnlockRuntime.hpp"
 #include "../features/recovery/RecoveryRuntime.hpp"
 
 #include <imgui.h>
@@ -14,9 +15,11 @@ namespace Tutones::UI
 {
     namespace
     {
+        using Game::Recovery::ClothingUnlockRuntime;
         using Game::Recovery::RecoveryAction;
         using Game::Recovery::RecoveryRuntime;
         using Game::Recovery::RecoverySnapshot;
+        namespace ClothingUnlockData = Game::Recovery::ClothingUnlockData;
 
         const ImVec4 Accent = V11Theme::Accent;
 
@@ -259,14 +262,68 @@ namespace Tutones::UI
             RenderLastAction(snapshot);
         }
 
-        void RenderUnlocks() noexcept
+        void RenderUnlocks(const RecoverySnapshot& snapshot) noexcept
         {
-            ImGui::TextUnformatted("Unlock Menu");
+            auto& clothing = ClothingUnlockRuntime::Get();
+            const auto state = clothing.Snapshot();
+            const auto& groups = ClothingUnlockData::Groups();
+            const bool blocked = state.pending || !snapshot.nativeReady || !snapshot.sessionStarted;
+
+            ImGui::TextColored(Accent, "Clothing by DLC");
+            ImGui::TextWrapped("Enhanced clothing-only packed-stat map with per-DLC unlocks, mixed-range filtering, and read-back verification.");
             ImGui::Separator();
-            ImGui::TextDisabled("Unlock packs are not enabled yet.");
+
+            ImGui::BeginDisabled(blocked);
+            if (ImGui::Button("Unlock All Verified Clothing", ImVec2(-1.0f, 0.0f)))
+                g_Message = clothing.QueueAll() ? "All clothing unlocks queued" : "Clothing unlock queue rejected";
+            ImGui::EndDisabled();
+            DescribeLastV11Item("Unlock every mapped clothing, mask, outfit and accessory flag across the verified DLC groups below.");
+
+            if (!snapshot.sessionStarted)
+                ImGui::TextDisabled("Join GTA Online before applying clothing unlocks.");
+            else if (!snapshot.nativeReady)
+                ImGui::TextDisabled("Waiting for the Enhanced native runtime.");
+
+            if (state.pending)
+            {
+                const float progress = state.total == 0
+                    ? 0.0f
+                    : static_cast<float>(state.completed) / static_cast<float>(state.total);
+                ImGui::ProgressBar(progress, ImVec2(-1.0f, 0.0f));
+                ImGui::TextDisabled("%zu / %zu packed flags checked | failures: %zu",
+                    state.completed, state.total, state.failed);
+            }
+            else if (state.haveResult)
+            {
+                ImGui::Text("Last clothing pass: %s", state.lastSucceeded ? "verified" : "completed with failures");
+                ImGui::TextDisabled("Checked: %zu | failed read-backs: %zu", state.total, state.failed);
+            }
+
+            ImGui::TextDisabled("%s", g_Message);
             ImGui::Spacing();
-            ImGui::TextWrapped("This page is reserved for Enhanced-specific unlock groups after their packed-stat and script conditions are mapped and verified. It will not fire blind legacy unlock loops.");
-            SetV11Description("Enhanced unlock groups remain pending until each packed-stat/script condition is mapped and verified.");
+            ImGui::SeparatorText("DLC groups");
+
+            if (ImGui::BeginChild("##clothing_dlc_groups", ImVec2(0.0f, 235.0f), true))
+            {
+                for (std::size_t index = 0; index < groups.size(); ++index)
+                {
+                    const auto& group = groups[index];
+                    ImGui::PushID(static_cast<int>(index));
+                    ImGui::TextWrapped("%s", group.name);
+                    ImGui::TextDisabled("%s | %zu flags", group.packedFamily, ClothingUnlockData::Count(group));
+                    ImGui::BeginDisabled(blocked);
+                    if (ImGui::Button("Unlock this DLC", ImVec2(-1.0f, 0.0f)))
+                        g_Message = clothing.QueueGroup(index) ? "DLC clothing unlock queued" : "DLC clothing unlock rejected";
+                    ImGui::EndDisabled();
+                    DescribeLastV11Item("Set this DLC group's mapped clothing packed-bools on the GTA script thread and verify each one by reading it back.");
+                    ImGui::Separator();
+                    ImGui::PopID();
+                }
+            }
+            ImGui::EndChild();
+
+            ImGui::TextDisabled("Tattoo-only flags, weapon/vehicle/gameplay unlocks, and unresolved 60000+ packed ranges are intentionally excluded.");
+            SetV11Description("Unlock Enhanced clothing by DLC using mapped packed-bool IDs, batched script-thread writes, and read-back verification.");
         }
     }
 
@@ -299,7 +356,7 @@ namespace Tutones::UI
             else if (subtab == 2)
                 RenderBusinesses(runtime, snapshot);
             else
-                RenderUnlocks();
+                RenderUnlocks(snapshot);
         }
 
         ImGui::EndChild();
