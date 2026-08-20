@@ -2,9 +2,12 @@
 
 #include "ThemeDefinition.hpp"
 #include "../core/filesystem/FileSystem.hpp"
+
+#include <Windows.h>
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
+#include <array>
 #include <cctype>
 #include <filesystem>
 #include <fstream>
@@ -25,18 +28,22 @@ namespace Tutones::UI
             if (!fs.IsInitialized())
                 return false;
 
-            // Keep all user-editable theme assets in Tutones-owned folders.
-            // These folders are safe to edit while GTA is running and are rescanned on demand.
             m_Themes = fs.UserRoot() / "themes";
             m_Images = fs.UserRoot() / "images";
-            m_Fonts = fs.UserRoot() / "fonts";
 
-            if (!fs.EnsureDirectory(m_Themes)
-                || !fs.EnsureDirectory(m_Images)
-                || !fs.EnsureDirectory(m_Fonts))
-            {
+            // Images/themes are Tutones-owned folders. Fonts are discovered from
+            // the Windows installation's Fonts directory (normally C:\\Windows\\Fonts).
+            std::array<wchar_t, MAX_PATH> windowsDirectory{};
+            const UINT length = ::GetWindowsDirectoryW(
+                windowsDirectory.data(),
+                static_cast<UINT>(windowsDirectory.size()));
+            if (length != 0 && length < windowsDirectory.size())
+                m_Fonts = std::filesystem::path(windowsDirectory.data()) / L"Fonts";
+            else
+                m_Fonts.clear();
+
+            if (!fs.EnsureDirectory(m_Themes) || !fs.EnsureDirectory(m_Images))
                 return false;
-            }
 
             Refresh();
             return true;
