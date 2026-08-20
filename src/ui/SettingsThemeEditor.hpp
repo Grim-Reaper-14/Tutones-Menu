@@ -67,11 +67,11 @@ namespace Tutones::UI::SettingsThemeEditor
         const char* preview = theme.fontFile.empty() ? "Embedded Tutones Font" : theme.fontFile.c_str();
 
         ImGui::SetNextItemWidth(-1.0f);
-        if (ImGui::BeginCombo("Folder Font", preview))
+        if (ImGui::BeginCombo("Windows Font", preview))
         {
             ImGui::InputTextWithHint(
                 "##font_filter",
-                "Filter fonts folder...",
+                "Filter Windows fonts...",
                 FontFilter,
                 sizeof(FontFilter));
 
@@ -94,7 +94,7 @@ namespace Tutones::UI::SettingsThemeEditor
             }
             ImGui::EndCombo();
         }
-        DescribeLastV11Item("Loads TTF, OTF or TTC files directly from the Tutones Menu\\fonts folder.");
+        DescribeLastV11Item("Loads TTF, OTF or TTC files directly from the Windows Fonts folder.");
 
         if (ImGui::SliderFloat("Font Size", &theme.fontSize, 9.0f, 32.0f, "%.1f px"))
         {
@@ -213,10 +213,10 @@ namespace Tutones::UI::SettingsThemeEditor
 
         ImGui::Spacing();
         RenderFileList(
-            "Fonts Folder Contents",
+            "Windows Fonts Folder Contents",
             storage.FontsDirectory(),
             storage.FontFiles(),
-            "No fonts found. Add TTF, OTF or TTC files to the fonts folder, then refresh.");
+            "No supported TTF, OTF or TTC fonts were found in the Windows Fonts folder.");
 
         ImGui::Separator();
         ImGui::TextColored(V11Theme::Accent, "ImGui Theme Editor");
@@ -242,6 +242,6 @@ namespace Tutones::UI::SettingsThemeEditor
 
         ImGui::TextDisabled("Themes: %s", storage.ThemesDirectory().string().c_str());
         ImGui::TextDisabled("Images: %s", storage.ImagesDirectory().string().c_str());
-        ImGui::TextDisabled("Fonts: %s", storage.FontsDirectory().string().c_str());
+        ImGui::TextDisabled("Windows Fonts: %s", storage.FontsDirectory().string().c_str());
     }
 }
