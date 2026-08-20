@@ -14,6 +14,7 @@ namespace Tutones::Game::Recovery
         SetWarehouseCrates,
         SetBunkerSupplies,
         SetBunkerProduct,
+        EarnFromPickup,
     };
 
     struct WarehouseSnapshot final
@@ -74,6 +75,7 @@ namespace Tutones::Game::Recovery
         bool QueueSetWarehouseCrates(int slot, int crates);
         bool QueueSetBunkerSupplies(int supplies);
         bool QueueSetBunkerProduct(int product);
+        bool QueueEarnFromPickup(int amount);
 
     private:
         using Clock = std::chrono::steady_clock;
