@@ -74,10 +74,10 @@ namespace Tutones::UI
                 return;
             }
 
-            ImGui::Text(
-                "Last action: %s - %s",
-                ActionName(snapshot.lastAction),
-                snapshot.lastActionSucceeded ? "success" : "failed");
+            const char* status = snapshot.lastAction == RecoveryAction::EarnFromPickup
+                ? (snapshot.lastActionSucceeded ? "dispatched" : "failed")
+                : (snapshot.lastActionSucceeded ? "success" : "failed");
+            ImGui::Text("Last action: %s - %s", ActionName(snapshot.lastAction), status);
 
             if (snapshot.lastAction == RecoveryAction::EarnFromPickup)
                 ImGui::TextDisabled("Amount: %d", snapshot.lastActionValue);
