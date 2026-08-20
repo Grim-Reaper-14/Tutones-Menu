@@ -2,7 +2,13 @@
 
 #include "Natives.hpp"
 #include "PlayerNatives.hpp"
+#include "GamePointers.hpp"
+#include "native/NativeCallContext.hpp"
+#include "native/NativeRegistry.hpp"
 
+#include <array>
+#include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <optional>
 
@@ -12,6 +18,91 @@ namespace Tutones::Game
 
     namespace VehicleNatives
     {
+        namespace Detail
+        {
+            struct NativeProgram final
+            {
+                std::byte pad00[0x2C]{};
+                std::uint32_t nativeCount{};
+                std::byte pad30[0x10]{};
+                Native::NativeHandler* nativeEntrypoints{};
+                std::byte pad48[0x38]{};
+            };
+
+            static_assert(offsetof(NativeProgram, nativeCount) == 0x2C);
+            static_assert(offsetof(NativeProgram, nativeEntrypoints) == 0x40);
+            static_assert(sizeof(NativeProgram) == 0x80);
+
+            enum SpawnerHandlerIndex : std::size_t
+            {
+                GetModelDimensions,
+                GetOffsetFromEntityInWorldCoords,
+                SpawnerHandlerCount,
+            };
+
+            inline std::array<Native::NativeHandler, SpawnerHandlerCount>& SpawnerHandlers() noexcept
+            {
+                static std::array<Native::NativeHandler, SpawnerHandlerCount> handlers{};
+                return handlers;
+            }
+
+            inline bool ResolveSpawnerHandlers() noexcept
+            {
+                auto& handlers = SpawnerHandlers();
+                if (handlers[0] && handlers[1])
+                    return true;
+                if (!Native::NativeRegistry::Get().CanInvokeOnCurrentThread())
+                    return false;
+
+                const auto init = GamePointers::Get().InitNativeTables();
+                if (!init)
+                    return false;
+
+                // Current Enhanced hashes from YimMenuV2's enhanced crossmap.
+                std::array<std::uint64_t, SpawnerHandlerCount> slots{
+                    0xC93BAF616F1C680Full, // GET_MODEL_DIMENSIONS
+                    0x0D1381B6E0F3987Dull, // GET_OFFSET_FROM_ENTITY_IN_WORLD_COORDS
+                };
+
+                NativeProgram program{};
+                program.nativeCount = static_cast<std::uint32_t>(slots.size());
+                program.nativeEntrypoints = reinterpret_cast<Native::NativeHandler*>(slots.data());
+                init(&program);
+
+                for (std::size_t i = 0; i < slots.size(); ++i)
+                    handlers[i] = reinterpret_cast<Native::NativeHandler>(static_cast<std::uintptr_t>(slots[i]));
+                return handlers[0] && handlers[1];
+            }
+
+            inline bool ModelDimensions(Hash model, Vector3& minimum, Vector3& maximum) noexcept
+            {
+                if (!ResolveSpawnerHandlers())
+                    return false;
+                Native::CallContext context;
+                if (!context.PushArg(model) || !context.PushArg(&minimum) || !context.PushArg(&maximum))
+                    return false;
+                SpawnerHandlers()[GetModelDimensions](&context);
+                context.FixVectors();
+                return std::isfinite(minimum.x) && std::isfinite(minimum.y) && std::isfinite(minimum.z)
+                    && std::isfinite(maximum.x) && std::isfinite(maximum.y) && std::isfinite(maximum.z);
+            }
+
+            inline std::optional<Vector3> OffsetFromEntity(Entity entity, float x, float y, float z) noexcept
+            {
+                if (entity == 0 || !ResolveSpawnerHandlers())
+                    return std::nullopt;
+                Native::CallContext context;
+                if (!context.PushArg(entity) || !context.PushArg(x) || !context.PushArg(y) || !context.PushArg(z))
+                    return std::nullopt;
+                SpawnerHandlers()[GetOffsetFromEntityInWorldCoords](&context);
+                context.FixVectors();
+                const auto result = context.GetReturnValue<Vector3>();
+                if (!std::isfinite(result.x) || !std::isfinite(result.y) || !std::isfinite(result.z))
+                    return std::nullopt;
+                return result;
+            }
+        }
+
         [[nodiscard]] inline std::optional<float> GetEntityHeading(Entity entity) noexcept
         {
             return Native::NativeInvoker::Invoke<float>(Native::NativeId::GetEntityHeading, entity);
@@ -46,12 +137,40 @@ namespace Tutones::Game
             bool netMissionEntity = false,
             bool p7 = false) noexcept
         {
+            // YimMenuV2 places spawned vehicles using the model's dimensions and
+            // GET_OFFSET_FROM_ENTITY_IN_WORLD_COORDS instead of a fixed distance.
+            // Fall back to the caller coordinates if those two natives are unavailable.
+            float spawnX = x;
+            float spawnY = y;
+            float spawnZ = z;
+
+            const auto ped = PlayerNatives::PlayerPedId();
+            if (ped && *ped != 0)
+            {
+                Vector3 minimum{};
+                Vector3 maximum{};
+                if (Detail::ModelDimensions(model, minimum, maximum))
+                {
+                    const float length = maximum.y - minimum.y;
+                    if (std::isfinite(length) && length > 0.25f)
+                    {
+                        const auto offset = Detail::OffsetFromEntity(*ped, 0.0f, length, 0.0f);
+                        if (offset)
+                        {
+                            spawnX = offset->x;
+                            spawnY = offset->y;
+                            spawnZ = offset->z;
+                        }
+                    }
+                }
+            }
+
             return Native::NativeInvoker::Invoke<Vehicle>(
                 Native::NativeId::CreateVehicle,
                 model,
-                x,
-                y,
-                z,
+                spawnX,
+                spawnY,
+                spawnZ,
                 heading,
                 static_cast<std::int32_t>(isNetwork),
                 static_cast<std::int32_t>(netMissionEntity),
