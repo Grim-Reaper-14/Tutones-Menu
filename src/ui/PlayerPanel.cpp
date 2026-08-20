@@ -29,7 +29,7 @@ namespace Tutones::UI
         int g_Health{200};
         int g_Armor{};
         int g_Wanted{};
-        bool g_Invincible{};
+        bool g_GodMode{};
         bool g_Invisible{};
         bool g_PoliceIgnore{};
         bool g_EveryoneIgnore{};
@@ -48,6 +48,44 @@ namespace Tutones::UI
         int g_LastAppearanceComponent{-1};
         bool g_AppearanceSyncPending{true};
         const char* g_Message{"Ready"};
+
+        bool RenderToggleSwitch(const char* label, bool& value) noexcept
+        {
+            ImGui::PushID(label);
+
+            const float height = ImGui::GetFrameHeight();
+            const float width = height * 1.75f;
+            const float radius = height * 0.5f;
+            const ImVec2 position = ImGui::GetCursorScreenPos();
+
+            const bool pressed = ImGui::InvisibleButton("##switch", ImVec2(width, height));
+            if (pressed)
+                value = !value;
+
+            const bool hovered = ImGui::IsItemHovered();
+            const ImVec4 track = value
+                ? (hovered ? V11Theme::AccentHover : V11Theme::Accent)
+                : (hovered ? V11Theme::ControlHover : V11Theme::ControlBg);
+
+            ImDrawList* drawList = ImGui::GetWindowDrawList();
+            drawList->AddRectFilled(
+                position,
+                ImVec2(position.x + width, position.y + height),
+                ImGui::GetColorU32(track),
+                radius);
+
+            const float knobX = value ? position.x + width - radius : position.x + radius;
+            drawList->AddCircleFilled(
+                ImVec2(knobX, position.y + radius),
+                std::max(2.0f, radius - 2.0f),
+                ImGui::GetColorU32(ImVec4(0.94f, 0.97f, 1.0f, 1.0f)),
+                24);
+
+            ImGui::SameLine(0.0f, 8.0f);
+            ImGui::TextUnformatted(label);
+            ImGui::PopID();
+            return pressed;
+        }
 
         [[nodiscard]] const char* ActionName(PlayerAction action) noexcept
         {
@@ -83,7 +121,7 @@ namespace Tutones::UI
             g_Health = snapshot.health;
             g_Armor = snapshot.armor;
             g_Wanted = snapshot.wantedLevel;
-            g_Invincible = snapshot.invincible;
+            g_GodMode = snapshot.invincible;
             g_Invisible = snapshot.invisible;
             g_PoliceIgnore = snapshot.policeIgnore;
             g_EveryoneIgnore = snapshot.everyoneIgnore;
@@ -153,15 +191,17 @@ namespace Tutones::UI
             }
             DescribeLastV11Item("Clear your current wanted level immediately through the player runtime.");
 
-            if (ImGui::Checkbox("Never wanted", &g_NeverWanted)) runtime.SetNeverWanted(g_NeverWanted);
+            ImGui::Separator();
+            ImGui::TextColored(Accent, "Persistent protections");
+            if (RenderToggleSwitch("God Mode", g_GodMode)) runtime.SetInvincible(g_GodMode);
+            DescribeLastV11Item("Maintain God Mode while alive and clear invincibility during death/respawn so GTA can recover normally.");
+            if (RenderToggleSwitch("Never Wanted", g_NeverWanted)) runtime.SetNeverWanted(g_NeverWanted);
             DescribeLastV11Item("Continuously keep the local player's wanted level cleared while this setting is enabled.");
-            if (ImGui::Checkbox("Invincible", &g_Invincible)) runtime.SetInvincible(g_Invincible);
-            DescribeLastV11Item("Maintain local-player invincibility using the current player runtime state.");
-            if (ImGui::Checkbox("Invisible", &g_Invisible)) runtime.SetInvisible(g_Invisible);
+            if (RenderToggleSwitch("Invisible", g_Invisible)) runtime.SetInvisible(g_Invisible);
             DescribeLastV11Item("Toggle local-player visibility using the verified entity visibility path.");
-            if (ImGui::Checkbox("Police ignore", &g_PoliceIgnore)) runtime.SetPoliceIgnore(g_PoliceIgnore);
+            if (RenderToggleSwitch("Police Ignore", g_PoliceIgnore)) runtime.SetPoliceIgnore(g_PoliceIgnore);
             DescribeLastV11Item("Ask GTA's police systems to ignore the local player while enabled.");
-            if (ImGui::Checkbox("Everyone ignore", &g_EveryoneIgnore)) runtime.SetEveryoneIgnore(g_EveryoneIgnore);
+            if (RenderToggleSwitch("Everyone Ignore", g_EveryoneIgnore)) runtime.SetEveryoneIgnore(g_EveryoneIgnore);
             DescribeLastV11Item("Ask ambient AI systems to ignore the local player while enabled.");
 
             ImGui::TextDisabled("%s", g_Message);
@@ -179,15 +219,16 @@ namespace Tutones::UI
             DescribeLastV11Item("Adjust the local player's swim movement-rate multiplier within the supported GTA range.");
 
             ImGui::Separator();
-            if (ImGui::Checkbox("Super jump", &g_SuperJump)) runtime.SetSuperJump(g_SuperJump);
+            ImGui::TextColored(Accent, "Persistent movement");
+            if (RenderToggleSwitch("Super Jump", g_SuperJump)) runtime.SetSuperJump(g_SuperJump);
             DescribeLastV11Item("Maintain GTA's super-jump state for the local player on the script tick.");
-            if (ImGui::Checkbox("Infinite stamina", &g_InfiniteStamina)) runtime.SetInfiniteStamina(g_InfiniteStamina);
+            if (RenderToggleSwitch("Infinite Stamina", g_InfiniteStamina)) runtime.SetInfiniteStamina(g_InfiniteStamina);
             DescribeLastV11Item("Restore/maintain local-player stamina on the GTA script tick while enabled.");
-            if (ImGui::Checkbox("No ragdoll", &g_NoRagdoll)) runtime.SetNoRagdoll(g_NoRagdoll);
+            if (RenderToggleSwitch("No Ragdoll", g_NoRagdoll)) runtime.SetNoRagdoll(g_NoRagdoll);
             DescribeLastV11Item("Prevent the local player ped from entering normal ragdoll states while enabled.");
 
             ImGui::Spacing();
-            ImGui::TextDisabled("Super jump and infinite stamina are maintained on the GTA script tick.");
+            ImGui::TextDisabled("Super Jump and Infinite Stamina are maintained on the GTA script tick.");
             RenderOperationStatus(snapshot);
         }
 
