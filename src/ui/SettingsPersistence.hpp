@@ -10,7 +10,10 @@
 
 namespace Tutones::UI::SettingsPersistence
 {
-    inline std::filesystem::path Path() { return Core::FileSystem::Service::Get().ConfigDirectory()/"menu_settings.json"; }
+    inline std::filesystem::path Path()
+    {
+        return Core::FileSystem::Service::Get().RootPath(Core::FileSystem::Root::Config) / "menu_settings.json";
+    }
 
     inline void Capture() noexcept
     {
