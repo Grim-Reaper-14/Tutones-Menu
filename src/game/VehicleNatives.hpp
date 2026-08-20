@@ -10,7 +10,10 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <optional>
+#include <string>
+#include <string_view>
 
 namespace Tutones::Game
 {
@@ -72,6 +75,51 @@ namespace Tutones::Game
                 for (std::size_t i = 0; i < slots.size(); ++i)
                     handlers[i] = reinterpret_cast<Native::NativeHandler>(static_cast<std::uintptr_t>(slots[i]));
                 return handlers[0] && handlers[1];
+            }
+
+            enum PlateHandlerIndex : std::size_t
+            {
+                GetNumberPlateText,
+                SetNumberPlateText,
+                GetNumberPlateTextIndex,
+                SetNumberPlateTextIndex,
+                PlateHandlerCount,
+            };
+
+            inline std::array<Native::NativeHandler, PlateHandlerCount>& PlateHandlers() noexcept
+            {
+                static std::array<Native::NativeHandler, PlateHandlerCount> handlers{};
+                return handlers;
+            }
+
+            inline bool ResolvePlateHandlers() noexcept
+            {
+                auto& handlers = PlateHandlers();
+                if (handlers[0] && handlers[1] && handlers[2] && handlers[3])
+                    return true;
+                if (!Native::NativeRegistry::Get().CanInvokeOnCurrentThread())
+                    return false;
+
+                const auto init = GamePointers::Get().InitNativeTables();
+                if (!init)
+                    return false;
+
+                // GTA V Enhanced mappings verified against YimMenuV2's current enhanced crossmap.
+                std::array<std::uint64_t, PlateHandlerCount> slots{
+                    0xCA7159F2C5FF745Aull, // GET_VEHICLE_NUMBER_PLATE_TEXT
+                    0x3FEAE59CDE6D3946ull, // SET_VEHICLE_NUMBER_PLATE_TEXT
+                    0x4F06416A18248EA0ull, // GET_VEHICLE_NUMBER_PLATE_TEXT_INDEX
+                    0x05D3F682DDA06C20ull, // SET_VEHICLE_NUMBER_PLATE_TEXT_INDEX
+                };
+
+                NativeProgram program{};
+                program.nativeCount = static_cast<std::uint32_t>(slots.size());
+                program.nativeEntrypoints = reinterpret_cast<Native::NativeHandler*>(slots.data());
+                init(&program);
+
+                for (std::size_t i = 0; i < slots.size(); ++i)
+                    handlers[i] = reinterpret_cast<Native::NativeHandler>(static_cast<std::uintptr_t>(slots[i]));
+                return handlers[0] && handlers[1] && handlers[2] && handlers[3];
             }
 
             inline bool ModelDimensions(Hash model, Vector3& minimum, Vector3& maximum) noexcept
@@ -282,6 +330,67 @@ namespace Tutones::Game
         {
             return Native::NativeInvoker::InvokeVoid(
                 Native::NativeId::SetDriftTyres, vehicle, static_cast<std::int32_t>(enabled));
+        }
+
+        [[nodiscard]] inline std::optional<std::string> GetVehicleNumberPlateText(Vehicle vehicle) noexcept
+        {
+            if (vehicle == 0 || !Detail::ResolvePlateHandlers())
+                return std::nullopt;
+
+            Native::CallContext context;
+            if (!context.PushArg(vehicle))
+                return std::nullopt;
+            Detail::PlateHandlers()[Detail::GetNumberPlateText](&context);
+
+            const char* text = context.GetReturnValue<const char*>();
+            if (!text)
+                return std::nullopt;
+
+            std::string result(text);
+            if (result.size() > 8)
+                result.resize(8);
+            return result;
+        }
+
+        inline bool SetVehicleNumberPlateText(Vehicle vehicle, std::string_view text) noexcept
+        {
+            if (vehicle == 0 || !Detail::ResolvePlateHandlers())
+                return false;
+
+            char plate[9]{};
+            const std::size_t length = text.size() < 8 ? text.size() : 8;
+            if (length != 0)
+                std::memcpy(plate, text.data(), length);
+
+            Native::CallContext context;
+            if (!context.PushArg(vehicle) || !context.PushArg(plate))
+                return false;
+            Detail::PlateHandlers()[Detail::SetNumberPlateText](&context);
+            return true;
+        }
+
+        [[nodiscard]] inline std::optional<int> GetVehicleNumberPlateTextIndex(Vehicle vehicle) noexcept
+        {
+            if (vehicle == 0 || !Detail::ResolvePlateHandlers())
+                return std::nullopt;
+
+            Native::CallContext context;
+            if (!context.PushArg(vehicle))
+                return std::nullopt;
+            Detail::PlateHandlers()[Detail::GetNumberPlateTextIndex](&context);
+            return context.GetReturnValue<int>();
+        }
+
+        inline bool SetVehicleNumberPlateTextIndex(Vehicle vehicle, int index) noexcept
+        {
+            if (vehicle == 0 || index < 0 || index > 12 || !Detail::ResolvePlateHandlers())
+                return false;
+
+            Native::CallContext context;
+            if (!context.PushArg(vehicle) || !context.PushArg(index))
+                return false;
+            Detail::PlateHandlers()[Detail::SetNumberPlateTextIndex](&context);
+            return true;
         }
     }
 }
