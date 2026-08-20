@@ -16,6 +16,8 @@ namespace Tutones::Game::PlayerFeatures
         None,
         SetHealth,
         Heal,
+        Suicide,
+        ClearDamage,
         SetArmor,
         SetWanted,
         ClearWanted,
@@ -49,6 +51,12 @@ namespace Tutones::Game::PlayerFeatures
         bool noRagdoll{};
         bool superJump{};
         bool infiniteStamina{};
+        bool keepPlayerClean{};
+        bool disableCriticalHits{};
+        bool standOnVehicles{};
+        bool disableActionMode{};
+        bool infiniteParachutes{};
+        bool mobileRadio{};
         bool neverWanted{};
         bool policeIgnore{};
         bool everyoneIgnore{};
@@ -83,6 +91,12 @@ namespace Tutones::Game::PlayerFeatures
         void SetNoRagdoll(bool enabled);
         void SetSuperJump(bool enabled) noexcept;
         void SetInfiniteStamina(bool enabled) noexcept;
+        void SetKeepPlayerClean(bool enabled) noexcept;
+        void SetDisableCriticalHits(bool enabled);
+        void SetStandOnVehicles(bool enabled) noexcept;
+        void SetDisableActionMode(bool enabled) noexcept;
+        void SetInfiniteParachutes(bool enabled) noexcept;
+        void SetMobileRadio(bool enabled);
         void SetNeverWanted(bool enabled);
         void SetPoliceIgnore(bool enabled);
         void SetEveryoneIgnore(bool enabled);
@@ -91,6 +105,8 @@ namespace Tutones::Game::PlayerFeatures
 
         [[nodiscard]] bool QueueSetHealth(int health);
         [[nodiscard]] bool QueueHeal();
+        [[nodiscard]] bool QueueSuicide();
+        [[nodiscard]] bool QueueClearDamage();
         [[nodiscard]] bool QueueSetArmor(int armor);
         [[nodiscard]] bool QueueSetWantedLevel(int wantedLevel);
         [[nodiscard]] bool QueueClearWanted();
@@ -126,6 +142,12 @@ namespace Tutones::Game::PlayerFeatures
         std::atomic<bool> m_NoRagdoll{false};
         std::atomic<bool> m_SuperJump{false};
         std::atomic<bool> m_InfiniteStamina{false};
+        std::atomic<bool> m_KeepPlayerClean{false};
+        std::atomic<bool> m_DisableCriticalHits{false};
+        std::atomic<bool> m_StandOnVehicles{false};
+        std::atomic<bool> m_DisableActionMode{false};
+        std::atomic<bool> m_InfiniteParachutes{false};
+        std::atomic<bool> m_MobileRadio{false};
         std::atomic<bool> m_NeverWanted{false};
         std::atomic<bool> m_PoliceIgnore{false};
         std::atomic<bool> m_EveryoneIgnore{false};

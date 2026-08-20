@@ -3,6 +3,7 @@
 #include "../app/BuildInfo.hpp"
 #include "GamePanel.hpp"
 #include "Input.hpp"
+#include "NetworkPanel.hpp"
 #include "PersonalVehiclePanel.hpp"
 #include "PlayerOnlinePanel.hpp"
 #include "PlayerPanel.hpp"
@@ -66,9 +67,9 @@ namespace Tutones::UI
                 {{"D", "H", "C", "U"}},
                 {{"Live Enhanced Recovery capability and business-state overview.", "Override the current Enhanced XP multiplier while enabled, restoring the prior value when disabled.", "Special Cargo and Bunker state with ownership-gated, read-back-verified controls.", "Enhanced unlock groups remain pending until their packed-stat and script conditions are verified."}}, 4, false},
             {"N", "NETWORK",
-                {{"Overview", "Session", "Players", nullptr}},
+                {{"Services", "Quality of Life", "Player State", nullptr}},
                 {{"N", "O", "P", nullptr}},
-                {{"Network workspace and verified online capabilities.", "Session transitions live under Game in the current backend.", "Player-network tools are not implemented in the current build.", nullptr}}, 3, false},
+                {{"Enhanced decompile-backed airstrike and pickup services.", "Incoming-call suppression and reversible Freemode death-barrier patching.", "Verified local-player network state and Off Radar backend status.", nullptr}}, 3, true},
             {"S", "PROTECTIONS",
                 {{"Overview", "Network Events", "Script Events", nullptr}},
                 {{"S", "N", "K", nullptr}},

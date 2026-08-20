@@ -45,7 +45,7 @@ namespace Tutones::UI
             break;
 
         case 6:
-            DrawPanel(draw, windowPos, ImVec2(226.0f, 16.0f), ImVec2(490.0f, 430.0f), "NETWORK", {selected, "Session transitions stay under Game.", "Additional network tooling is pending."});
+            RenderNetworkPanel(m_Item);
             break;
 
         case 7:

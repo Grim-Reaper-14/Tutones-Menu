@@ -56,6 +56,7 @@ namespace Tutones::UI
             case VehicleModAction::SetNeonEnabled: return "Neon side";
             case VehicleModAction::SetTyresCanBurst: return "Tire durability";
             case VehicleModAction::SetDriftTyres: return "Low grip tires";
+            case VehicleModAction::SetStealthMode: return "Vehicle stealth";
             }
             return "Unknown";
         }
@@ -191,6 +192,14 @@ namespace Tutones::UI
             if (ImGui::Button("Max all supported LSC mods", ImVec2(-1.0f, 0.0f)))
                 static_cast<void>(runtime.QueueMaxVehicle());
             DescribeLastV11Item("Apply the highest supported native LSC option to each modification slot exposed by this vehicle.");
+
+            if (ImGui::Button("Enable stealth", ImVec2(220.0f, 0.0f)))
+                g_Message = runtime.QueueStealthMode(true) ? "Vehicle stealth queued" : "Vehicle stealth rejected";
+            DescribeLastV11Item("Fold Akula/Annihilator2 stealth wings or close the Raiju missile bays using the Enhanced vehicle_stealth_mode behavior.");
+            ImGui::SameLine();
+            if (ImGui::Button("Disable stealth", ImVec2(-1.0f, 0.0f)))
+                g_Message = runtime.QueueStealthMode(false) ? "Vehicle stealth disable queued" : "Vehicle stealth disable rejected";
+            DescribeLastV11Item("Deploy the supported stealth vehicle's wings or missile bays again. Unsupported vehicle models are rejected.");
 
             ImGui::Separator();
             ImGui::TextDisabled("LSC restrictions: Tutones applies supported native mod slots directly; rank/purchase gates are not part of this path.");

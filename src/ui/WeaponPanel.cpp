@@ -164,10 +164,22 @@ namespace Tutones::UI
             DescribeLastV11Item("Maintain the current weapon clip without normal reload depletion while the GTA native backend is ready.");
             SupportBadge(snapshot.nativeReady);
 
+            ImGui::Separator();
+            static const char* utilityMessage = "Ready";
+            ImGui::BeginDisabled(!snapshot.nativeReady);
+            if (ImGui::Button("Give All Weapons", ImVec2(220.0f, 0.0f)))
+                utilityMessage = runtime.QueueGiveAllWeapons() ? "Give All Weapons queued" : "Give All Weapons rejected";
+            DescribeLastV11Item("Give the local player the current Yim weapon catalog with a large initial ammo count.");
+            ImGui::SameLine();
+            if (ImGui::Button("Give Max Ammo", ImVec2(-1.0f, 0.0f)))
+                utilityMessage = runtime.QueueGiveMaxAmmo() ? "Give Max Ammo queued" : "Give Max Ammo rejected";
+            DescribeLastV11Item("Query each available weapon's GTA max-ammo value and refill the local player's reserve ammo to that limit.");
+            ImGui::EndDisabled();
+
             if (!snapshot.nativeReady)
                 ImGui::TextDisabled("Waiting for the GTA native table.");
             else
-                ImGui::TextDisabled("Ammo and clip state are maintained on the GTA script tick and restored on shutdown.");
+                ImGui::TextDisabled("%s", utilityMessage);
         }
 
         void RenderAimbot(WeaponRuntime& runtime, const WeaponSnapshot& snapshot) noexcept

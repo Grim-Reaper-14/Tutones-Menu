@@ -124,6 +124,11 @@ namespace Tutones::UI
                     ? "Skip Cutscene queued"
                     : "Skip Cutscene unavailable";
             DescribeLastV11Item("Immediately stop the currently playing GTA cutscene using the verified Enhanced STOP_CUTSCENE_IMMEDIATELY native.");
+            if (ImGui::Button("Skip Conversation", ImVec2(-1.0f, 0.0f)))
+                g_SessionMessage = runtime.QueueSkipConversation()
+                    ? "Skip Conversation queued"
+                    : "Skip Conversation unavailable";
+            DescribeLastV11Item("Skip to the next scripted phone/conversation line using the same native path used by YimMenuV2.");
 
             g_NoIdle = snapshot.noIdleEnabled;
             if (RenderToggleSwitch("No Idle Kick", g_NoIdle))

@@ -5,6 +5,7 @@
 #include "../core/config/MenuSettings.hpp"
 #include "../core/filesystem/FileSystem.hpp"
 #include "../core/logging/Logger.hpp"
+#include "../features/network/NetworkRuntime.hpp"
 #include "../features/player/OffRadarRuntime.hpp"
 #include "../features/player/PlayerRuntime.hpp"
 #include "../features/recovery/RecoveryRuntime.hpp"
@@ -312,7 +313,28 @@ namespace Tutones::App
             return false;
         }
 
-        TUTONES_LOG_INFO("app", "Tutones Menu application initialized with render, input, GTA native runtime, Recovery, LSC script-patch bypass, vehicle, personal vehicle, player, online, and weapon feature layers");
+        TUTONES_LOG_INFO("app", "Recovery runtime ready; starting Enhanced Network/QoL runtime");
+        if (!Game::NetworkFeatures::NetworkRuntime::Get().Start())
+        {
+            TUTONES_LOG_ERROR("app", "Enhanced Network/QoL runtime failed to start");
+            Game::NetworkFeatures::NetworkRuntime::Get().Stop();
+            Game::Recovery::RecoveryRuntime::Get().Stop();
+            UI::Input::Get().Shutdown();
+            Game::WeaponFeatures::WeaponRuntime::Get().Stop();
+            Game::PlayerFeatures::OffRadarRuntime::Get().Stop();
+            Game::PlayerFeatures::PlayerRuntime::Get().Stop();
+            Game::PersonalVehicles::PersonalVehicleRuntime::Get().Stop();
+            Game::Mods::VehicleModificationRuntime::Get().Stop();
+            Game::Paint::VehiclePaintRuntime::Get().Stop();
+            Game::Mods::LscBypassRuntime::Get().Stop();
+            Runtime::GameRuntime::Get().Shutdown();
+            Hooking::HookManager::Get().Shutdown();
+            Render::Renderer::Get().Shutdown();
+            Core::Services::Get().Shutdown();
+            return false;
+        }
+
+        TUTONES_LOG_INFO("app", "Tutones Menu application initialized with render, input, GTA native runtime, Recovery, Network QoL, LSC script-patch bypass, vehicle, personal vehicle, player, online, and weapon feature layers");
         TUTONES_LOG_DEBUG("app", "Runtime is waiting for primary render state and the first GTA script-thread tick");
         m_Running = true;
         return true;
@@ -331,6 +353,9 @@ namespace Tutones::App
         // Capture only stateful settings while every feature snapshot is still live.
         // One-shot actions are not represented by MenuSettingsData and therefore cannot persist.
         SavePersistedMenuSettings();
+
+        TUTONES_LOG_DEBUG("app", "Stopping Enhanced Network/QoL runtime while GTA script scheduling is still active");
+        Game::NetworkFeatures::NetworkRuntime::Get().Stop();
 
         TUTONES_LOG_DEBUG("app", "Stopping Recovery runtime while GTA script scheduling is still active");
         Game::Recovery::RecoveryRuntime::Get().Stop();

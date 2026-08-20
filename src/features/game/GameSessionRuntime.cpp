@@ -1,6 +1,8 @@
 #include "GameSessionRuntime.hpp"
 
 #include "../../core/logging/Logger.hpp"
+#include "../../game/PlayerNatives.hpp"
+#include "../../game/VehicleNatives.hpp"
 #include "../../game/native/NativeInvoker.hpp"
 #include "../../game/native/NativeRegistry.hpp"
 #include "../../game/script/ScriptFunction.hpp"
@@ -9,8 +11,10 @@
 #include "../../game/script/ScriptRuntime.hpp"
 #include "../../runtime/GameRuntime.hpp"
 
+#include <algorithm>
 #include <array>
 #include <climits>
+#include <cmath>
 #include <cstdint>
 #include <optional>
 
@@ -126,6 +130,81 @@ namespace Tutones::Game::SessionFeatures
         });
     }
 
+    bool GameSessionRuntime::QueueSkipConversation()
+    {
+        if (!Native::NativeRegistry::Get().IsReady())
+            return false;
+
+        return Runtime::GameRuntime::Get().Enqueue([] {
+            const bool success = Native::NativeInvoker::InvokeVoid(
+                Native::NativeId::SkipToNextScriptedConversationLine);
+            if (success)
+                TUTONES_LOG_INFO("game.session", "Skipped to the next scripted conversation line");
+            else
+                TUTONES_LOG_WARN("game.session", "SKIP_TO_NEXT_SCRIPTED_CONVERSATION_LINE could not be invoked");
+        });
+    }
+
+    bool GameSessionRuntime::QueueAirstrikeAhead(int damage)
+    {
+        if (!Native::NativeRegistry::Get().IsReady())
+            return false;
+
+        bool expected = false;
+        if (!m_ServicePending.compare_exchange_strong(expected, true, std::memory_order_acq_rel))
+            return false;
+        {
+            std::scoped_lock lock(m_Mutex);
+            m_State.servicePending = true;
+        }
+
+        const int requestedDamage = std::clamp(damage, 1, 1000);
+        if (Runtime::GameRuntime::Get().Enqueue([this, requestedDamage] {
+                RecordServiceResult(
+                    GameServiceAction::AirstrikeAhead,
+                    ExecuteAirstrikeOnGameThread(requestedDamage));
+            }))
+            return true;
+
+        RecordServiceResult(GameServiceAction::AirstrikeAhead, false);
+        return false;
+    }
+
+    bool GameSessionRuntime::QueueAmmoDrop()
+    {
+        return QueuePickupDrop(GameServiceAction::AmmoDrop);
+    }
+
+    bool GameSessionRuntime::QueueMinigunDrop()
+    {
+        return QueuePickupDrop(GameServiceAction::MinigunDrop);
+    }
+
+    bool GameSessionRuntime::QueuePickupDrop(GameServiceAction action)
+    {
+        if (action != GameServiceAction::AmmoDrop && action != GameServiceAction::MinigunDrop)
+            return false;
+        if (!Native::NativeRegistry::Get().IsReady())
+            return false;
+
+        bool expected = false;
+        if (!m_ServicePending.compare_exchange_strong(expected, true, std::memory_order_acq_rel))
+            return false;
+        {
+            std::scoped_lock lock(m_Mutex);
+            m_State.servicePending = true;
+        }
+
+        if (Runtime::GameRuntime::Get().Enqueue([this, action] {
+                if (!BeginPickupDropOnGameThread(action))
+                    RecordServiceResult(action, false);
+            }))
+            return true;
+
+        RecordServiceResult(action, false);
+        return false;
+    }
+
     void GameSessionRuntime::SetNoIdle(bool enabled)
     {
         const bool previous = m_NoIdle.exchange(enabled, std::memory_order_acq_rel);
@@ -161,12 +240,14 @@ namespace Tutones::Game::SessionFeatures
         snapshot.scriptRuntimeReady = Script::ScriptRuntime::Get().IsReady();
         snapshot.actionPending = m_Pending.load(std::memory_order_acquire);
         snapshot.noIdleEnabled = m_NoIdle.load(std::memory_order_acquire);
+        snapshot.servicePending = m_ServicePending.load(std::memory_order_acquire);
         return snapshot;
     }
 
     bool GameSessionRuntime::EnsureUtilityTick()
     {
-        if (!m_NoIdle.load(std::memory_order_acquire))
+        if (!m_NoIdle.load(std::memory_order_acquire)
+            && !m_ServicePending.load(std::memory_order_acquire))
             return false;
 
         bool expected = false;
@@ -183,18 +264,22 @@ namespace Tutones::Game::SessionFeatures
     void GameSessionRuntime::UtilityTickOnGameThread() noexcept
     {
         m_UtilityTickQueued.store(false, std::memory_order_release);
-        if (!m_NoIdle.load(std::memory_order_acquire))
-            return;
 
-        const bool applied = ApplyNoIdleOnGameThread();
+        if (m_NoIdle.load(std::memory_order_acquire))
         {
+            const bool applied = ApplyNoIdleOnGameThread();
             std::scoped_lock lock(m_Mutex);
             m_State.noIdleEnabled = true;
             m_State.noIdleReady = applied;
         }
 
-        if (!EnsureUtilityTick())
-            TUTONES_LOG_WARN("game.session", "No Idle tick could not be re-queued");
+        if (m_ServicePending.load(std::memory_order_acquire))
+            ProcessPendingServiceOnGameThread();
+
+        if ((m_NoIdle.load(std::memory_order_acquire)
+                || m_ServicePending.load(std::memory_order_acquire))
+            && !EnsureUtilityTick())
+            TUTONES_LOG_WARN("game.session", "Game utility tick could not be re-queued");
     }
 
     bool GameSessionRuntime::ResolveNoIdleTunablesOnGameThread() noexcept
@@ -289,6 +374,167 @@ namespace Tutones::Game::SessionFeatures
         else
             TUTONES_LOG_WARN("game.session", "Could not fully restore idle-kick tunables");
         return success;
+    }
+
+    bool GameSessionRuntime::BeginPickupDropOnGameThread(GameServiceAction action) noexcept
+    {
+        const char* modelName = action == GameServiceAction::MinigunDrop
+            ? "ex_prop_adv_case_sm"
+            : "prop_box_ammo02a";
+        m_PendingPickupModel = Joaat(modelName);
+        m_PendingServiceAction = action;
+        m_ServiceDeadline = Clock::now() + std::chrono::seconds(5);
+
+        if (!PlayerNatives::RequestModel(m_PendingPickupModel))
+        {
+            m_PendingPickupModel = 0;
+            m_PendingServiceAction = GameServiceAction::None;
+            return false;
+        }
+
+        if (!EnsureUtilityTick())
+        {
+            static_cast<void>(PlayerNatives::SetModelAsNoLongerNeeded(m_PendingPickupModel));
+            m_PendingPickupModel = 0;
+            m_PendingServiceAction = GameServiceAction::None;
+            return false;
+        }
+        return true;
+    }
+
+    void GameSessionRuntime::ProcessPendingServiceOnGameThread() noexcept
+    {
+        const GameServiceAction action = m_PendingServiceAction;
+        if (action != GameServiceAction::AmmoDrop && action != GameServiceAction::MinigunDrop)
+            return;
+        if (m_PendingPickupModel == 0)
+        {
+            RecordServiceResult(action, false);
+            return;
+        }
+
+        const auto loaded = PlayerNatives::HasModelLoaded(m_PendingPickupModel);
+        if (loaded && *loaded)
+        {
+            bool success = false;
+            const auto ped = PlayerNatives::PlayerPedId();
+            if (ped && *ped != 0)
+            {
+                const auto coords = VehicleNatives::GetEntityCoords(*ped, true);
+                const auto heading = VehicleNatives::GetEntityHeading(*ped);
+                if (coords && heading)
+                {
+                    constexpr float DegreesToRadians = 0.01745329251994329577f;
+                    const float radians = *heading * DegreesToRadians;
+                    const float x = coords->x - std::sin(radians) * 3.0f;
+                    const float y = coords->y + std::cos(radians) * 3.0f;
+                    const float z = coords->z + 0.35f;
+                    const std::uint32_t pickup = Joaat(action == GameServiceAction::MinigunDrop
+                        ? "PICKUP_WEAPON_MINIGUN"
+                        : "PICKUP_AMMO_BULLET_MP");
+                    const auto created = Native::NativeInvoker::Invoke<Entity>(
+                        Native::NativeId::CreateAmbientPickup,
+                        pickup,
+                        x,
+                        y,
+                        z,
+                        std::int32_t{1 << 12},
+                        200,
+                        m_PendingPickupModel,
+                        std::int32_t{1},
+                        std::int32_t{1});
+                    success = created && *created != 0;
+                }
+            }
+
+            static_cast<void>(PlayerNatives::SetModelAsNoLongerNeeded(m_PendingPickupModel));
+            m_PendingPickupModel = 0;
+            m_PendingServiceAction = GameServiceAction::None;
+            m_ServiceDeadline = {};
+            RecordServiceResult(action, success);
+            return;
+        }
+
+        if (Clock::now() >= m_ServiceDeadline)
+        {
+            static_cast<void>(PlayerNatives::SetModelAsNoLongerNeeded(m_PendingPickupModel));
+            m_PendingPickupModel = 0;
+            m_PendingServiceAction = GameServiceAction::None;
+            m_ServiceDeadline = {};
+            RecordServiceResult(action, false);
+            return;
+        }
+
+        static_cast<void>(PlayerNatives::RequestModel(m_PendingPickupModel));
+    }
+
+    bool GameSessionRuntime::ExecuteAirstrikeOnGameThread(int damage) noexcept
+    {
+        const auto ped = PlayerNatives::PlayerPedId();
+        if (!ped || *ped == 0)
+            return false;
+
+        const auto coords = VehicleNatives::GetEntityCoords(*ped, true);
+        const auto heading = VehicleNatives::GetEntityHeading(*ped);
+        if (!coords || !heading)
+            return false;
+
+        constexpr float DegreesToRadians = 0.01745329251994329577f;
+        const float radians = *heading * DegreesToRadians;
+        Vector3 target = *coords;
+        target.x -= std::sin(radians) * 45.0f;
+        target.y += std::cos(radians) * 45.0f;
+        target.z -= 1.0f;
+
+        constexpr std::array<Vector3, 5> Offsets{{
+            Vector3{0.0f, 0.0f, 0.0f, 0.0f},
+            Vector3{5.0f, 5.0f, 0.0f, 0.0f},
+            Vector3{-5.0f, 5.0f, 0.0f, 0.0f},
+            Vector3{5.0f, -5.0f, 0.0f, 0.0f},
+            Vector3{-5.0f, -5.0f, 0.0f, 0.0f},
+        }};
+
+        const std::uint32_t weapon = Joaat("WEAPON_AIRSTRIKE_ROCKET");
+        bool success = true;
+        for (const auto& offset : Offsets)
+        {
+            const float endX = target.x + offset.x;
+            const float endY = target.y + offset.y;
+            const float endZ = target.z;
+            success = Native::NativeInvoker::InvokeVoid(
+                Native::NativeId::ShootSingleBulletBetweenCoordsIgnoreEntityNew,
+                endX,
+                endY,
+                endZ + 45.0f,
+                endX,
+                endY,
+                endZ,
+                damage,
+                std::int32_t{1},
+                weapon,
+                *ped,
+                std::int32_t{1},
+                std::int32_t{0},
+                -1.0f,
+                *ped,
+                std::int32_t{1},
+                std::int32_t{1},
+                Entity{0},
+                std::int32_t{0},
+                std::int32_t{0},
+                std::int32_t{0},
+                std::int32_t{0}) && success;
+        }
+        return success;
+    }
+
+    void GameSessionRuntime::RecordServiceResult(GameServiceAction action, bool success) noexcept
+    {
+        m_ServicePending.store(false, std::memory_order_release);
+        std::scoped_lock lock(m_Mutex);
+        m_State.servicePending = false;
+        m_State.lastServiceAction = action;
+        m_State.lastServiceSucceeded = success;
     }
 
     void GameSessionRuntime::ExecuteOnGameThread(JoinType type) noexcept

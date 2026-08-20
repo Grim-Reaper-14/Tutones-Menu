@@ -40,6 +40,12 @@ namespace Tutones::UI
         bool g_NoRagdoll{};
         bool g_SuperJump{};
         bool g_InfiniteStamina{};
+        bool g_KeepPlayerClean{};
+        bool g_DisableCriticalHits{};
+        bool g_StandOnVehicles{};
+        bool g_DisableActionMode{};
+        bool g_InfiniteParachutes{};
+        bool g_MobileRadio{};
         float g_RunMultiplier{1.0f};
         float g_SwimMultiplier{1.0f};
 
@@ -97,6 +103,8 @@ namespace Tutones::UI
             case PlayerAction::None: return "None";
             case PlayerAction::SetHealth: return "Set health";
             case PlayerAction::Heal: return "Heal";
+            case PlayerAction::Suicide: return "Suicide";
+            case PlayerAction::ClearDamage: return "Clear damage";
             case PlayerAction::SetArmor: return "Set armor";
             case PlayerAction::SetWanted: return "Set wanted";
             case PlayerAction::ClearWanted: return "Clear wanted";
@@ -133,6 +141,12 @@ namespace Tutones::UI
             g_NoRagdoll = snapshot.noRagdoll;
             g_SuperJump = snapshot.superJump;
             g_InfiniteStamina = snapshot.infiniteStamina;
+            g_KeepPlayerClean = snapshot.keepPlayerClean;
+            g_DisableCriticalHits = snapshot.disableCriticalHits;
+            g_StandOnVehicles = snapshot.standOnVehicles;
+            g_DisableActionMode = snapshot.disableActionMode;
+            g_InfiniteParachutes = snapshot.infiniteParachutes;
+            g_MobileRadio = snapshot.mobileRadio;
             g_RunMultiplier = snapshot.runMultiplier;
             g_SwimMultiplier = snapshot.swimMultiplier;
             g_Component = snapshot.observedComponent;
@@ -172,6 +186,13 @@ namespace Tutones::UI
                 g_Message = runtime.QueueHeal() ? "Heal queued" : "Heal rejected";
             }
             DescribeLastV11Item("Restore your local player to the current maximum health value.");
+            if (ImGui::Button("Suicide", ImVec2(180.0f, 0.0f)))
+                g_Message = runtime.QueueSuicide() ? "Suicide queued" : "Suicide rejected";
+            DescribeLastV11Item("Kill the current local player. Native invincibility is cleared for the death transition; the God Mode preference is preserved and can resume after respawn.");
+            ImGui::SameLine();
+            if (ImGui::Button("Clear Damage", ImVec2(-1.0f, 0.0f)))
+                g_Message = runtime.QueueClearDamage() ? "Damage cleanup queued" : "Damage cleanup rejected";
+            DescribeLastV11Item("Clear blood, wetness, environmental dirt and visible damage from the current local player ped.");
 
             g_Armor = std::clamp(g_Armor, 0, 100);
             ImGui::SliderInt("Armor", &g_Armor, 0, 100);
@@ -201,6 +222,12 @@ namespace Tutones::UI
             DescribeLastV11Item("Maintain God Mode while alive and clear invincibility during death/respawn so GTA can recover normally.");
             if (RenderToggleSwitch("Bulletproof", g_Bulletproof)) runtime.SetBulletproof(g_Bulletproof);
             DescribeLastV11Item("Block bullet damage only. Fire, explosions, collisions, melee, steam, and water damage remain normal.");
+            if (RenderToggleSwitch("Disable Critical Hits", g_DisableCriticalHits)) runtime.SetDisableCriticalHits(g_DisableCriticalHits);
+            DescribeLastV11Item("Prevent the local ped from suffering GTA critical-hit damage while enabled; normal behavior is restored when disabled.");
+            if (RenderToggleSwitch("Keep Player Clean", g_KeepPlayerClean)) runtime.SetKeepPlayerClean(g_KeepPlayerClean);
+            DescribeLastV11Item("Continuously clear blood, wetness, environmental dirt and visible ped damage using Yim-style clean-player behavior.");
+            if (RenderToggleSwitch("Mobile Radio", g_MobileRadio)) runtime.SetMobileRadio(g_MobileRadio);
+            DescribeLastV11Item("Keep GTA's mobile radio enabled during gameplay so radio can remain available while on foot.");
             if (RenderToggleSwitch("Aqua Lungs", g_AquaLungs)) runtime.SetAquaLungs(g_AquaLungs);
             DescribeLastV11Item("Continuously refill the breath bar underwater. Infinite Oxygen takes precedence when both are enabled.");
             if (RenderToggleSwitch("Infinite Oxygen", g_InfiniteOxygen)) runtime.SetInfiniteOxygen(g_InfiniteOxygen);
@@ -236,9 +263,15 @@ namespace Tutones::UI
             DescribeLastV11Item("Restore/maintain local-player stamina on the GTA script tick while enabled.");
             if (RenderToggleSwitch("No Ragdoll", g_NoRagdoll)) runtime.SetNoRagdoll(g_NoRagdoll);
             DescribeLastV11Item("Prevent the local player ped from entering normal ragdoll states while enabled.");
+            if (RenderToggleSwitch("Stand On Vehicles", g_StandOnVehicles)) runtime.SetStandOnVehicles(g_StandOnVehicles);
+            DescribeLastV11Item("Apply GTA reset flag 274 every script tick so the player can stand on moving vehicles without the normal forced ragdoll.");
+            if (RenderToggleSwitch("Disable Action Mode", g_DisableActionMode)) runtime.SetDisableActionMode(g_DisableActionMode);
+            DescribeLastV11Item("Apply GTA reset flag 200 every tick to suppress the combat action-mode movement state.");
+            if (RenderToggleSwitch("Infinite Parachutes", g_InfiniteParachutes)) runtime.SetInfiniteParachutes(g_InfiniteParachutes);
+            DescribeLastV11Item("Maintain a reserve parachute and restore GADGET_PARACHUTE when the local player no longer has one.");
 
             ImGui::Spacing();
-            ImGui::TextDisabled("Super Jump and Infinite Stamina are maintained on the GTA script tick.");
+            ImGui::TextDisabled("Movement and parachute helpers are maintained on the GTA script tick.");
             RenderOperationStatus(snapshot);
         }
 

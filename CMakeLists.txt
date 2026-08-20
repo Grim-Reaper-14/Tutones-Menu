@@ -52,6 +52,7 @@ add_library(TutonesMenu SHARED
     src/core/logging/Logger.cpp
 
     src/features/game/GameSessionRuntime.cpp
+    src/features/network/NetworkRuntime.cpp
     src/features/player/OffRadarRuntime.cpp
     src/features/player/PlayerRuntime.cpp
     src/features/player/PlayerRuntimeActions.cpp
@@ -87,6 +88,7 @@ add_library(TutonesMenu SHARED
     src/ui/GamePanel.cpp
     src/ui/Input.cpp
     src/ui/LscBypassWidget.cpp
+    src/ui/NetworkPanel.cpp
     src/ui/PersonalVehiclePanel.cpp
     src/ui/PlayerOnlinePanel.cpp
     src/ui/PlayerPanel.cpp
@@ -155,6 +157,8 @@ source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR}/src PREFIX "Source" FILES
     src/features/game/GameSessionRuntime.cpp
     src/features/game/GameSessionRuntime.hpp
     src/features/game/GameSessionTypes.hpp
+    src/features/network/NetworkRuntime.cpp
+    src/features/network/NetworkRuntime.hpp
     src/features/player/OffRadarRuntime.cpp
     src/features/player/OffRadarRuntime.hpp
     src/features/player/OffRadarState.hpp
@@ -229,6 +233,8 @@ source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR}/src PREFIX "Source" FILES
     src/ui/Input.hpp
     src/ui/LscBypassWidget.cpp
     src/ui/LscBypassWidget.hpp
+    src/ui/NetworkPanel.cpp
+    src/ui/NetworkPanel.hpp
     src/ui/PersonalVehiclePanel.cpp
     src/ui/PersonalVehiclePanel.hpp
     src/ui/PlayerOnlinePanel.cpp

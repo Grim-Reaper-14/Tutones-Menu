@@ -21,6 +21,51 @@ namespace Tutones::Game::WeaponFeatures
         constexpr float MaxExplosionDamage = 1000.0f;
         constexpr float MinCameraShake = 0.0f;
         constexpr float MaxCameraShake = 10.0f;
+        constexpr const char* WeaponNames[] = {
+            "WEAPON_UNARMED", "WEAPON_KNIFE", "WEAPON_NIGHTSTICK", "WEAPON_HAMMER", "WEAPON_BAT",
+            "WEAPON_GOLFCLUB", "WEAPON_CROWBAR", "WEAPON_PISTOL", "WEAPON_COMBATPISTOL", "WEAPON_APPISTOL",
+            "WEAPON_PISTOL50", "WEAPON_MICROSMG", "WEAPON_SMG", "WEAPON_ASSAULTSMG", "WEAPON_ASSAULTRIFLE",
+            "WEAPON_CARBINERIFLE", "WEAPON_ADVANCEDRIFLE", "WEAPON_MG", "WEAPON_COMBATMG", "WEAPON_PUMPSHOTGUN",
+            "WEAPON_SAWNOFFSHOTGUN", "WEAPON_ASSAULTSHOTGUN", "WEAPON_BULLPUPSHOTGUN", "WEAPON_STUNGUN",
+            "WEAPON_SNIPERRIFLE", "WEAPON_HEAVYSNIPER", "WEAPON_REMOTESNIPER", "WEAPON_GRENADELAUNCHER",
+            "WEAPON_GRENADELAUNCHER_SMOKE", "WEAPON_RPG", "WEAPON_MINIGUN", "WEAPON_GRENADE", "WEAPON_STICKYBOMB",
+            "WEAPON_SMOKEGRENADE", "WEAPON_BZGAS", "WEAPON_MOLOTOV", "WEAPON_FIREEXTINGUISHER", "WEAPON_PETROLCAN",
+            "WEAPON_BALL", "WEAPON_FLARE", "WEAPON_BOTTLE", "WEAPON_SNSPISTOL", "WEAPON_HEAVYPISTOL",
+            "WEAPON_BULLPUPRIFLE", "WEAPON_SPECIALCARBINE", "WEAPON_SNSPISTOL_MK2", "WEAPON_SPECIALCARBINE_MK2",
+            "WEAPON_PUMPSHOTGUN_MK2", "WEAPON_BULLPUPRIFLE_MK2", "WEAPON_MARKSMANRIFLE_MK2", "WEAPON_CANDYCANE",
+            "WEAPON_PISTOLXM3", "WEAPON_RAILGUNXM3", "WEAPON_ACIDPACKAGE", "WEAPON_HOMINGLAUNCHER", "WEAPON_PROXMINE",
+            "WEAPON_SNOWBALL", "WEAPON_DOUBLEACTION", "WEAPON_REVOLVER_MK2", "WEAPON_RAYPISTOL", "WEAPON_RAYCARBINE",
+            "WEAPON_RAYMINIGUN", "WEAPON_GUSENBERG", "WEAPON_DAGGER", "WEAPON_VINTAGEPISTOL", "WEAPON_FIREWORK",
+            "WEAPON_MUSKET", "WEAPON_HATCHET", "WEAPON_RAILGUN", "WEAPON_MARKSMANRIFLE", "WEAPON_HEAVYSHOTGUN",
+            "WEAPON_CERAMICPISTOL", "WEAPON_MILITARYRIFLE", "WEAPON_GADGETPISTOL", "WEAPON_HAZARDCAN",
+            "WEAPON_COMBATSHOTGUN", "WEAPON_NAVYREVOLVER", "WEAPON_FLAREGUN", "WEAPON_KNUCKLE", "WEAPON_COMBATPDW",
+            "WEAPON_MARKSMANPISTOL", "WEAPON_DBSHOTGUN", "WEAPON_COMPACTRIFLE", "WEAPON_MACHINEPISTOL", "WEAPON_MACHETE",
+            "WEAPON_FLASHLIGHT", "WEAPON_SWITCHBLADE", "WEAPON_REVOLVER", "WEAPON_WRENCH", "WEAPON_POOLCUE",
+            "WEAPON_MINISMG", "WEAPON_BATTLEAXE", "WEAPON_AUTOSHOTGUN", "WEAPON_COMPACTLAUNCHER", "WEAPON_PIPEBOMB",
+            "WEAPON_SMG_MK2", "WEAPON_COMBATMG_MK2", "WEAPON_CARBINERIFLE_MK2", "WEAPON_ASSAULTRIFLE_MK2",
+            "WEAPON_HEAVYSNIPER_MK2", "WEAPON_PISTOL_MK2", "WEAPON_STONE_HATCHET", "WEAPON_TACTICALRIFLE",
+            "WEAPON_PRECISIONRIFLE", "WEAPON_HEAVYRIFLE", "WEAPON_FERTILIZERCAN", "WEAPON_EMPLAUNCHER",
+            "WEAPON_STUNGUN_MP", "WEAPON_TECPISTOL", "WEAPON_SNOWLAUNCHER", "WEAPON_HACKINGDEVICE",
+            "WEAPON_BATTLERIFLE", "WEAPON_STUNROD", "WEAPON_STRICKLER", "WEAPON_BRIEFCASE_03", "WEAPON_NEWSPAPER",
+        };
+
+        constexpr std::uint32_t Joaat(const char* text) noexcept
+        {
+            std::uint32_t hash{};
+            while (text && *text)
+            {
+                char c = *text++;
+                if (c >= 'A' && c <= 'Z')
+                    c = static_cast<char>(c - 'A' + 'a');
+                hash += static_cast<std::uint8_t>(c);
+                hash += hash << 10;
+                hash ^= hash >> 6;
+            }
+            hash += hash << 3;
+            hash ^= hash >> 11;
+            hash += hash << 15;
+            return hash;
+        }
     }
 
     WeaponRuntime& WeaponRuntime::Get() noexcept
@@ -162,6 +207,67 @@ namespace Tutones::Game::WeaponFeatures
     void WeaponRuntime::SetExplosionCameraShake(float shake) noexcept
     {
         m_ExplosionCameraShake.store(std::clamp(shake, MinCameraShake, MaxCameraShake), std::memory_order_release);
+    }
+
+    bool WeaponRuntime::QueueGiveAllWeapons()
+    {
+        if (!Native::NativeRegistry::Get().IsReady())
+            return false;
+
+        return Runtime::GameRuntime::Get().Enqueue([] {
+            const auto ped = PlayerNatives::PlayerPedId();
+            if (!ped || *ped == 0)
+                return;
+
+            bool success = true;
+            for (const char* name : WeaponNames)
+            {
+                success = Native::NativeInvoker::InvokeVoid(
+                    Native::NativeId::GiveWeaponToPed,
+                    *ped,
+                    Joaat(name),
+                    9999,
+                    std::int32_t{0},
+                    std::int32_t{0}) && success;
+            }
+            if (success)
+                TUTONES_LOG_INFO("weapon.runtime", "Give All Weapons dispatched across the Yim weapon catalog");
+            else
+                TUTONES_LOG_WARN("weapon.runtime", "One or more Give All Weapons native calls could not be dispatched");
+        });
+    }
+
+    bool WeaponRuntime::QueueGiveMaxAmmo()
+    {
+        if (!Native::NativeRegistry::Get().IsReady())
+            return false;
+
+        return Runtime::GameRuntime::Get().Enqueue([] {
+            const auto ped = PlayerNatives::PlayerPedId();
+            if (!ped || *ped == 0)
+                return;
+
+            bool success = true;
+            for (const char* name : WeaponNames)
+            {
+                const std::uint32_t weapon = Joaat(name);
+                int maxAmmo{};
+                const auto hasMax = Native::NativeInvoker::Invoke<std::int32_t>(
+                    Native::NativeId::GetMaxAmmo, *ped, weapon, &maxAmmo);
+                if (!hasMax || *hasMax == 0 || maxAmmo <= 0)
+                    continue;
+                success = Native::NativeInvoker::InvokeVoid(
+                    Native::NativeId::SetPedAmmo,
+                    *ped,
+                    weapon,
+                    maxAmmo,
+                    std::int32_t{0}) && success;
+            }
+            if (success)
+                TUTONES_LOG_INFO("weapon.runtime", "Give Max Ammo dispatched across available player weapons");
+            else
+                TUTONES_LOG_WARN("weapon.runtime", "One or more max-ammo writes could not be dispatched");
+        });
     }
 
     bool WeaponRuntime::QueueNextTick()
