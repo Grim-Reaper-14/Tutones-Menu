@@ -3,6 +3,7 @@
 #include "../../core/logging/Logger.hpp"
 #include "../../game/GamePointers.hpp"
 #include "../../game/Stats.hpp"
+#include "../../game/native/NativeInvoker.hpp"
 #include "../../game/native/NativeRegistry.hpp"
 #include "../../game/script/ScriptGlobal.hpp"
 #include "../../runtime/GameRuntime.hpp"
@@ -203,6 +204,13 @@ namespace Tutones::Game::Recovery
         return QueueAction(RecoveryAction::SetBunkerProduct, 5, product);
     }
 
+    bool RecoveryRuntime::QueueEarnFromPickup(int amount)
+    {
+        if (amount <= 0)
+            return false;
+        return QueueAction(RecoveryAction::EarnFromPickup, -1, amount);
+    }
+
     bool RecoveryRuntime::QueueAction(RecoveryAction action, int target, int value)
     {
         if (!IsRunning() || action == RecoveryAction::None)
@@ -296,37 +304,48 @@ namespace Tutones::Game::Recovery
         }
 
         bool success = false;
-        const auto characterIndex = Stats::GetCharIndex();
         bool* sessionStarted = GamePointers::Get().IsSessionStarted();
-        if (characterIndex && sessionStarted && *sessionStarted && Native::NativeRegistry::Get().IsReady())
+        const bool nativeReady = Native::NativeRegistry::Get().IsReady();
+        if (sessionStarted && *sessionStarted && nativeReady)
         {
-            if (action == RecoveryAction::SetWarehouseCrates && target >= 0 && target < 5)
+            if (action == RecoveryAction::EarnFromPickup && value > 0)
             {
-                const auto property = Stats::GetInt(WarehousePropertyStat(target), *characterIndex);
-                const int capacity = property ? WarehouseCapacity(*property) : 0;
-                if (property && *property > 0 && capacity > 0 && value >= 0 && value <= capacity)
-                {
-                    const std::string stat = WarehouseCrateStat(target);
-                    if (Stats::SetInt(stat, value, *characterIndex))
-                    {
-                        const auto confirmation = Stats::GetInt(stat, *characterIndex);
-                        success = confirmation && *confirmation == value;
-                    }
-                }
+                success = Native::NativeInvoker::InvokeVoid(Native::NativeId::NetworkEarnFromPickup, value);
             }
-            else if (action == RecoveryAction::SetBunkerSupplies || action == RecoveryAction::SetBunkerProduct)
+            else
             {
-                const auto property = Stats::GetInt("MPX_PROP_FAC_SLOT5", *characterIndex);
-                const auto setup = Stats::GetInt("MPX_FACTORYSETUP5", *characterIndex);
-                if (property && *property > 0 && setup && *setup == 1 && value >= 0 && value <= 100)
+                const auto characterIndex = Stats::GetCharIndex();
+                if (characterIndex)
                 {
-                    const char* stat = action == RecoveryAction::SetBunkerSupplies
-                        ? "MPX_MATTOTALFORFACTORY5"
-                        : "MPX_PRODTOTALFORFACTORY5";
-                    if (Stats::SetInt(stat, value, *characterIndex))
+                    if (action == RecoveryAction::SetWarehouseCrates && target >= 0 && target < 5)
                     {
-                        const auto confirmation = Stats::GetInt(stat, *characterIndex);
-                        success = confirmation && *confirmation == value;
+                        const auto property = Stats::GetInt(WarehousePropertyStat(target), *characterIndex);
+                        const int capacity = property ? WarehouseCapacity(*property) : 0;
+                        if (property && *property > 0 && capacity > 0 && value >= 0 && value <= capacity)
+                        {
+                            const std::string stat = WarehouseCrateStat(target);
+                            if (Stats::SetInt(stat, value, *characterIndex))
+                            {
+                                const auto confirmation = Stats::GetInt(stat, *characterIndex);
+                                success = confirmation && *confirmation == value;
+                            }
+                        }
+                    }
+                    else if (action == RecoveryAction::SetBunkerSupplies || action == RecoveryAction::SetBunkerProduct)
+                    {
+                        const auto property = Stats::GetInt("MPX_PROP_FAC_SLOT5", *characterIndex);
+                        const auto setup = Stats::GetInt("MPX_FACTORYSETUP5", *characterIndex);
+                        if (property && *property > 0 && setup && *setup == 1 && value >= 0 && value <= 100)
+                        {
+                            const char* stat = action == RecoveryAction::SetBunkerSupplies
+                                ? "MPX_MATTOTALFORFACTORY5"
+                                : "MPX_PRODTOTALFORFACTORY5";
+                            if (Stats::SetInt(stat, value, *characterIndex))
+                            {
+                                const auto confirmation = Stats::GetInt(stat, *characterIndex);
+                                success = confirmation && *confirmation == value;
+                            }
+                        }
                     }
                 }
             }
