@@ -3,12 +3,15 @@
 #include "V11Description.hpp"
 #include "V11Theme.hpp"
 #include "../features/game/GameSessionRuntime.hpp"
+#include "../features/network/EnhancedCatalog.hpp"
 #include "../features/network/NetworkRuntime.hpp"
 #include "../features/player/OffRadarRuntime.hpp"
 
 #include <imgui.h>
 
 #include <algorithm>
+#include <cstdio>
+#include <string>
 
 namespace Tutones::UI
 {
@@ -58,6 +61,89 @@ namespace Tutones::UI
             return "Unknown";
         }
 
+        void RenderTimersAndMoney() noexcept
+        {
+            using namespace Game::NetworkFeatures;
+
+            const auto snapshot = NetworkRuntime::Get().Snapshot();
+            ImGui::TextWrapped("Reference: GTA Online Enhanced 1.73 / build 1158.13, pinned decompile revision 30dd0df. Tunables are sampled read-only on the GTA script thread.");
+
+            ImGui::SeparatorText("Cooldown / timer catalog");
+            const auto cooldowns = CooldownCatalog();
+            for (std::size_t index = 0; index < cooldowns.size(); ++index)
+            {
+                const auto& definition = cooldowns[index];
+                const auto& observed = snapshot.cooldowns[index];
+                const std::int64_t value = observed.readable ? observed.value : definition.referenceDurationMs;
+
+                ImGui::PushID(static_cast<int>(index));
+                ImGui::TextUnformatted(definition.label.data());
+                ImGui::SameLine();
+                ImGui::TextDisabled("[%s]", CooldownSourceName(definition.source));
+                ImGui::TextDisabled("%s | %s | %s",
+                    definition.group.data(), definition.script.data(), FormatDuration(value).c_str());
+                if (definition.globalBase != 0)
+                {
+                    ImGui::TextDisabled("Global_%zu.f_%zu = %lld ms%s",
+                        definition.globalBase,
+                        definition.globalOffset,
+                        static_cast<long long>(value),
+                        observed.readable ? " (live)" : " (reference)");
+                }
+                if (!definition.verified)
+                    ImGui::TextDisabled("Reset family mapped; exact current-build timestamp/global still needs verification.");
+                ImGui::PopID();
+                ImGui::Spacing();
+            }
+
+            ImGui::SeparatorText("Reward / transaction hash catalog");
+            ImGui::TextDisabled("Read-only catalog: no NETSHOP transaction is started from this panel.");
+            static ImGuiTextFilter filter;
+            filter.Draw("Filter hashes", -1.0f);
+
+            const auto rewards = RewardCatalog();
+            if (ImGui::BeginChild("##reward_hashes", ImVec2(0.0f, 180.0f), true, ImGuiWindowFlags_HorizontalScrollbar))
+            {
+                for (std::size_t index = 0; index < rewards.size(); ++index)
+                {
+                    const auto& reward = rewards[index];
+                    if (filter.IsActive()
+                        && !filter.PassFilter(reward.label.data())
+                        && !filter.PassFilter(reward.serviceName.data()))
+                        continue;
+
+                    ImGui::PushID(static_cast<int>(1000 + index));
+                    ImGui::Text("%s  0x%08X", reward.label.data(), reward.hash);
+                    ImGui::TextDisabled("%s | %s", RewardKindName(reward.kind), reward.serviceName.data());
+
+                    const auto& observed = snapshot.rewards[index];
+                    if (reward.tunableBase != 0)
+                    {
+                        const std::int64_t amount = observed.readable ? observed.value : reward.referenceAmount;
+                        ImGui::TextDisabled("Global_%zu.f_%zu = $%lld%s",
+                            reward.tunableBase,
+                            reward.tunableOffset,
+                            static_cast<long long>(amount),
+                            observed.readable ? " (live)" : " (reference)");
+                    }
+
+                    if (ImGui::SmallButton("Copy hash"))
+                    {
+                        char buffer[16]{};
+                        std::snprintf(buffer, sizeof(buffer), "0x%08X", reward.hash);
+                        ImGui::SetClipboardText(buffer);
+                    }
+                    ImGui::SameLine();
+                    if (ImGui::SmallButton("Copy service name"))
+                        ImGui::SetClipboardText(reward.serviceName.data());
+
+                    ImGui::PopID();
+                    ImGui::Separator();
+                }
+            }
+            ImGui::EndChild();
+        }
+
         void RenderServices(GameSessionRuntime& runtime) noexcept
         {
             const auto snapshot = runtime.Snapshot();
@@ -85,6 +171,10 @@ namespace Tutones::UI
             if (snapshot.lastServiceAction != GameServiceAction::None)
                 ImGui::Text("Last service: %s - %s", ServiceName(snapshot.lastServiceAction),
                     snapshot.lastServiceSucceeded ? "dispatched" : "failed");
+
+            ImGui::Spacing();
+            if (ImGui::CollapsingHeader("Timers & Money Inspector"))
+                RenderTimersAndMoney();
         }
 
         void RenderQualityOfLife() noexcept

@@ -52,6 +52,7 @@ add_library(TutonesMenu SHARED
     src/core/logging/Logger.cpp
 
     src/features/game/GameSessionRuntime.cpp
+    src/features/network/EnhancedCatalog.cpp
     src/features/network/NetworkRuntime.cpp
     src/features/player/OffRadarRuntime.cpp
     src/features/player/PlayerRuntime.cpp
@@ -157,6 +158,8 @@ source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR}/src PREFIX "Source" FILES
     src/features/game/GameSessionRuntime.cpp
     src/features/game/GameSessionRuntime.hpp
     src/features/game/GameSessionTypes.hpp
+    src/features/network/EnhancedCatalog.cpp
+    src/features/network/EnhancedCatalog.hpp
     src/features/network/NetworkRuntime.cpp
     src/features/network/NetworkRuntime.hpp
     src/features/player/OffRadarRuntime.cpp

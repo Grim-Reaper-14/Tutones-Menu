@@ -149,6 +149,8 @@ namespace Tutones::Game::NetworkFeatures
         next.scriptGlobalsReady = globals != nullptr;
         next.sessionStarted = sessionStarted && *sessionStarted;
 
+        next.cooldowns = SampleCooldownTunables(globals);
+        next.rewards = SampleRewardTunables(globals);
         if (globals)
         {
             int* phoneState = Script::ScriptGlobal(PhoneCallStateGlobal).As<int>(globals);

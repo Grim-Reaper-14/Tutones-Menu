@@ -1,5 +1,6 @@
 #pragma once
 
+#include "EnhancedCatalog.hpp"
 #include "../../game/script/ScriptPatchRuntime.hpp"
 
 #include <atomic>
@@ -22,6 +23,8 @@ namespace Tutones::Game::NetworkFeatures
         bool freemodeLoaded{};
         bool deathBarrierSupported{};
         bool deathBarrierApplied{};
+        CooldownObservations cooldowns{};
+        RewardObservations rewards{};
     };
 
     class NetworkRuntime final
