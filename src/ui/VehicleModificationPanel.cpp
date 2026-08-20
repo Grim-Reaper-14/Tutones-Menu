@@ -4,14 +4,21 @@
 #include "V11Description.hpp"
 #include "V11Theme.hpp"
 #include "../features/vehicle/VehicleModificationRuntime.hpp"
+#include "../game/GameState.hpp"
+#include "../game/Natives.hpp"
+#include "../game/PlayerNatives.hpp"
+#include "../game/VehicleNatives.hpp"
 #include "../game/vehicle/VehicleCatalogs.hpp"
+#include "../runtime/GameRuntime.hpp"
 
 #include <imgui.h>
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <string>
 
 namespace Tutones::UI
@@ -33,6 +40,27 @@ namespace Tutones::UI
 
         constexpr std::array<const char*, 2> WheelAxleNames{{"Front Wheels", "Rear Wheels"}};
         constexpr std::array<const char*, 4> NeonSideNames{{"Left", "Right", "Front", "Back"}};
+        constexpr int TurboModType = 18;
+        constexpr int TireSmokeModType = 20;
+        constexpr int XenonModType = 22;
+
+        enum class VerifiedAction : int
+        {
+            None,
+            SetMod,
+            RemoveMod,
+            ToggleMod,
+            SetWheelType,
+        };
+
+        enum class VerifiedResult : int
+        {
+            Idle,
+            Queued,
+            Success,
+            Failed,
+            Stale,
+        };
 
         int g_ModType{11};
         int g_ModIndex{};
@@ -42,6 +70,8 @@ namespace Tutones::UI
         bool g_CustomTires{};
         int g_LastVehicle{};
         int g_LastObserved{-1};
+        int g_LastCurrentMod{std::numeric_limits<int>::min()};
+        int g_LastWheelType{std::numeric_limits<int>::min()};
         int g_XenonColor{};
         int g_NeonPreset{};
         int g_SmokePreset{};
@@ -49,9 +79,17 @@ namespace Tutones::UI
         float g_SmokeRgb[3]{1.0f, 1.0f, 1.0f};
         const char* g_WheelMessage{"Choose a wheel family, then a named wheel."};
 
+        std::atomic<VerifiedAction> g_VerifiedAction{VerifiedAction::None};
+        std::atomic<VerifiedResult> g_VerifiedResult{VerifiedResult::Idle};
+        std::atomic<int> g_VerifiedSlot{-1};
+        std::atomic<int> g_VerifiedRequested{};
+        std::atomic<int> g_VerifiedObserved{std::numeric_limits<int>::min()};
+
         [[nodiscard]] bool IsToggleSlot(int modType) noexcept
         {
-            return modType >= 17 && modType <= 22;
+            // Match YimMenuV2's editor behavior: these are the three quick toggle mod slots.
+            // Nitrous (17), Subwoofer (19), and Hydraulics (21) stay normal SET_VEHICLE_MOD slots.
+            return modType == TurboModType || modType == TireSmokeModType || modType == XenonModType;
         }
 
         [[nodiscard]] int ToByte(float value) noexcept
@@ -59,17 +97,166 @@ namespace Tutones::UI
             return static_cast<int>(std::clamp(value, 0.0f, 1.0f) * 255.0f + 0.5f);
         }
 
+        [[nodiscard]] Game::Vehicle LiveVehicleOnGameThread() noexcept
+        {
+            const auto ped = Game::PlayerNatives::PlayerPedId();
+            if (!ped || *ped == 0)
+                return 0;
+
+            auto vehicle = Game::VehicleNatives::GetVehiclePedIsUsing(*ped);
+            if (vehicle && *vehicle != 0)
+                return *vehicle;
+
+            vehicle = Game::Natives::GetVehiclePedIsIn(*ped, false);
+            return vehicle ? *vehicle : 0;
+        }
+
+        void PublishVerifiedAction(VerifiedAction action, int slot, int requested) noexcept
+        {
+            g_VerifiedAction.store(action, std::memory_order_release);
+            g_VerifiedSlot.store(slot, std::memory_order_release);
+            g_VerifiedRequested.store(requested, std::memory_order_release);
+            g_VerifiedObserved.store(std::numeric_limits<int>::min(), std::memory_order_release);
+            g_VerifiedResult.store(VerifiedResult::Queued, std::memory_order_release);
+        }
+
+        bool QueueSetModVerified(Game::Vehicle vehicle, int modType, int modIndex, bool customTires)
+        {
+            if (vehicle == 0 || modType < 0 || modType >= static_cast<int>(ModNames.size()) || modIndex < -1)
+                return false;
+
+            const auto action = modIndex < 0 ? VerifiedAction::RemoveMod : VerifiedAction::SetMod;
+            PublishVerifiedAction(action, modType, modIndex);
+
+            const bool queued = Runtime::GameRuntime::Get().Enqueue([vehicle, modType, modIndex, customTires] {
+                if (LiveVehicleOnGameThread() != vehicle)
+                {
+                    g_VerifiedResult.store(VerifiedResult::Stale, std::memory_order_release);
+                    return;
+                }
+
+                if (!Game::Natives::SetVehicleModKit(vehicle, 0))
+                {
+                    g_VerifiedResult.store(VerifiedResult::Failed, std::memory_order_release);
+                    return;
+                }
+
+                bool success = false;
+                if (modIndex < 0)
+                {
+                    const bool dispatched = Game::Natives::RemoveVehicleMod(vehicle, modType);
+                    const auto current = Game::Natives::GetVehicleMod(vehicle, modType);
+                    if (current)
+                        g_VerifiedObserved.store(*current, std::memory_order_release);
+                    success = dispatched && current && *current == -1;
+                }
+                else
+                {
+                    const auto count = Game::Natives::GetNumVehicleMods(vehicle, modType);
+                    if (count && modIndex < *count)
+                    {
+                        const bool dispatched = Game::Natives::SetVehicleMod(vehicle, modType, modIndex, customTires);
+                        const auto current = Game::Natives::GetVehicleMod(vehicle, modType);
+                        if (current)
+                            g_VerifiedObserved.store(*current, std::memory_order_release);
+                        success = dispatched && current && *current == modIndex;
+                        if (success && (modType == 23 || modType == 24))
+                        {
+                            const auto variation = Game::Natives::GetVehicleModVariation(vehicle, modType);
+                            success = variation && *variation == customTires;
+                        }
+                    }
+                }
+
+                g_VerifiedResult.store(success ? VerifiedResult::Success : VerifiedResult::Failed, std::memory_order_release);
+            });
+
+            if (!queued)
+                g_VerifiedResult.store(VerifiedResult::Failed, std::memory_order_release);
+            return queued;
+        }
+
+        bool QueueToggleVerified(Game::Vehicle vehicle, int modType, bool enabled)
+        {
+            if (vehicle == 0 || !IsToggleSlot(modType))
+                return false;
+
+            PublishVerifiedAction(VerifiedAction::ToggleMod, modType, enabled ? 1 : 0);
+            const bool queued = Runtime::GameRuntime::Get().Enqueue([vehicle, modType, enabled] {
+                if (LiveVehicleOnGameThread() != vehicle)
+                {
+                    g_VerifiedResult.store(VerifiedResult::Stale, std::memory_order_release);
+                    return;
+                }
+
+                const bool dispatched = Game::Natives::SetVehicleModKit(vehicle, 0)
+                    && Game::Natives::ToggleVehicleMod(vehicle, modType, enabled);
+                const auto current = Game::Natives::IsToggleModOn(vehicle, modType);
+                if (current)
+                    g_VerifiedObserved.store(*current ? 1 : 0, std::memory_order_release);
+                const bool success = dispatched && current && *current == enabled;
+                g_VerifiedResult.store(success ? VerifiedResult::Success : VerifiedResult::Failed, std::memory_order_release);
+            });
+
+            if (!queued)
+                g_VerifiedResult.store(VerifiedResult::Failed, std::memory_order_release);
+            return queued;
+        }
+
+        bool QueueWheelTypeVerified(Game::Vehicle vehicle, int wheelType)
+        {
+            if (vehicle == 0 || wheelType < 0 || wheelType > 12)
+                return false;
+
+            PublishVerifiedAction(VerifiedAction::SetWheelType, -1, wheelType);
+            const bool queued = Runtime::GameRuntime::Get().Enqueue([vehicle, wheelType] {
+                if (LiveVehicleOnGameThread() != vehicle)
+                {
+                    g_VerifiedResult.store(VerifiedResult::Stale, std::memory_order_release);
+                    return;
+                }
+
+                bool success = Game::Natives::SetVehicleModKit(vehicle, 0)
+                    && Game::Natives::SetVehicleWheelType(vehicle, wheelType);
+
+                // Yim refreshes the wheel style after changing the family. Reset only supported
+                // front/rear wheel slots, so bikes and vehicles without a rear-wheel slot stay safe.
+                for (const int wheelSlot : {23, 24})
+                {
+                    const auto count = Game::Natives::GetNumVehicleMods(vehicle, wheelSlot);
+                    if (count && *count > 0)
+                        success = Game::Natives::SetVehicleMod(vehicle, wheelSlot, 0, false) && success;
+                }
+
+                const auto current = Game::Natives::GetVehicleWheelType(vehicle);
+                if (current)
+                    g_VerifiedObserved.store(*current, std::memory_order_release);
+                success = success && current && *current == wheelType;
+                g_VerifiedResult.store(success ? VerifiedResult::Success : VerifiedResult::Failed, std::memory_order_release);
+            });
+
+            if (!queued)
+                g_VerifiedResult.store(VerifiedResult::Failed, std::memory_order_release);
+            return queued;
+        }
+
         void SyncFromSnapshot(const Game::Mods::VehicleModificationSnapshot& snapshot) noexcept
         {
             if (!snapshot.valid)
             {
                 g_LastVehicle = 0;
+                g_LastObserved = -1;
+                g_LastCurrentMod = std::numeric_limits<int>::min();
+                g_LastWheelType = std::numeric_limits<int>::min();
                 return;
             }
 
             if (snapshot.vehicle != g_LastVehicle)
             {
                 g_LastVehicle = snapshot.vehicle;
+                g_LastObserved = -1;
+                g_LastCurrentMod = std::numeric_limits<int>::min();
+                g_LastWheelType = std::numeric_limits<int>::min();
                 g_XenonColor = std::clamp(snapshot.xenonColor + 1, 0, 13);
                 g_NeonRgb[0] = static_cast<float>(snapshot.neonRed) / 255.0f;
                 g_NeonRgb[1] = static_cast<float>(snapshot.neonGreen) / 255.0f;
@@ -79,11 +266,20 @@ namespace Tutones::UI
                 g_SmokeRgb[2] = static_cast<float>(snapshot.tireSmokeBlue) / 255.0f;
             }
 
-            if (snapshot.observedModType == g_LastObserved)
+            // Never let a stale game-thread snapshot overwrite a slot the user just selected.
+            if (snapshot.observedModType != g_ModType)
                 return;
 
+            if (snapshot.observedModType == g_LastObserved
+                && snapshot.currentMod == g_LastCurrentMod
+                && snapshot.wheelType == g_LastWheelType)
+            {
+                return;
+            }
+
             g_LastObserved = snapshot.observedModType;
-            g_ModType = std::clamp(snapshot.observedModType, 0, 49);
+            g_LastCurrentMod = snapshot.currentMod;
+            g_LastWheelType = snapshot.wheelType;
             g_ModIndex = std::max(0, snapshot.currentMod);
             g_WheelStyle = std::max(0, snapshot.currentMod);
             g_WheelType = std::clamp(snapshot.wheelType, 0, 12);
@@ -132,6 +328,30 @@ namespace Tutones::UI
             rgb[1] = static_cast<float>(preset.green) / 255.0f;
             rgb[2] = static_cast<float>(preset.blue) / 255.0f;
         }
+
+        const char* VerifiedActionName(VerifiedAction action) noexcept
+        {
+            switch (action)
+            {
+            case VerifiedAction::SetMod: return "set mod";
+            case VerifiedAction::RemoveMod: return "stock / remove";
+            case VerifiedAction::ToggleMod: return "toggle mod";
+            case VerifiedAction::SetWheelType: return "wheel family";
+            default: return "none";
+            }
+        }
+
+        const char* VerifiedResultName(VerifiedResult result) noexcept
+        {
+            switch (result)
+            {
+            case VerifiedResult::Queued: return "queued";
+            case VerifiedResult::Success: return "verified";
+            case VerifiedResult::Failed: return "failed verification";
+            case VerifiedResult::Stale: return "vehicle changed";
+            default: return "idle";
+            }
+        }
     }
 
     void RenderVehicleModificationPanel() noexcept
@@ -149,9 +369,9 @@ namespace Tutones::UI
 
         if (ImGui::BeginChild("##vehicle_modifications", ImVec2(490.0f, 430.0f), true))
         {
-            ImGui::TextColored(V11Theme::Accent, "LSC Vehicle Workshop");
+            ImGui::TextColored(V11Theme::Accent, "Vehicle Editor");
             ImGui::SameLine();
-            ImGui::TextDisabled("Enhanced runtime");
+            ImGui::TextDisabled("Yim-style verified apply");
             ImGui::Separator();
 
             if (!runtime.IsRunning())
@@ -167,61 +387,53 @@ namespace Tutones::UI
                     {
                         runtime.SetObservedModType(g_ModType);
                         g_LastObserved = -1;
+                        g_LastCurrentMod = std::numeric_limits<int>::min();
                     }
-                    DescribeLastV11Item("Choose the native GTA vehicle-mod slot Tutones should inspect and modify for the current vehicle.");
+                    DescribeLastV11Item("Choose the GTA vehicle-mod slot. Selection stays stable while the game-thread snapshot catches up.");
 
-                    ImGui::TextDisabled("Direct native workshop controls still enforce the vehicle-supported mod count.");
+                    ImGui::TextDisabled("Mod kit 0 is prepared before writes; applied values are read back before reporting success.");
                     RenderLscBypassWidget();
                     ImGui::Text("Available: %d | Installed: %d", snapshot.modCount, snapshot.currentMod);
 
                     if (IsToggleSlot(g_ModType))
                     {
-                        bool enabled = false;
-                        if (g_ModType == 18) enabled = snapshot.turbo;
-                        else if (g_ModType == 20) enabled = snapshot.tireSmoke;
-                        else if (g_ModType == 22) enabled = snapshot.xenon;
-
-                        if (g_ModType == 18 || g_ModType == 20 || g_ModType == 22)
-                        {
-                            if (ImGui::Checkbox("Enabled", &enabled))
-                                static_cast<void>(runtime.QueueToggleMod(g_ModType, enabled));
-                            DescribeLastV11Item("Enable or disable the currently selected supported toggle-style LSC modification slot.");
-                        }
-                        else
-                        {
-                            if (ImGui::Button("Enable", ImVec2(120.0f, 0.0f)))
-                                static_cast<void>(runtime.QueueToggleMod(g_ModType, true));
-                            DescribeLastV11Item("Enable the currently selected toggle-style vehicle modification slot.");
-                            ImGui::SameLine();
-                            if (ImGui::Button("Disable", ImVec2(120.0f, 0.0f)))
-                                static_cast<void>(runtime.QueueToggleMod(g_ModType, false));
-                            DescribeLastV11Item("Disable the currently selected toggle-style vehicle modification slot.");
-                        }
+                        bool enabled = g_ModType == TurboModType ? snapshot.turbo
+                            : (g_ModType == TireSmokeModType ? snapshot.tireSmoke : snapshot.xenon);
+                        if (ImGui::Checkbox("Enabled", &enabled))
+                            static_cast<void>(QueueToggleVerified(snapshot.vehicle, g_ModType, enabled));
+                        DescribeLastV11Item("Mirror Yim's real quick-toggle slots: Turbo, Tire Smoke, and Xenon only.");
                     }
-                    else if (snapshot.modCount > 0)
+                    else if (snapshot.modCount > 0 && snapshot.observedModType == g_ModType)
                     {
-                        static_cast<void>(NamedModCombo(
-                            "Option",
-                            snapshot,
-                            g_ModIndex,
-                            "Choose one of the named options exposed by GTA for the selected vehicle modification slot."));
+                        if (NamedModCombo(
+                                "Option",
+                                snapshot,
+                                g_ModIndex,
+                                "Choose a named GTA option. Like Yim, selecting it applies it immediately."))
+                        {
+                            static_cast<void>(QueueSetModVerified(snapshot.vehicle, g_ModType, g_ModIndex, g_CustomTires));
+                        }
+
                         if (g_ModType == 23 || g_ModType == 24)
                         {
-                            ImGui::Checkbox("Custom tires", &g_CustomTires);
-                            DescribeLastV11Item("Use the custom-tire/whitewall variant when applying a supported wheel modification.");
+                            if (ImGui::Checkbox("Custom tires", &g_CustomTires) && snapshot.currentMod >= 0)
+                                static_cast<void>(QueueSetModVerified(snapshot.vehicle, g_ModType, snapshot.currentMod, g_CustomTires));
+                            DescribeLastV11Item("Reapply the selected wheel with GTA's custom-tire/whitewall variation flag.");
                         }
 
-                        if (ImGui::Button("Apply", ImVec2(180.0f, 0.0f)))
-                            static_cast<void>(runtime.QueueSetMod(g_ModType, g_ModIndex, g_CustomTires));
-                        DescribeLastV11Item("Apply the selected option to the currently selected vehicle modification slot.");
+                        if (ImGui::Button("Reapply selected", ImVec2(180.0f, 0.0f)))
+                            static_cast<void>(QueueSetModVerified(snapshot.vehicle, g_ModType, g_ModIndex, g_CustomTires));
+                        DescribeLastV11Item("Reapply the selected option and verify GET_VEHICLE_MOD matches it.");
                         ImGui::SameLine();
                         if (ImGui::Button("Stock / remove", ImVec2(-1.0f, 0.0f)))
-                            static_cast<void>(runtime.QueueRemoveMod(g_ModType));
-                        DescribeLastV11Item("Remove the currently selected modification and restore the stock option for this slot.");
+                            static_cast<void>(QueueSetModVerified(snapshot.vehicle, g_ModType, -1, false));
+                        DescribeLastV11Item("Remove the selected modification and verify GTA reports stock (-1).");
                     }
                     else
                     {
-                        ImGui::TextDisabled("This vehicle exposes no choices for this LSC slot.");
+                        ImGui::TextDisabled(snapshot.observedModType == g_ModType
+                            ? "This vehicle exposes no choices for this LSC slot."
+                            : "Reading the selected slot from GTA...");
                     }
                     ImGui::EndTabItem();
                 }
@@ -235,6 +447,7 @@ namespace Tutones::UI
                         g_ModType = wheelSlot;
                         runtime.SetObservedModType(wheelSlot);
                         g_LastObserved = -1;
+                        g_LastCurrentMod = std::numeric_limits<int>::min();
                     }
 
                     const char* wheelPreview = Game::VehicleCatalogs::WheelTypes[static_cast<std::size_t>(g_WheelType)].name;
@@ -244,21 +457,17 @@ namespace Tutones::UI
                         {
                             const bool selected = wheelType.value == g_WheelType;
                             if (ImGui::Selectable(wheelType.name, selected))
+                            {
                                 g_WheelType = wheelType.value;
+                                const bool queued = QueueWheelTypeVerified(snapshot.vehicle, g_WheelType);
+                                g_WheelMessage = queued ? "Wheel family queued; GTA read-back will verify it." : "Wheel family rejected.";
+                            }
                             if (selected)
                                 ImGui::SetItemDefaultFocus();
                         }
                         ImGui::EndCombo();
                     }
-                    DescribeLastV11Item("Choose the native wheel family used to populate the named wheel-style list.");
-                    if (ImGui::Button("Apply family / refresh wheel list", ImVec2(-1.0f, 0.0f)))
-                    {
-                        const bool queued = runtime.QueueWheelType(g_WheelType);
-                        g_WheelMessage = queued ? "Wheel family queued; named styles will refresh." : "Wheel family rejected.";
-                        runtime.SetObservedModType(wheelSlot);
-                        g_LastObserved = -1;
-                    }
-                    DescribeLastV11Item("Apply the selected wheel family, then refresh the vehicle-specific named wheel choices.");
+                    DescribeLastV11Item("Mirror Yim: apply the wheel family immediately, reset supported wheel slots, then refresh named styles.");
                     ImGui::TextDisabled("%s", g_WheelMessage);
 
                     if (ImGui::Combo("Axle", &g_WheelAxle, WheelAxleNames.data(), static_cast<int>(WheelAxleNames.size())))
@@ -267,25 +476,26 @@ namespace Tutones::UI
                         g_ModType = nextSlot;
                         runtime.SetObservedModType(nextSlot);
                         g_LastObserved = -1;
+                        g_LastCurrentMod = std::numeric_limits<int>::min();
                     }
-                    DescribeLastV11Item("Choose whether the wheel editor is targeting GTA's front-wheel or rear-wheel modification slot.");
+                    DescribeLastV11Item("Choose the front- or rear-wheel GTA mod slot.");
 
                     if (snapshot.observedModType == wheelSlot && snapshot.modCount > 0)
                     {
-                        static_cast<void>(NamedModCombo(
-                            "Wheel",
-                            snapshot,
-                            g_WheelStyle,
-                            "Choose a named wheel style supported by the current vehicle, axle, and wheel family."));
-                        ImGui::Checkbox("Custom tire / whitewall variant", &g_CustomTires);
-                        DescribeLastV11Item("Use the custom-tire or whitewall variant when the selected wheel supports it.");
-                        if (ImGui::Button("Apply wheel", ImVec2(180.0f, 0.0f)))
-                            static_cast<void>(runtime.QueueSetMod(wheelSlot, g_WheelStyle, g_CustomTires));
-                        DescribeLastV11Item("Apply the selected named wheel style to the chosen axle slot.");
-                        ImGui::SameLine();
+                        if (NamedModCombo(
+                                "Wheel",
+                                snapshot,
+                                g_WheelStyle,
+                                "Choose a named wheel style. Like Yim, selection applies immediately."))
+                        {
+                            static_cast<void>(QueueSetModVerified(snapshot.vehicle, wheelSlot, g_WheelStyle, g_CustomTires));
+                        }
+                        if (ImGui::Checkbox("Custom tire / whitewall variant", &g_CustomTires) && snapshot.currentMod >= 0)
+                            static_cast<void>(QueueSetModVerified(snapshot.vehicle, wheelSlot, snapshot.currentMod, g_CustomTires));
+                        DescribeLastV11Item("Apply GTA's custom-tire variation to the selected wheel and verify it.");
                         if (ImGui::Button("Stock wheels", ImVec2(-1.0f, 0.0f)))
-                            static_cast<void>(runtime.QueueRemoveMod(wheelSlot));
-                        DescribeLastV11Item("Remove the selected axle's wheel modification and restore its stock wheel slot.");
+                            static_cast<void>(QueueSetModVerified(snapshot.vehicle, wheelSlot, -1, false));
+                        DescribeLastV11Item("Restore the selected axle's stock wheel mod and verify the result.");
                     }
                     else
                     {
@@ -299,8 +509,8 @@ namespace Tutones::UI
                     ImGui::TextColored(V11Theme::Accent, "Lighting & Tire Effects");
                     bool xenon = snapshot.xenon;
                     if (ImGui::Checkbox("Xenon headlights", &xenon))
-                        static_cast<void>(runtime.QueueToggleMod(22, xenon));
-                    DescribeLastV11Item("Enable or disable the vehicle's supported xenon headlight modification.");
+                        static_cast<void>(QueueToggleVerified(snapshot.vehicle, XenonModType, xenon));
+                    DescribeLastV11Item("Enable or disable xenon using the verified Yim-style toggle path.");
 
                     const int xenonPos = std::clamp(g_XenonColor, 0, static_cast<int>(Game::VehicleCatalogs::HeadlightColors.size()) - 1);
                     const char* xenonPreview = Game::VehicleCatalogs::HeadlightColors[static_cast<std::size_t>(xenonPos)].name;
@@ -319,7 +529,7 @@ namespace Tutones::UI
                     if (ImGui::Button("Apply xenon color", ImVec2(-1.0f, 0.0f)))
                         static_cast<void>(runtime.QueueXenonColor(
                             Game::VehicleCatalogs::HeadlightColors[static_cast<std::size_t>(g_XenonColor)].value));
-                    DescribeLastV11Item("Apply the selected xenon headlight color through the vehicle modification runtime.");
+                    DescribeLastV11Item("Apply the selected xenon headlight color through the vehicle runtime.");
 
                     ImGui::Separator();
                     ImGui::TextColored(V11Theme::Accent, "Neon Kit");
@@ -359,8 +569,8 @@ namespace Tutones::UI
                     ImGui::TextColored(V11Theme::Accent, "Tire Effects");
                     bool smokeEnabled = snapshot.tireSmoke;
                     if (ImGui::Checkbox("Tire smoke", &smokeEnabled))
-                        static_cast<void>(runtime.QueueToggleMod(20, smokeEnabled));
-                    DescribeLastV11Item("Enable or disable the vehicle's tire-smoke modification.");
+                        static_cast<void>(QueueToggleVerified(snapshot.vehicle, TireSmokeModType, smokeEnabled));
+                    DescribeLastV11Item("Enable or disable tire smoke using the verified Yim-style toggle path.");
                     g_SmokePreset = std::clamp(g_SmokePreset, 0, static_cast<int>(Game::VehicleCatalogs::TireSmokeColors.size()) - 1);
                     if (ImGui::BeginCombo("Smoke preset", Game::VehicleCatalogs::TireSmokeColors[static_cast<std::size_t>(g_SmokePreset)].name))
                     {
@@ -397,9 +607,10 @@ namespace Tutones::UI
 
                 if (ImGui::BeginTabItem("Status"))
                 {
-                    ImGui::TextColored(V11Theme::Accent, "Workshop Runtime Status");
+                    ImGui::TextColored(V11Theme::Accent, "Vehicle Editor Status");
                     ImGui::Text("Vehicle: %d", snapshot.vehicle);
-                    ImGui::Text("Slot: %d - %s", snapshot.observedModType, ModNames[static_cast<std::size_t>(snapshot.observedModType)]);
+                    ImGui::Text("Requested slot: %d - %s", g_ModType, ModNames[static_cast<std::size_t>(std::clamp(g_ModType, 0, 49))]);
+                    ImGui::Text("Observed slot: %d", snapshot.observedModType);
                     ImGui::Text("Count / installed: %d / %d", snapshot.modCount, snapshot.currentMod);
                     ImGui::Text("Wheel type: %d", snapshot.wheelType);
                     ImGui::Text("Turbo: %s", snapshot.turbo ? "on" : "off");
@@ -408,12 +619,22 @@ namespace Tutones::UI
                     ImGui::Text("Neon RGB: %d, %d, %d", snapshot.neonRed, snapshot.neonGreen, snapshot.neonBlue);
                     ImGui::Text("Tires can burst: %s", snapshot.tyresCanBurst ? "yes" : "no");
                     ImGui::Text("Low grip: %s", snapshot.driftTyres ? "yes" : "no");
-                    if (snapshot.lastAction == Game::Mods::VehicleModAction::None)
-                        ImGui::TextDisabled("No modification action has run yet.");
-                    else if (snapshot.lastActionRejectedAsStale)
-                        ImGui::TextDisabled("Last action was dropped because the vehicle changed.");
-                    else
-                        ImGui::Text("Last action: %s", snapshot.lastActionSucceeded ? "success" : "failed");
+
+                    const auto verifiedAction = g_VerifiedAction.load(std::memory_order_acquire);
+                    const auto verifiedResult = g_VerifiedResult.load(std::memory_order_acquire);
+                    ImGui::Separator();
+                    ImGui::Text("Verified action: %s", VerifiedActionName(verifiedAction));
+                    ImGui::Text("Result: %s", VerifiedResultName(verifiedResult));
+                    if (verifiedAction != VerifiedAction::None)
+                    {
+                        ImGui::Text("Slot: %d | Requested: %d",
+                            g_VerifiedSlot.load(std::memory_order_acquire),
+                            g_VerifiedRequested.load(std::memory_order_acquire));
+                        const int observed = g_VerifiedObserved.load(std::memory_order_acquire);
+                        if (observed != std::numeric_limits<int>::min())
+                            ImGui::Text("Observed: %d", observed);
+                    }
+                    ImGui::TextWrapped("For mods, toggles and wheel families, success now means GTA read-back matched the requested value; dispatching a native alone is not reported as success.");
                     ImGui::EndTabItem();
                 }
                 ImGui::EndTabBar();
