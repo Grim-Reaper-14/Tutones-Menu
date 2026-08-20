@@ -4,12 +4,15 @@
 #include "V11Theme.hpp"
 #include "../features/vehicle/VehicleModificationRuntime.hpp"
 #include "../game/GameState.hpp"
+#include "../game/VehicleNatives.hpp"
 #include "../game/vehicle/VehicleCatalogs.hpp"
 #include "../game/vehicle/VehicleModels.hpp"
+#include "../runtime/GameRuntime.hpp"
 
 #include <imgui.h>
 
 #include <algorithm>
+#include <array>
 #include <cctype>
 #include <cstdio>
 #include <string>
@@ -31,6 +34,24 @@ namespace Tutones::UI
         int g_SelectedPreset{-1};
         std::vector<std::string> g_SavedPresets{};
         const char* g_Message{"Ready"};
+
+        char g_PlateText[9]{};
+        int g_PlateStyle{};
+        constexpr std::array<const char*, 13> PlateStyles{{
+            "Blue on White 1",
+            "Yellow on Black",
+            "Yellow on Blue",
+            "Blue on White 2",
+            "Blue on White 3",
+            "Yankton",
+            "Ecola",
+            "Las Venturas",
+            "Liberty City",
+            "Los Santos Car Meet",
+            "Los Santos Panic",
+            "Los Santos Pounders",
+            "Sprunk",
+        }};
 
         const char* ActionName(Game::Mods::VehicleModAction action) noexcept
         {
@@ -181,6 +202,46 @@ namespace Tutones::UI
             if (!snapshot.valid)
                 ImGui::TextDisabled("Vehicle detected; workshop state is refreshing.");
 
+            ImGui::SeparatorText("License Plate");
+            ImGui::SetNextItemWidth(150.0f);
+            ImGui::InputTextWithHint("##plate_text", "Plate Number", g_PlateText, sizeof(g_PlateText));
+            DescribeLastV11Item("GTA license plates support up to 8 characters, matching YimMenuV2's vehicle editor.");
+            ImGui::SameLine();
+            if (ImGui::Button("Change Plate"))
+            {
+                const Game::Vehicle vehicle = gameState.vehicle;
+                const std::string plate(g_PlateText);
+                const bool queued = Runtime::GameRuntime::Get().Enqueue([vehicle, plate] {
+                    static_cast<void>(Game::VehicleNatives::SetVehicleNumberPlateText(vehicle, plate));
+                });
+                g_Message = queued ? "Plate text queued" : "Plate text rejected";
+            }
+            DescribeLastV11Item("Apply the entered license plate text to the current vehicle on the GTA game thread.");
+
+            ImGui::SetNextItemWidth(260.0f);
+            if (ImGui::BeginCombo("Plate Style", PlateStyles[static_cast<std::size_t>(g_PlateStyle)]))
+            {
+                for (std::size_t i = 0; i < PlateStyles.size(); ++i)
+                {
+                    const bool selected = g_PlateStyle == static_cast<int>(i);
+                    if (ImGui::Selectable(PlateStyles[i], selected))
+                    {
+                        g_PlateStyle = static_cast<int>(i);
+                        const Game::Vehicle vehicle = gameState.vehicle;
+                        const int style = g_PlateStyle;
+                        const bool queued = Runtime::GameRuntime::Get().Enqueue([vehicle, style] {
+                            static_cast<void>(Game::VehicleNatives::SetVehicleNumberPlateTextIndex(vehicle, style));
+                        });
+                        g_Message = queued ? "Plate style queued" : "Plate style rejected";
+                    }
+                    if (selected)
+                        ImGui::SetItemDefaultFocus();
+                }
+                ImGui::EndCombo();
+            }
+            DescribeLastV11Item("Choose one of the 13 plate styles exposed by YimMenuV2, including Yankton, Ecola, Liberty City, Car Meet, Pounders and Sprunk.");
+
+            ImGui::SeparatorText("Vehicle Actions");
             if (ImGui::Button("Repair", ImVec2(150.0f, 0.0f))) static_cast<void>(runtime.QueueRepair());
             DescribeLastV11Item("Repair the current vehicle through the verified vehicle modification runtime.");
             ImGui::SameLine();
