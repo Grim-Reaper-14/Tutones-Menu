@@ -11,6 +11,7 @@
 #include "../features/world/TeleportRuntime.hpp"
 #include "../features/world/WorldRuntime.hpp"
 
+#include <atomic>
 #include <chrono>
 
 namespace Tutones::UI
@@ -75,10 +76,7 @@ namespace Tutones::UI
             world.SetVehicleDensity(settings.world.vehicleDensity);
             world.SetRandomVehicleDensity(settings.world.randomVehicleDensity);
             world.SetParkedVehicleDensity(settings.world.parkedVehicleDensity);
-            if (settings.world.freezeClock)
-                static_cast<void>(world.QueueFreezeClock(true));
-            if (settings.world.blackout)
-                static_cast<void>(world.QueueBlackout(true));
+            static_cast<void>(world.QueuePersistentWorldState(settings.world.freezeClock, settings.world.blackout));
 
             Game::World::TeleportRuntime::Get().SetAutoWaypoint(settings.world.autoWaypoint);
 
