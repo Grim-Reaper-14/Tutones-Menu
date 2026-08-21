@@ -1,5 +1,6 @@
 #pragma once
 
+#include "EntityInspectorWidget.hpp"
 #include "V11Description.hpp"
 #include "V11Theme.hpp"
 #include "../features/world/TeleportRuntime.hpp"
@@ -280,6 +281,8 @@ namespace Tutones::UI
             ImGui::EndDisabled();
 
             RenderRuntimeStatus(snapshot);
+            ImGui::Spacing();
+            RenderEntityInspectorWidget();
         }
     }
 
