@@ -62,7 +62,10 @@ namespace Tutones::UI
 
             ImGui::SeparatorText("Session identity");
             ImGui::Text("Player ID: %d", player.id);
-            ImGui::Text("Active index: %s", player.activeIndex >= 0 ? std::to_string(player.activeIndex).c_str() : "unavailable");
+            if (player.activeIndex >= 0)
+                ImGui::Text("Active index: %d", player.activeIndex);
+            else
+                ImGui::TextDisabled("Active index: unavailable");
             ImGui::Text("Manager slot: %s",
                 player.managerSlotPresent
                     ? (player.managerIndexMatches ? "present / index verified" : "present / index mismatch")
@@ -110,8 +113,8 @@ namespace Tutones::UI
                 ImGui::Text("Deathmatches won / lost: %d / %d", player.deathmatchesWon, player.deathmatchesLost);
                 ImGui::Text("Missions won / played: %d / %d", player.missionWins, player.totalMissionsPlayed);
                 ImGui::Text("Survivals won / played: %d / %d", player.survivalWins, player.totalSurvivalsPlayed);
-                ImGui::Text("Favorite vehicle hash: 0x%08X", player.favoriteVehicleHash);
-                ImGui::Text("Favorite weapon hash: 0x%08X", player.favoriteWeaponHash);
+                ImGui::Text("Favorite vehicle hash: 0x%08X", static_cast<unsigned int>(player.favoriteVehicleHash));
+                ImGui::Text("Favorite weapon hash: 0x%08X", static_cast<unsigned int>(player.favoriteWeaponHash));
             }
             else
             {
@@ -151,7 +154,7 @@ namespace Tutones::UI
 
                 ImGui::TextUnformatted(vehicleTitle.c_str());
                 ImGui::Text("Entity handle: %d", player.vehicle);
-                ImGui::Text("Model hash: 0x%08X", player.vehicleModelHash);
+                ImGui::Text("Model hash: 0x%08X", static_cast<unsigned int>(player.vehicleModelHash));
                 ImGui::Text("Class: %d", player.vehicleClass);
                 ImGui::Text("Plate: %s", player.vehiclePlate.empty() ? "unavailable" : player.vehiclePlate.c_str());
             }
@@ -213,9 +216,16 @@ namespace Tutones::UI
             return;
         }
 
-        ImGui::TextDisabled("Freemode host: %d | participants: %d",
-            roster.freemodeHost,
-            roster.freemodeParticipants);
+        if (roster.freemodeHost >= 0)
+            ImGui::TextDisabled("Freemode host: %d", roster.freemodeHost);
+        else
+            ImGui::TextDisabled("Freemode host: unavailable");
+        ImGui::SameLine();
+        if (roster.freemodeParticipants >= 0)
+            ImGui::TextDisabled("| participants: %d", roster.freemodeParticipants);
+        else
+            ImGui::TextDisabled("| participants: unavailable");
+
         if (roster.managerReady)
         {
             ImGui::TextDisabled("Player manager: loaded %d | physical %d | remote physical %d | max %d",
