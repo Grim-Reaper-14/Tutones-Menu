@@ -58,6 +58,18 @@ namespace Tutones::UI
             ImGui::Text("Player ID: %d", player.id);
             ImGui::Text("Ped state: %s", player.pedAvailable ? "available" : "unavailable");
 
+            ImGui::SeparatorText("Progression");
+            if (player.statsReadable)
+            {
+                ImGui::Text("Rank: %d", player.rank);
+                ImGui::Text("RP: %d", player.rp);
+                ImGui::Text("Money: $%d", player.money);
+            }
+            else
+            {
+                ImGui::TextDisabled("Rank / RP / money: unavailable");
+            }
+
             ImGui::SeparatorText("Vitals");
             if (player.healthReadable)
                 ImGui::Text("Health: %d / %d", player.health, player.maxHealth);
