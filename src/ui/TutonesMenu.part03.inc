@@ -69,6 +69,7 @@ namespace Tutones::UI
 
     void TutonesMenu::Render() noexcept
     {
+        SyncPersistentMenuState();
         RenderMiscOverlay();
 
         if (!Input::Get().IsMenuOpen())
