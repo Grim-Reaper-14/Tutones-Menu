@@ -219,5 +219,6 @@ namespace Tutones::UI
         ImGui::End();
         ImGui::PopStyleColor();
         ImGui::PopStyleVar(3);
+        SyncPersistentMenuState();
     }
 }
