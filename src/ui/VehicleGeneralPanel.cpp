@@ -109,34 +109,53 @@ namespace Tutones::UI
         void RenderSpawner(Game::Mods::VehicleModificationRuntime& runtime, const Game::Mods::VehicleModificationSnapshot& snapshot)
         {
             const auto catalog = runtime.CatalogSnapshot();
+
             ImGui::TextColored(V11Theme::Accent, "Vehicle Spawner");
-            ImGui::TextDisabled("Catalog: %zu models", Game::VehicleCatalogs::VehicleModels.size());
-            if (catalog.ready < catalog.total)
-                ImGui::TextDisabled("Classifying models on GTA thread: %zu / %zu", catalog.ready, catalog.total);
-
-            ImGui::SetNextItemWidth(230.0f);
-            ImGui::InputTextWithHint("##vehicle_search", "Search make, name, or model ID", g_Search, sizeof(g_Search));
-            DescribeLastV11Item("Filter the built-in vehicle catalog by display name, make, or model ID.");
             ImGui::SameLine();
-            const char* classPreview = g_ClassFilter < 0
-                ? "All classes"
-                : Game::VehicleCatalogs::VehicleClassNames[static_cast<std::size_t>(g_ClassFilter)];
-            ImGui::SetNextItemWidth(-1.0f);
-            if (ImGui::BeginCombo("##vehicle_class", classPreview))
-            {
-                if (ImGui::Selectable("All classes", g_ClassFilter == -1))
-                    g_ClassFilter = -1;
-                for (std::size_t i = 0; i < Game::VehicleCatalogs::VehicleClassNames.size(); ++i)
-                {
-                    const bool selected = g_ClassFilter == static_cast<int>(i);
-                    if (ImGui::Selectable(Game::VehicleCatalogs::VehicleClassNames[i], selected))
-                        g_ClassFilter = static_cast<int>(i);
-                }
-                ImGui::EndCombo();
-            }
-            DescribeLastV11Item("Limit the vehicle browser to one GTA vehicle class, or show every class.");
+            ImGui::TextDisabled("%zu vehicles", Game::VehicleCatalogs::VehicleModels.size());
+            if (catalog.ready < catalog.total)
+                ImGui::TextDisabled("Catalog loading: %zu / %zu", catalog.ready, catalog.total);
 
-            if (ImGui::BeginListBox("##vehicle_catalog", ImVec2(-1.0f, 188.0f)))
+            ImGui::SeparatorText("Browse Vehicles");
+            if (ImGui::BeginTable("##vehicle_spawn_filters", 2, ImGuiTableFlags_SizingStretchProp))
+            {
+                ImGui::TableSetupColumn("Search", ImGuiTableColumnFlags_WidthStretch, 2.0f);
+                ImGui::TableSetupColumn("Class", ImGuiTableColumnFlags_WidthStretch, 1.0f);
+
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0);
+                ImGui::TextDisabled("Search");
+                ImGui::TableSetColumnIndex(1);
+                ImGui::TextDisabled("Vehicle Class");
+
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0);
+                ImGui::SetNextItemWidth(-1.0f);
+                ImGui::InputTextWithHint("##vehicle_search", "Make, name, or model ID", g_Search, sizeof(g_Search));
+                DescribeLastV11Item("Filter the built-in vehicle catalog by display name, make, or model ID.");
+
+                ImGui::TableSetColumnIndex(1);
+                const char* classPreview = g_ClassFilter < 0
+                    ? "All classes"
+                    : Game::VehicleCatalogs::VehicleClassNames[static_cast<std::size_t>(g_ClassFilter)];
+                ImGui::SetNextItemWidth(-1.0f);
+                if (ImGui::BeginCombo("##vehicle_class", classPreview))
+                {
+                    if (ImGui::Selectable("All classes", g_ClassFilter == -1))
+                        g_ClassFilter = -1;
+                    for (std::size_t i = 0; i < Game::VehicleCatalogs::VehicleClassNames.size(); ++i)
+                    {
+                        const bool selected = g_ClassFilter == static_cast<int>(i);
+                        if (ImGui::Selectable(Game::VehicleCatalogs::VehicleClassNames[i], selected))
+                            g_ClassFilter = static_cast<int>(i);
+                    }
+                    ImGui::EndCombo();
+                }
+                DescribeLastV11Item("Limit the vehicle browser to one GTA vehicle class, or show every class.");
+                ImGui::EndTable();
+            }
+
+            if (ImGui::BeginListBox("##vehicle_catalog", ImVec2(-1.0f, 148.0f)))
             {
                 for (std::size_t i = 0; i < Game::VehicleCatalogs::VehicleModels.size(); ++i)
                 {
@@ -167,22 +186,52 @@ namespace Tutones::UI
                 ImGui::EndListBox();
             }
 
+            ImGui::SeparatorText("Vehicle to Spawn");
+            if (g_SelectedModel >= 0
+                && g_SelectedModel < static_cast<int>(Game::VehicleCatalogs::VehicleModels.size()))
+            {
+                const auto selectedIndex = static_cast<std::size_t>(g_SelectedModel);
+                const char* selectedDisplay = selectedIndex < catalog.displayNames.size()
+                    && !catalog.displayNames[selectedIndex].empty()
+                    ? catalog.displayNames[selectedIndex].c_str()
+                    : Game::VehicleCatalogs::VehicleModels[selectedIndex];
+                ImGui::Text("Selected: %s", selectedDisplay);
+            }
+            else
+            {
+                ImGui::TextDisabled("No catalog vehicle selected; enter a model name below.");
+            }
+
+            ImGui::TextDisabled("Model name / add-on");
             ImGui::SetNextItemWidth(-1.0f);
-            ImGui::InputTextWithHint("##direct_model", "Direct model / add-on fallback", g_SpawnModel, sizeof(g_SpawnModel));
+            ImGui::InputTextWithHint("##direct_model", "Vehicle model name", g_SpawnModel, sizeof(g_SpawnModel));
             DescribeLastV11Item("Enter a model name directly, including supported add-on model names not found in the built-in catalog.");
-            ImGui::Checkbox("Spawn inside", &g_SpawnInside);
-            DescribeLastV11Item("Place your player directly into the newly spawned vehicle when the spawn succeeds.");
-            ImGui::SameLine();
-            ImGui::Checkbox("Spawn maxed", &g_SpawnMaxed);
-            DescribeLastV11Item("Apply the runtime's supported maximum vehicle modifications after the vehicle is spawned.");
-            if (ImGui::Button("Spawn selected vehicle", ImVec2(-1.0f, 0.0f)))
+
+            ImGui::SeparatorText("Spawn Options");
+            if (ImGui::BeginTable("##vehicle_spawn_options", 2, ImGuiTableFlags_SizingStretchSame))
+            {
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0);
+                ImGui::Checkbox("Spawn inside", &g_SpawnInside);
+                DescribeLastV11Item("Place your player directly into the newly spawned vehicle when the spawn succeeds.");
+
+                ImGui::TableSetColumnIndex(1);
+                ImGui::Checkbox("Spawn maxed", &g_SpawnMaxed);
+                DescribeLastV11Item("Apply the runtime's supported maximum vehicle modifications after the vehicle is spawned.");
+                ImGui::EndTable();
+            }
+
+            ImGui::BeginDisabled(snapshot.spawnPending);
+            if (ImGui::Button(snapshot.spawnPending ? "Loading vehicle..." : "Spawn Vehicle", ImVec2(-1.0f, 0.0f)))
             {
                 const bool queued = runtime.QueueSpawnVehicle(g_SpawnModel, g_SpawnInside, g_SpawnMaxed);
                 g_Message = queued ? "Spawn request queued" : "Spawn request rejected";
             }
+            ImGui::EndDisabled();
             DescribeLastV11Item("Queue the selected or directly entered model for spawning on the GTA game thread.");
+
             if (snapshot.spawnPending)
-                ImGui::Text("Loading model 0x%08X...", snapshot.pendingSpawnModel);
+                ImGui::TextDisabled("Loading model 0x%08X...", snapshot.pendingSpawnModel);
         }
 
         void RenderCurrent(
