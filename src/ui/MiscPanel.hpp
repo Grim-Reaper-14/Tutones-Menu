@@ -55,8 +55,6 @@ namespace Tutones::UI
         inline int g_WeatherIndex{};
         inline bool g_FreezeClock{};
         inline bool g_Blackout{};
-        inline bool g_AquaLungs{};
-        inline bool g_InfiniteOxygen{};
 
         constexpr std::array<const char*, 15> WeatherNames{{
             "EXTRASUNNY", "CLEAR", "CLOUDS", "SMOG", "FOGGY",
@@ -217,7 +215,7 @@ namespace Tutones::UI
                 g_ShowSessionInfo.store(session, std::memory_order_release);
             DescribeLastV11Item("Show Online session state, player count and the current Freemode host slot when available.");
 
-            QueueSample(true);
+            QueueSample();
             ImGui::Spacing();
             ImGui::TextDisabled("Overlay player telemetry refreshes at 250 ms.");
         }
@@ -327,12 +325,14 @@ namespace Tutones::UI
                 playerRuntime.SetInfiniteParachutes(parachutes);
             DescribeLastV11Item("Maintain a reserve parachute and restore the parachute gadget when needed.");
 
-            if (ImGui::Checkbox("Aqua lungs", &g_AquaLungs))
-                playerRuntime.SetAquaLungs(g_AquaLungs);
+            bool aquaLungs = player.aquaLungs;
+            if (ImGui::Checkbox("Aqua lungs", &aquaLungs))
+                playerRuntime.SetAquaLungs(aquaLungs);
             DescribeLastV11Item("Continuously refill the local player's underwater breath bar.");
 
-            if (ImGui::Checkbox("Infinite oxygen", &g_InfiniteOxygen))
-                playerRuntime.SetInfiniteOxygen(g_InfiniteOxygen);
+            bool infiniteOxygen = player.infiniteOxygen;
+            if (ImGui::Checkbox("Infinite oxygen", &infiniteOxygen))
+                playerRuntime.SetInfiniteOxygen(infiniteOxygen);
             DescribeLastV11Item("Extend the local player's underwater time while enabled; disabling restores GTA's normal underwater limit.");
 
             if (ImGui::Button("Clear blood / dirt / wetness", ImVec2(-1.0f, 0.0f)))
