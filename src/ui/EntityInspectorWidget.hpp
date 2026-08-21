@@ -2,6 +2,7 @@
 
 #include "V11Description.hpp"
 #include "V11Theme.hpp"
+#include "../core/config/MenuSettings.hpp"
 #include "../game/EntityInspectorNatives.hpp"
 #include "../game/PlayerNatives.hpp"
 #include "../game/VehicleNatives.hpp"
@@ -397,14 +398,22 @@ namespace Tutones::UI
     {
         using namespace EntityInspectorDetail;
 
-        static bool liveTargeting = true;
+        static bool initialized{};
+        static bool liveTargeting{true};
+        if (!initialized)
+        {
+            liveTargeting = Core::Config::MenuSettingsService::Get().Current().world.entityInspectorLive;
+            initialized = true;
+        }
+
         if (liveTargeting)
             Runtime::Get().RequestScan();
 
         const Snapshot snapshot = Runtime::Get().GetSnapshot();
 
         ImGui::SeparatorText("Entity Inspector");
-        ImGui::Checkbox("Target Under Crosshair", &liveTargeting);
+        if (ImGui::Checkbox("Target Under Crosshair", &liveTargeting))
+            Core::Config::MenuSettingsService::Get().Current().world.entityInspectorLive = liveTargeting;
         DescribeLastV11Item("Continuously raycast from the gameplay camera and inspect the entity currently under the crosshair. Your own ped is ignored by the ray.");
         ImGui::SameLine();
         ImGui::TextDisabled("%s", liveTargeting ? "LIVE" : "PAUSED");
