@@ -3,6 +3,7 @@
 #include "EntityInspectorWidget.hpp"
 #include "V11Description.hpp"
 #include "V11Theme.hpp"
+#include "../core/config/MenuSettings.hpp"
 #include "../features/world/TeleportRuntime.hpp"
 #include "../features/world/WorldRuntime.hpp"
 
@@ -22,6 +23,7 @@ namespace Tutones::UI
         inline int g_SetMinute{};
         inline int g_WeatherIndex{};
         inline float g_ClearRadius{50.0f};
+        inline bool g_PersistentUiLoaded{};
         inline std::chrono::steady_clock::time_point g_NextClockSample{};
 
         inline constexpr std::array<const char*, 15> WeatherNames{{
@@ -29,6 +31,24 @@ namespace Tutones::UI
             "OVERCAST", "RAIN", "THUNDER", "CLEARING", "NEUTRAL",
             "SNOW", "BLIZZARD", "SNOWLIGHT", "XMAS", "HALLOWEEN",
         }};
+
+        inline Core::Config::WorldMenuSettings& SavedWorld() noexcept
+        {
+            return Core::Config::MenuSettingsService::Get().Current().world;
+        }
+
+        inline void EnsurePersistentUiLoaded() noexcept
+        {
+            if (g_PersistentUiLoaded)
+                return;
+
+            const auto& saved = SavedWorld();
+            g_SetHour = std::clamp(saved.setHour, 0, 23);
+            g_SetMinute = std::clamp(saved.setMinute, 0, 59);
+            g_WeatherIndex = std::clamp(saved.weatherIndex, 0, static_cast<int>(WeatherNames.size()) - 1);
+            g_ClearRadius = std::clamp(saved.clearRadius, 5.0f, 200.0f);
+            g_PersistentUiLoaded = true;
+        }
 
         inline bool RenderToggleSwitch(const char* label, bool& value) noexcept
         {
@@ -84,6 +104,7 @@ namespace Tutones::UI
         {
             auto& runtime = Game::World::WorldRuntime::Get();
             const auto snapshot = runtime.Snapshot();
+            auto& saved = SavedWorld();
 
             ImGui::TextColored(V11Theme::Accent, "Population density");
             ImGui::TextWrapped("Density overrides are applied every GTA script tick only while a value differs from 1.00. Resetting to normal stops the loop automatically.");
@@ -91,27 +112,42 @@ namespace Tutones::UI
 
             float pedDensity = snapshot.pedDensity;
             if (ImGui::SliderFloat("Ambient peds", &pedDensity, 0.0f, 1.0f, "%.2f"))
+            {
                 runtime.SetPedDensity(pedDensity);
+                saved.pedDensity = pedDensity;
+            }
             DescribeLastV11Item("Scale ambient pedestrian population for the current local world frame.");
 
             float scenarioDensity = snapshot.scenarioPedDensity;
             if (ImGui::SliderFloat("Scenario peds", &scenarioDensity, 0.0f, 1.0f, "%.2f"))
+            {
                 runtime.SetScenarioPedDensity(scenarioDensity);
+                saved.scenarioPedDensity = scenarioDensity;
+            }
             DescribeLastV11Item("Scale scenario-driven pedestrians for both interior and exterior world population.");
 
             float vehicleDensity = snapshot.vehicleDensity;
             if (ImGui::SliderFloat("Traffic", &vehicleDensity, 0.0f, 1.0f, "%.2f"))
+            {
                 runtime.SetVehicleDensity(vehicleDensity);
+                saved.vehicleDensity = vehicleDensity;
+            }
             DescribeLastV11Item("Scale the main ambient traffic density multiplier for the current frame.");
 
             float randomVehicleDensity = snapshot.randomVehicleDensity;
             if (ImGui::SliderFloat("Random traffic", &randomVehicleDensity, 0.0f, 1.0f, "%.2f"))
+            {
                 runtime.SetRandomVehicleDensity(randomVehicleDensity);
+                saved.randomVehicleDensity = randomVehicleDensity;
+            }
             DescribeLastV11Item("Scale randomly generated traffic independently from the main vehicle density.");
 
             float parkedDensity = snapshot.parkedVehicleDensity;
             if (ImGui::SliderFloat("Parked vehicles", &parkedDensity, 0.0f, 1.0f, "%.2f"))
+            {
                 runtime.SetParkedVehicleDensity(parkedDensity);
+                saved.parkedVehicleDensity = parkedDensity;
+            }
             DescribeLastV11Item("Scale ambient parked-vehicle generation for the current world frame.");
 
             ImGui::Spacing();
@@ -122,6 +158,11 @@ namespace Tutones::UI
                 runtime.SetVehicleDensity(0.20f);
                 runtime.SetRandomVehicleDensity(0.20f);
                 runtime.SetParkedVehicleDensity(0.25f);
+                saved.pedDensity = 0.15f;
+                saved.scenarioPedDensity = 0.15f;
+                saved.vehicleDensity = 0.20f;
+                saved.randomVehicleDensity = 0.20f;
+                saved.parkedVehicleDensity = 0.25f;
             }
             DescribeLastV11Item("Apply a low-population preset without completely emptying the map.");
             ImGui::SameLine();
@@ -132,11 +173,23 @@ namespace Tutones::UI
                 runtime.SetVehicleDensity(0.0f);
                 runtime.SetRandomVehicleDensity(0.0f);
                 runtime.SetParkedVehicleDensity(0.0f);
+                saved.pedDensity = 0.0f;
+                saved.scenarioPedDensity = 0.0f;
+                saved.vehicleDensity = 0.0f;
+                saved.randomVehicleDensity = 0.0f;
+                saved.parkedVehicleDensity = 0.0f;
             }
             DescribeLastV11Item("Set all ambient population multipliers to zero while leaving scripted entities under their own game logic.");
             ImGui::SameLine();
             if (ImGui::Button("Normal", ImVec2(-1.0f, 0.0f)))
+            {
                 runtime.ResetDensity();
+                saved.pedDensity = 1.0f;
+                saved.scenarioPedDensity = 1.0f;
+                saved.vehicleDensity = 1.0f;
+                saved.randomVehicleDensity = 1.0f;
+                saved.parkedVehicleDensity = 1.0f;
+            }
             DescribeLastV11Item("Restore all population multipliers to GTA's normal 1.00 values and stop the density loop.");
 
             ImGui::TextDisabled("Density loop: %s", snapshot.densityLoopRunning ? "active" : "idle");
@@ -145,6 +198,7 @@ namespace Tutones::UI
         inline void RenderTimeWeather() noexcept
         {
             auto& runtime = Game::World::WorldRuntime::Get();
+            auto& saved = SavedWorld();
             const auto now = std::chrono::steady_clock::now();
             if (g_NextClockSample == std::chrono::steady_clock::time_point{} || now >= g_NextClockSample)
             {
@@ -159,9 +213,11 @@ namespace Tutones::UI
             else
                 ImGui::TextDisabled("Current local clock: unavailable");
 
-            ImGui::SliderInt("Hour", &g_SetHour, 0, 23);
+            if (ImGui::SliderInt("Hour", &g_SetHour, 0, 23))
+                saved.setHour = g_SetHour;
             DescribeLastV11Item("Choose the local GTA world hour to apply.");
-            ImGui::SliderInt("Minute", &g_SetMinute, 0, 59);
+            if (ImGui::SliderInt("Minute", &g_SetMinute, 0, 59))
+                saved.setMinute = g_SetMinute;
             DescribeLastV11Item("Choose the local GTA world minute to apply.");
 
             ImGui::BeginDisabled(snapshot.actionPending);
@@ -173,13 +229,17 @@ namespace Tutones::UI
             bool freezeClock = snapshot.freezeClock;
             ImGui::BeginDisabled(snapshot.actionPending);
             if (RenderToggleSwitch("Freeze Time", freezeClock))
+            {
+                saved.freezeClock = freezeClock;
                 runtime.QueueFreezeClock(freezeClock);
+            }
             ImGui::EndDisabled();
             DescribeLastV11Item("Pause or resume the local GTA world clock. Disable before unloading if you want normal time progression immediately restored.");
 
             ImGui::Separator();
             ImGui::TextColored(V11Theme::Accent, "Weather & lighting");
-            ImGui::Combo("Weather", &g_WeatherIndex, WeatherNames.data(), static_cast<int>(WeatherNames.size()));
+            if (ImGui::Combo("Weather", &g_WeatherIndex, WeatherNames.data(), static_cast<int>(WeatherNames.size())))
+                saved.weatherIndex = g_WeatherIndex;
             DescribeLastV11Item("Choose a GTA weather type for the local world.");
 
             ImGui::BeginDisabled(snapshot.actionPending);
@@ -191,7 +251,10 @@ namespace Tutones::UI
             bool blackout = snapshot.blackout;
             ImGui::BeginDisabled(snapshot.actionPending);
             if (RenderToggleSwitch("Blackout", blackout))
+            {
+                saved.blackout = blackout;
                 runtime.QueueBlackout(blackout);
+            }
             ImGui::EndDisabled();
             DescribeLastV11Item("Toggle local artificial-light blackout state using the verified Enhanced mapping.");
 
@@ -215,7 +278,10 @@ namespace Tutones::UI
             bool autoWaypoint = snapshot.autoWaypointEnabled;
             ImGui::BeginDisabled(!snapshot.nativeReady);
             if (RenderToggleSwitch("Auto Teleport to Waypoint", autoWaypoint))
+            {
+                SavedWorld().autoWaypoint = autoWaypoint;
                 runtime.SetAutoWaypoint(autoWaypoint);
+            }
             DescribeLastV11Item("Automatically teleport once when a waypoint is created or moved. Removing and placing the waypoint again will trigger another teleport.");
             ImGui::EndDisabled();
 
@@ -258,7 +324,8 @@ namespace Tutones::UI
             ImGui::TextWrapped("These are local clear-area commands centered on your current player position. Avoid using them around mission content you want to keep loaded.");
             ImGui::Separator();
 
-            ImGui::SliderFloat("Radius", &g_ClearRadius, 5.0f, 200.0f, "%.0f m");
+            if (ImGui::SliderFloat("Radius", &g_ClearRadius, 5.0f, 200.0f, "%.0f m"))
+                SavedWorld().clearRadius = g_ClearRadius;
             DescribeLastV11Item("Set the radius used by the local ambient-entity cleanup commands.");
 
             ImGui::BeginDisabled(snapshot.actionPending);
@@ -288,6 +355,7 @@ namespace Tutones::UI
 
     inline void RenderWorldPanel(std::size_t subtab) noexcept
     {
+        WorldPanelDetail::EnsurePersistentUiLoaded();
         const std::size_t index = subtab < 4 ? subtab : 0;
         constexpr const char* names[] = {"General", "Time & Weather", "Teleport", "Entities"};
 
