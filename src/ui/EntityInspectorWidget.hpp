@@ -164,33 +164,9 @@ namespace Tutones::UI
                 if (!localPed || *localPed == 0)
                 {
                     SetUnavailable("Local player ped is unavailable.");
-                    m_PendingShapeTest = 0;
                     return;
                 }
 
-                if (m_PendingShapeTest != 0)
-                {
-                    const auto result = Game::EntityInspectorNatives::GetShapeTestResultIncludingMaterial(m_PendingShapeTest);
-                    if (!result)
-                    {
-                        SetUnavailable("Shape-test result native is unavailable.");
-                        m_PendingShapeTest = 0;
-                        return;
-                    }
-
-                    if (result->status == 1)
-                        return;
-
-                    m_PendingShapeTest = 0;
-                    if (result->status == 2)
-                        PublishResult(*localPed, *result);
-                }
-
-                StartRay(*localPed);
-            }
-
-            void StartRay(Game::Ped localPed) noexcept
-            {
                 const auto camera = Game::EntityInspectorNatives::GetGameplayCamCoord();
                 const auto rotation = Game::EntityInspectorNatives::GetGameplayCamRot(2);
                 if (!camera || !rotation)
@@ -205,22 +181,28 @@ namespace Tutones::UI
                     camera->y + direction.y * 1000.0f,
                     camera->z + direction.z * 1000.0f};
 
-                const auto handle = Game::EntityInspectorNatives::StartShapeTestLosProbe(
+                const auto result = Game::EntityInspectorNatives::CastLosProbe(
                     *camera,
                     finish,
                     -1,
-                    localPed,
+                    *localPed,
                     7);
-
-                if (!handle || *handle == 0)
+                if (!result)
                 {
-                    SetUnavailable("Unable to start crosshair shape test.");
+                    SetUnavailable("Unable to run the crosshair shape test.");
                     return;
                 }
 
-                m_PendingShapeTest = *handle;
-                std::scoped_lock lock(m_Mutex);
-                m_Snapshot.nativeReady = true;
+                if (result->status != 2)
+                {
+                    Snapshot next;
+                    next.nativeReady = true;
+                    next.message = "Crosshair shape test returned no ready result.";
+                    Store(std::move(next));
+                    return;
+                }
+
+                PublishResult(*localPed, *result);
             }
 
             void PublishResult(Game::Ped localPed, const Game::EntityInspectorNatives::ShapeResult& result) noexcept
@@ -338,7 +320,6 @@ namespace Tutones::UI
             Snapshot m_Snapshot;
             std::atomic<bool> m_TaskQueued{false};
             std::chrono::steady_clock::time_point m_NextScan{};
-            int m_PendingShapeTest{};
         };
 
         inline std::string BuildDebugData(const Snapshot& snapshot)
