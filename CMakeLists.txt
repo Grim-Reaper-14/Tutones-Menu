@@ -90,6 +90,7 @@ add_library(TutonesMenu SHARED
     src/ui/Input.cpp
     src/ui/LscBypassWidget.cpp
     src/ui/NetworkPanel.cpp
+    src/ui/NetworkPlayersPanel.cpp
     src/ui/PersonalVehiclePanel.cpp
     src/ui/PlayerOnlinePanel.cpp
     src/ui/PlayerPanel.cpp
@@ -196,6 +197,7 @@ source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR}/src PREFIX "Source" FILES
     src/game/GameState.cpp
     src/game/GameState.hpp
     src/game/Natives.hpp
+    src/game/NetworkPlayerNatives.hpp
     src/game/PlayerNatives.hpp
     src/game/VehicleNatives.hpp
     src/game/memory/BytePatch.cpp
@@ -245,6 +247,8 @@ source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR}/src PREFIX "Source" FILES
     src/ui/LscBypassWidget.hpp
     src/ui/NetworkPanel.cpp
     src/ui/NetworkPanel.hpp
+    src/ui/NetworkPlayersPanel.cpp
+    src/ui/NetworkPlayersPanel.hpp
     src/ui/PersonalVehiclePanel.cpp
     src/ui/PersonalVehiclePanel.hpp
     src/ui/PlayerOnlinePanel.cpp
