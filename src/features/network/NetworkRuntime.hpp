@@ -30,11 +30,40 @@ namespace Tutones::Game::NetworkFeatures
         int id{-1};
         bool active{};
         bool local{};
+        bool freemodeHost{};
         std::string name{};
+
+        bool managerSlotPresent{};
+        bool managerIndexMatches{};
+        bool managerLocalFlag{};
+        int activeIndex{-1};
+
         bool statsReadable{};
+        int currentActivity{-1};
+        int missionScriptInstance{-1};
+        int team{-1};
         int rank{};
         int rp{};
+        int crewRp{};
+        int walletBalance{};
         int money{};
+        float kdRatio{};
+        int killsOnPlayers{};
+        int deathsByPlayers{};
+        int racesWon{};
+        int racesLost{};
+        int deathmatchesWon{};
+        int deathmatchesLost{};
+        int missionWins{};
+        int totalMissionsPlayed{};
+        int survivalWins{};
+        int totalSurvivalsPlayed{};
+        int communicationRestrictions{};
+        bool canSpectate{};
+        float weaponAccuracy{};
+        std::uint32_t favoriteVehicleHash{};
+        std::uint32_t favoriteWeaponHash{};
+
         int ped{};
         bool pedAvailable{};
         bool healthReadable{};
@@ -50,17 +79,35 @@ namespace Tutones::Game::NetworkFeatures
         float z{};
         bool distanceReadable{};
         float distance{};
+
+        bool vehicleReadable{};
+        int vehicle{};
+        std::uint32_t vehicleModelHash{};
+        int vehicleClass{-1};
+        std::string vehicleMake{};
+        std::string vehicleName{};
+        std::string vehiclePlate{};
+
         bool latencyReadable{};
         float averageLatency{};
         bool packetLossReadable{};
         float averagePacketLoss{};
+        bool resendReadable{};
+        int highestReliableResendCount{};
     };
 
     struct NetworkPlayerRosterSnapshot final
     {
         bool backendReady{};
+        bool managerReady{};
         int localPlayer{-1};
+        int freemodeHost{-1};
+        int freemodeParticipants{-1};
         int activeCount{};
+        int managerMaxPlayers{};
+        int managerLoadedPlayers{};
+        int managerPhysicalPlayers{};
+        int managerNonLocalPhysicalPlayers{};
         std::uint64_t generation{};
         std::array<NetworkPlayerSnapshot, 32> players{};
     };
