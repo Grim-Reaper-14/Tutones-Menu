@@ -2,6 +2,7 @@
 
 #include "V11Description.hpp"
 #include "EnhancedHashCatalogWidget.hpp"
+#include "NetworkPlayersPanel.hpp"
 #include "V11Theme.hpp"
 #include "../features/game/GameSessionRuntime.hpp"
 #include "../features/network/EnhancedCatalog.hpp"
@@ -250,7 +251,7 @@ namespace Tutones::UI
 
     void RenderNetworkPanel(std::size_t subtab) noexcept
     {
-        const std::size_t index = subtab < 3 ? subtab : 0;
+        const std::size_t index = subtab < 4 ? subtab : 0;
         ImGui::SetCursorPos(ImVec2(226.0f, 16.0f));
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(14.0f, 12.0f));
         ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 3.0f);
@@ -258,7 +259,7 @@ namespace Tutones::UI
         ImGui::PushStyleColor(ImGuiCol_Border, V11Theme::PanelBorder);
         if (ImGui::BeginChild("##network_panel", ImVec2(490.0f, 430.0f), true))
         {
-            constexpr const char* names[] = {"Services", "Quality of Life", "Player State"};
+            constexpr const char* names[] = {"Services", "Quality of Life", "Players", "Player State"};
             ImGui::TextColored(V11Theme::Accent, "Network");
             ImGui::SameLine();
             ImGui::TextDisabled("%s", names[index]);
@@ -267,6 +268,8 @@ namespace Tutones::UI
                 RenderServices(GameSessionRuntime::Get());
             else if (index == 1)
                 RenderQualityOfLife();
+            else if (index == 2)
+                RenderNetworkPlayersPanel();
             else
                 RenderPlayerState();
         }
