@@ -262,7 +262,7 @@ namespace Tutones::UI
             ImGui::TextDisabled("%s", g_Message);
             RenderLastAction(snapshot);
             ImGui::Spacing();
-            RenderAdditionalTransactionLists();
+            RenderAdditionalTransactionLists(true);
         }
 
         void RenderUnlocks(const RecoverySnapshot& snapshot) noexcept
