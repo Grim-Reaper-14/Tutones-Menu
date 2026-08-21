@@ -36,6 +36,9 @@ namespace Tutones::Game::NetworkPlayerNatives
             GetPlayerPedScriptIndex,
             GetAverageLatency,
             GetAveragePacketLoss,
+            GetHighestReliableResendCount,
+            GetHostOfScript,
+            GetNumScriptParticipants,
             HandlerCount,
         };
 
@@ -48,14 +51,11 @@ namespace Tutones::Game::NetworkPlayerNatives
         inline bool ResolveHandlers() noexcept
         {
             auto& handlers = Handlers();
-            if (handlers[IsPlayerActive]
-                && handlers[GetPlayerName]
-                && handlers[GetPlayerPedScriptIndex]
-                && handlers[GetAverageLatency]
-                && handlers[GetAveragePacketLoss])
-            {
+            bool ready = true;
+            for (const auto handler : handlers)
+                ready = ready && handler != nullptr;
+            if (ready)
                 return true;
-            }
 
             if (!Native::NativeRegistry::Get().CanInvokeOnCurrentThread())
                 return false;
@@ -71,6 +71,9 @@ namespace Tutones::Game::NetworkPlayerNatives
                 0xE8466DBC1A7E794Full, // GET_PLAYER_PED_SCRIPT_INDEX
                 0xD29CB5E83871293Bull, // NETWORK_GET_AVERAGE_LATENCY
                 0xA26711392EBF5371ull, // NETWORK_GET_AVERAGE_PACKET_LOSS
+                0x2031266910F9D195ull, // NETWORK_GET_HIGHEST_RELIABLE_RESEND_COUNT
+                0xF1A4B8228C5E44B7ull, // NETWORK_GET_HOST_OF_SCRIPT
+                0x996932F6DFE01964ull, // NETWORK_GET_NUM_SCRIPT_PARTICIPANTS
             };
 
             NativeProgram program{};
@@ -84,11 +87,12 @@ namespace Tutones::Game::NetworkPlayerNatives
                     static_cast<std::uintptr_t>(slots[index]));
             }
 
-            return handlers[IsPlayerActive]
-                && handlers[GetPlayerName]
-                && handlers[GetPlayerPedScriptIndex]
-                && handlers[GetAverageLatency]
-                && handlers[GetAveragePacketLoss];
+            for (const auto handler : handlers)
+            {
+                if (!handler)
+                    return false;
+            }
+            return true;
         }
     }
 
@@ -158,5 +162,55 @@ namespace Tutones::Game::NetworkPlayerNatives
             return std::nullopt;
         Detail::Handlers()[Detail::GetAveragePacketLoss](&context);
         return context.GetReturnValue<float>();
+    }
+
+    [[nodiscard]] inline std::optional<int> GetHighestReliableResendCount(Player player) noexcept
+    {
+        if (player < 0 || player >= 32 || !Detail::ResolveHandlers())
+            return std::nullopt;
+
+        Native::CallContext context;
+        if (!context.PushArg(player))
+            return std::nullopt;
+        Detail::Handlers()[Detail::GetHighestReliableResendCount](&context);
+        return context.GetReturnValue<int>();
+    }
+
+    [[nodiscard]] inline std::optional<Player> GetHostOfScript(
+        const char* scriptName,
+        int instanceId = -1,
+        int positionHash = 0) noexcept
+    {
+        if (!scriptName || !*scriptName || !Detail::ResolveHandlers())
+            return std::nullopt;
+
+        Native::CallContext context;
+        if (!context.PushArg(scriptName)
+            || !context.PushArg(instanceId)
+            || !context.PushArg(positionHash))
+        {
+            return std::nullopt;
+        }
+        Detail::Handlers()[Detail::GetHostOfScript](&context);
+        return context.GetReturnValue<Player>();
+    }
+
+    [[nodiscard]] inline std::optional<int> GetNumScriptParticipants(
+        const char* scriptName,
+        int instanceId = -1,
+        int positionHash = 0) noexcept
+    {
+        if (!scriptName || !*scriptName || !Detail::ResolveHandlers())
+            return std::nullopt;
+
+        Native::CallContext context;
+        if (!context.PushArg(scriptName)
+            || !context.PushArg(instanceId)
+            || !context.PushArg(positionHash))
+        {
+            return std::nullopt;
+        }
+        Detail::Handlers()[Detail::GetNumScriptParticipants](&context);
+        return context.GetReturnValue<int>();
     }
 }
