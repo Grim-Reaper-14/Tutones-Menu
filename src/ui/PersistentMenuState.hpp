@@ -165,6 +165,8 @@ namespace Tutones::UI
         if (!Game::Recovery::RecoveryRuntime::Get().IsRunning()
             || !Game::NetworkFeatures::NetworkRuntime::Get().IsRunning())
         {
+            g_Staged = false;
+            g_CaptureAfter = {};
             return;
         }
 
