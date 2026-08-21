@@ -13,11 +13,13 @@
 #include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <cstdio>
 #include <iomanip>
 #include <mutex>
 #include <optional>
 #include <sstream>
 #include <string>
+#include <utility>
 
 namespace Tutones::UI
 {
@@ -83,6 +85,11 @@ namespace Tutones::UI
             const float dy = a.y - b.y;
             const float dz = a.z - b.z;
             return std::sqrt(dx * dx + dy * dy + dz * dz);
+        }
+
+        inline float Magnitude(const Vector3& value) noexcept
+        {
+            return std::sqrt(value.x * value.x + value.y * value.y + value.z * value.z);
         }
 
         inline Vector3 RotationToDirection(const Vector3& rotation) noexcept
@@ -275,14 +282,18 @@ namespace Tutones::UI
                         if (displayKey && *displayKey)
                         {
                             const auto displayName = Game::VehicleNatives::GetLabelText(*displayKey);
-                            next.modelName = displayName ? SafeLabel(*displayName) : SafeLabel(*displayKey);
+                            next.modelName = displayName ? SafeLabel(*displayName) : std::string{};
+                            if (next.modelName.empty())
+                                next.modelName = SafeLabel(*displayKey);
                         }
 
                         const auto makeKey = Game::VehicleNatives::GetMakeNameFromVehicleModel(*next.modelHash);
                         if (makeKey && *makeKey)
                         {
                             const auto makeName = Game::VehicleNatives::GetLabelText(*makeKey);
-                            next.vehicleMake = makeName ? SafeLabel(*makeName) : SafeLabel(*makeKey);
+                            next.vehicleMake = makeName ? SafeLabel(*makeName) : std::string{};
+                            if (next.vehicleMake.empty())
+                                next.vehicleMake = SafeLabel(*makeKey);
                         }
                         next.vehicleClass = Game::VehicleNatives::GetVehicleClassFromName(*next.modelHash);
                     }
@@ -342,12 +353,18 @@ namespace Tutones::UI
 
             if (snapshot.position)
                 out << "Position: " << snapshot.position->x << ", " << snapshot.position->y << ", " << snapshot.position->z << '\n';
+            else if (snapshot.hitPosition)
+                out << "Hit Position: " << snapshot.hitPosition->x << ", " << snapshot.hitPosition->y << ", " << snapshot.hitPosition->z << '\n';
             else
                 out << "Position: N/A\n";
 
             out << "Heading: " << (snapshot.heading ? std::to_string(*snapshot.heading) : "N/A") << '\n';
             if (snapshot.velocity)
+            {
                 out << "Velocity: " << snapshot.velocity->x << ", " << snapshot.velocity->y << ", " << snapshot.velocity->z << '\n';
+                const float speed = snapshot.speed.value_or(Magnitude(*snapshot.velocity));
+                out << "Speed: " << speed << " m/s\n";
+            }
             else
                 out << "Velocity: N/A\n";
 
@@ -446,7 +463,7 @@ namespace Tutones::UI
         if (snapshot.velocity)
         {
             char text[160]{};
-            const float speedMps = snapshot.speed.value_or(0.0f);
+            const float speedMps = snapshot.speed.value_or(Magnitude(*snapshot.velocity));
             std::snprintf(text, sizeof(text), "%.3f, %.3f, %.3f  (%.2f m/s)", snapshot.velocity->x, snapshot.velocity->y, snapshot.velocity->z, speedMps);
             ValueLine("Velocity", text);
         }
