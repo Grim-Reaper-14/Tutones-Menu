@@ -2,6 +2,7 @@
 
 #include "GamePointers.hpp"
 #include "Natives.hpp"
+#include "PlayerNatives.hpp"
 #include "native/NativeCallContext.hpp"
 #include "native/NativeRegistry.hpp"
 
