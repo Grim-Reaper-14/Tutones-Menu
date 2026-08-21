@@ -19,11 +19,6 @@ namespace Tutones::UI
 {
     namespace WorldPanelDetail
     {
-        inline int g_SetHour{12};
-        inline int g_SetMinute{};
-        inline int g_WeatherIndex{};
-        inline float g_ClearRadius{50.0f};
-        inline bool g_PersistentUiLoaded{};
         inline std::chrono::steady_clock::time_point g_NextClockSample{};
 
         inline constexpr std::array<const char*, 15> WeatherNames{{
@@ -35,19 +30,6 @@ namespace Tutones::UI
         inline Core::Config::WorldMenuSettings& SavedWorld() noexcept
         {
             return Core::Config::MenuSettingsService::Get().Current().world;
-        }
-
-        inline void EnsurePersistentUiLoaded() noexcept
-        {
-            if (g_PersistentUiLoaded)
-                return;
-
-            const auto& saved = SavedWorld();
-            g_SetHour = std::clamp(saved.setHour, 0, 23);
-            g_SetMinute = std::clamp(saved.setMinute, 0, 59);
-            g_WeatherIndex = std::clamp(saved.weatherIndex, 0, static_cast<int>(WeatherNames.size()) - 1);
-            g_ClearRadius = std::clamp(saved.clearRadius, 5.0f, 200.0f);
-            g_PersistentUiLoaded = true;
         }
 
         inline bool RenderToggleSwitch(const char* label, bool& value) noexcept
@@ -199,6 +181,10 @@ namespace Tutones::UI
         {
             auto& runtime = Game::World::WorldRuntime::Get();
             auto& saved = SavedWorld();
+            saved.setHour = std::clamp(saved.setHour, 0, 23);
+            saved.setMinute = std::clamp(saved.setMinute, 0, 59);
+            saved.weatherIndex = std::clamp(saved.weatherIndex, 0, static_cast<int>(WeatherNames.size()) - 1);
+
             const auto now = std::chrono::steady_clock::now();
             if (g_NextClockSample == std::chrono::steady_clock::time_point{} || now >= g_NextClockSample)
             {
@@ -213,16 +199,14 @@ namespace Tutones::UI
             else
                 ImGui::TextDisabled("Current local clock: unavailable");
 
-            if (ImGui::SliderInt("Hour", &g_SetHour, 0, 23))
-                saved.setHour = g_SetHour;
+            ImGui::SliderInt("Hour", &saved.setHour, 0, 23);
             DescribeLastV11Item("Choose the local GTA world hour to apply.");
-            if (ImGui::SliderInt("Minute", &g_SetMinute, 0, 59))
-                saved.setMinute = g_SetMinute;
+            ImGui::SliderInt("Minute", &saved.setMinute, 0, 59);
             DescribeLastV11Item("Choose the local GTA world minute to apply.");
 
             ImGui::BeginDisabled(snapshot.actionPending);
             if (ImGui::Button("Apply Time", ImVec2(-1.0f, 0.0f)))
-                runtime.QueueSetTime(g_SetHour, g_SetMinute);
+                runtime.QueueSetTime(saved.setHour, saved.setMinute);
             ImGui::EndDisabled();
             DescribeLastV11Item("Apply the selected local world clock time through the current Enhanced native mapping.");
 
@@ -238,13 +222,12 @@ namespace Tutones::UI
 
             ImGui::Separator();
             ImGui::TextColored(V11Theme::Accent, "Weather & lighting");
-            if (ImGui::Combo("Weather", &g_WeatherIndex, WeatherNames.data(), static_cast<int>(WeatherNames.size())))
-                saved.weatherIndex = g_WeatherIndex;
+            ImGui::Combo("Weather", &saved.weatherIndex, WeatherNames.data(), static_cast<int>(WeatherNames.size()));
             DescribeLastV11Item("Choose a GTA weather type for the local world.");
 
             ImGui::BeginDisabled(snapshot.actionPending);
             if (ImGui::Button("Apply Weather", ImVec2(-1.0f, 0.0f)))
-                runtime.QueueWeather(WeatherNames[static_cast<std::size_t>(g_WeatherIndex)]);
+                runtime.QueueWeather(WeatherNames[static_cast<std::size_t>(saved.weatherIndex)]);
             ImGui::EndDisabled();
             DescribeLastV11Item("Apply and persist the selected weather type locally until GTA or another script changes it.");
 
@@ -319,31 +302,32 @@ namespace Tutones::UI
         {
             auto& runtime = Game::World::WorldRuntime::Get();
             const auto snapshot = runtime.Snapshot();
+            auto& saved = SavedWorld();
+            saved.clearRadius = std::clamp(saved.clearRadius, 5.0f, 200.0f);
 
             ImGui::TextColored(V11Theme::Accent, "Local area cleanup");
             ImGui::TextWrapped("These are local clear-area commands centered on your current player position. Avoid using them around mission content you want to keep loaded.");
             ImGui::Separator();
 
-            if (ImGui::SliderFloat("Radius", &g_ClearRadius, 5.0f, 200.0f, "%.0f m"))
-                SavedWorld().clearRadius = g_ClearRadius;
+            ImGui::SliderFloat("Radius", &saved.clearRadius, 5.0f, 200.0f, "%.0f m");
             DescribeLastV11Item("Set the radius used by the local ambient-entity cleanup commands.");
 
             ImGui::BeginDisabled(snapshot.actionPending);
             if (ImGui::Button("Clear Nearby Peds", ImVec2(-1.0f, 0.0f)))
-                runtime.QueueClearPeds(g_ClearRadius);
+                runtime.QueueClearPeds(saved.clearRadius);
             DescribeLastV11Item("Clear nearby ambient pedestrians around your current local position.");
 
             if (ImGui::Button("Clear Ambient Vehicles", ImVec2(-1.0f, 0.0f)))
-                runtime.QueueClearVehicles(g_ClearRadius);
+                runtime.QueueClearVehicles(saved.clearRadius);
             DescribeLastV11Item("Clear nearby ambient vehicles with the standard local clear-area vehicle native. Scripted/mission behavior remains game-controlled, so use this away from active missions.");
 
             if (ImGui::Button("Clear Nearby Objects", ImVec2(-1.0f, 0.0f)))
-                runtime.QueueClearObjects(g_ClearRadius);
+                runtime.QueueClearObjects(saved.clearRadius);
             DescribeLastV11Item("Clear nearby local world objects inside the selected radius.");
 
             ImGui::Separator();
             if (ImGui::Button("Clear Ambient Area", ImVec2(-1.0f, 0.0f)))
-                runtime.QueueClearAmbient(g_ClearRadius);
+                runtime.QueueClearAmbient(saved.clearRadius);
             DescribeLastV11Item("Run the pedestrian, object and ambient-vehicle cleanup commands together at the selected radius.");
             ImGui::EndDisabled();
 
@@ -355,7 +339,6 @@ namespace Tutones::UI
 
     inline void RenderWorldPanel(std::size_t subtab) noexcept
     {
-        WorldPanelDetail::EnsurePersistentUiLoaded();
         const std::size_t index = subtab < 4 ? subtab : 0;
         constexpr const char* names[] = {"General", "Time & Weather", "Teleport", "Entities"};
 
