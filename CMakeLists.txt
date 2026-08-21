@@ -98,8 +98,14 @@ add_library(TutonesMenu SHARED
     src/ui/V11Resources.rc
     src/ui/VehicleGeneralPanel.cpp
     src/ui/VehicleModificationPanel.cpp
+    src/ui/VehicleWorkshopPanel.cpp
     src/ui/VehiclePaintPanel.cpp
     src/ui/WeaponPanel.cpp
+)
+
+set_source_files_properties(
+    src/ui/VehicleModificationPanel.cpp
+    PROPERTIES COMPILE_DEFINITIONS TUTONES_BUILD_LEGACY_VEHICLE_EDITOR
 )
 
 target_include_directories(TutonesMenu PRIVATE
@@ -177,6 +183,7 @@ source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR}/src PREFIX "Source" FILES
     src/features/vehicle/PersonalVehicleRuntime.hpp
     src/features/vehicle/VehicleModificationRuntime.cpp
     src/features/vehicle/VehicleModificationRuntime.hpp
+    src/features/vehicle/VehicleWorkshopRuntime.hpp
     src/features/vehicle/VehiclePaintRuntime.cpp
     src/features/vehicle/VehiclePaintRuntime.hpp
     src/features/vehicle/VehiclePaintService.cpp
@@ -254,6 +261,7 @@ source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR}/src PREFIX "Source" FILES
     src/ui/VehicleGeneralPanel.hpp
     src/ui/VehicleModificationPanel.cpp
     src/ui/VehicleModificationPanel.hpp
+    src/ui/VehicleWorkshopPanel.cpp
     src/ui/VehiclePaintPanel.cpp
     src/ui/VehiclePaintPanel.hpp
     src/ui/WeaponPanel.cpp
