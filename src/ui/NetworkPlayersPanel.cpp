@@ -54,8 +54,21 @@ namespace Tutones::UI
                 ImGui::SameLine();
                 ImGui::TextDisabled("[YOU]");
             }
+            if (player.freemodeHost)
+            {
+                ImGui::SameLine();
+                ImGui::TextDisabled("[FREEMODE HOST]");
+            }
 
+            ImGui::SeparatorText("Session identity");
             ImGui::Text("Player ID: %d", player.id);
+            ImGui::Text("Active index: %s", player.activeIndex >= 0 ? std::to_string(player.activeIndex).c_str() : "unavailable");
+            ImGui::Text("Manager slot: %s",
+                player.managerSlotPresent
+                    ? (player.managerIndexMatches ? "present / index verified" : "present / index mismatch")
+                    : "unavailable");
+            if (player.managerSlotPresent)
+                ImGui::Text("Manager local flag: %s", player.managerLocalFlag ? "set" : "clear");
             ImGui::Text("Ped state: %s", player.pedAvailable ? "available" : "unavailable");
 
             ImGui::SeparatorText("Progression");
@@ -63,11 +76,46 @@ namespace Tutones::UI
             {
                 ImGui::Text("Rank: %d", player.rank);
                 ImGui::Text("RP: %d", player.rp);
+                ImGui::Text("Crew RP: %d", player.crewRp);
+                ImGui::Text("Wallet balance: $%d", player.walletBalance);
                 ImGui::Text("Money: $%d", player.money);
             }
             else
             {
-                ImGui::TextDisabled("Rank / RP / money: unavailable");
+                ImGui::TextDisabled("Freemode progression block: unavailable");
+            }
+
+            ImGui::SeparatorText("Activity");
+            if (player.statsReadable)
+            {
+                ImGui::Text("Current activity ID: %d", player.currentActivity);
+                ImGui::Text("Mission script instance: %d", player.missionScriptInstance);
+                ImGui::Text("Team: %d", player.team);
+                ImGui::Text("Can spectate: %s", player.canSpectate ? "yes" : "no");
+                ImGui::Text("Communication restrictions: 0x%08X",
+                    static_cast<unsigned int>(player.communicationRestrictions));
+            }
+            else
+            {
+                ImGui::TextDisabled("Activity state: unavailable");
+            }
+
+            ImGui::SeparatorText("Combat / history");
+            if (player.statsReadable)
+            {
+                ImGui::Text("K/D ratio: %.2f", player.kdRatio);
+                ImGui::Text("Player kills / deaths: %d / %d", player.killsOnPlayers, player.deathsByPlayers);
+                ImGui::Text("Weapon accuracy: %.2f", player.weaponAccuracy);
+                ImGui::Text("Races won / lost: %d / %d", player.racesWon, player.racesLost);
+                ImGui::Text("Deathmatches won / lost: %d / %d", player.deathmatchesWon, player.deathmatchesLost);
+                ImGui::Text("Missions won / played: %d / %d", player.missionWins, player.totalMissionsPlayed);
+                ImGui::Text("Survivals won / played: %d / %d", player.survivalWins, player.totalSurvivalsPlayed);
+                ImGui::Text("Favorite vehicle hash: 0x%08X", player.favoriteVehicleHash);
+                ImGui::Text("Favorite weapon hash: 0x%08X", player.favoriteWeaponHash);
+            }
+            else
+            {
+                ImGui::TextDisabled("Combat/history stats: unavailable");
             }
 
             ImGui::SeparatorText("Vitals");
@@ -85,6 +133,32 @@ namespace Tutones::UI
                 ImGui::Text("Wanted level: %d", player.wantedLevel);
             else
                 ImGui::TextDisabled("Wanted level: unavailable");
+
+            ImGui::SeparatorText("Current vehicle");
+            if (player.vehicleReadable)
+            {
+                std::string vehicleTitle;
+                if (!player.vehicleMake.empty())
+                    vehicleTitle = player.vehicleMake;
+                if (!player.vehicleName.empty())
+                {
+                    if (!vehicleTitle.empty())
+                        vehicleTitle += " ";
+                    vehicleTitle += player.vehicleName;
+                }
+                if (vehicleTitle.empty())
+                    vehicleTitle = "Unknown vehicle";
+
+                ImGui::TextUnformatted(vehicleTitle.c_str());
+                ImGui::Text("Entity handle: %d", player.vehicle);
+                ImGui::Text("Model hash: 0x%08X", player.vehicleModelHash);
+                ImGui::Text("Class: %d", player.vehicleClass);
+                ImGui::Text("Plate: %s", player.vehiclePlate.empty() ? "unavailable" : player.vehiclePlate.c_str());
+            }
+            else
+            {
+                ImGui::TextDisabled("On foot / vehicle unavailable");
+            }
 
             ImGui::SeparatorText("Position");
             if (player.positionReadable)
@@ -107,6 +181,11 @@ namespace Tutones::UI
                 ImGui::Text("Packet loss: %.2f", player.averagePacketLoss);
             else
                 ImGui::TextDisabled("Packet loss: unavailable");
+
+            if (player.resendReadable)
+                ImGui::Text("Highest reliable resend count: %d", player.highestReliableResendCount);
+            else
+                ImGui::TextDisabled("Reliable resend count: unavailable");
         }
     }
 
@@ -134,6 +213,22 @@ namespace Tutones::UI
             return;
         }
 
+        ImGui::TextDisabled("Freemode host: %d | participants: %d",
+            roster.freemodeHost,
+            roster.freemodeParticipants);
+        if (roster.managerReady)
+        {
+            ImGui::TextDisabled("Player manager: loaded %d | physical %d | remote physical %d | max %d",
+                roster.managerLoadedPlayers,
+                roster.managerPhysicalPlayers,
+                roster.managerNonLocalPhysicalPlayers,
+                roster.managerMaxPlayers);
+        }
+        else
+        {
+            ImGui::TextDisabled("Player manager: unavailable; native roster remains active.");
+        }
+
         EnsureSelection(roster);
 
         std::vector<int> sortedPlayers;
@@ -158,7 +253,7 @@ namespace Tutones::UI
             return;
         }
 
-        if (ImGui::BeginChild("##network_player_list", ImVec2(165.0f, 320.0f), true))
+        if (ImGui::BeginChild("##network_player_list", ImVec2(165.0f, 292.0f), true))
         {
             for (const int playerId : sortedPlayers)
             {
@@ -166,6 +261,8 @@ namespace Tutones::UI
                 std::string label = player.name;
                 if (player.local)
                     label += " [YOU]";
+                if (player.freemodeHost)
+                    label += " [HOST]";
 
                 ImGui::PushID(playerId);
                 if (ImGui::Selectable(label.c_str(), g_SelectedNetworkPlayer == playerId))
@@ -176,7 +273,7 @@ namespace Tutones::UI
         ImGui::EndChild();
 
         ImGui::SameLine();
-        if (ImGui::BeginChild("##network_player_details", ImVec2(0.0f, 320.0f), true))
+        if (ImGui::BeginChild("##network_player_details", ImVec2(0.0f, 292.0f), true))
         {
             if (IsSelectablePlayer(roster, g_SelectedNetworkPlayer))
             {
@@ -189,6 +286,6 @@ namespace Tutones::UI
         }
         ImGui::EndChild();
 
-        ImGui::TextDisabled("Roster refreshes every 500 ms. Deeper account and host-manager fields remain disabled until their Enhanced structures are verified.");
+        ImGui::TextDisabled("500 ms read-only refresh. Private account IDs and network addresses are intentionally not collected.");
     }
 }
