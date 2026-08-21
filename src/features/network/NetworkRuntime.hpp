@@ -13,7 +13,7 @@ namespace Tutones::Game::NetworkFeatures
     {
         None,
         Queued,
-        VerifiedDispatch,
+        Dispatched,
         SessionUnavailable,
         ServerTransactionsUnavailable,
         CatalogItemInvalid,
