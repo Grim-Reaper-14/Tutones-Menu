@@ -48,7 +48,6 @@ namespace Tutones::Game::Mods
                 return;
             }
 
-            // Make disabling deterministic even if no loop tick is currently queued.
             static_cast<void>(Runtime::GameRuntime::Get().Enqueue([this] {
                 if (!m_LoweredStance.load(std::memory_order_acquire))
                     RestoreLastStance();
@@ -119,7 +118,6 @@ namespace Tutones::Game::Mods
             if (!init)
                 return false;
 
-            // GTA V Enhanced mapping for SET_REDUCED_SUSPENSION_FORCE.
             std::uint64_t slot = 0xCE2ADF354D3F97AEull;
             NativeProgram program{};
             program.nativeCount = 1;
@@ -152,7 +150,7 @@ namespace Tutones::Game::Mods
                 return;
 
             const auto exists = Natives::DoesEntityExist(m_LastStancedVehicle);
-            if (!exists || *exists)
+            if (exists && *exists)
                 static_cast<void>(SetReducedSuspensionForce(m_LastStancedVehicle, false));
             m_LastStancedVehicle = 0;
         }
@@ -166,18 +164,15 @@ namespace Tutones::Game::Mods
             if (keepClean && vehicle != 0)
                 static_cast<void>(Natives::SetVehicleDirtLevel(vehicle, 0.0f));
 
-            if (lowered)
+            if (lowered && vehicle != 0)
             {
-                if (vehicle != 0)
-                {
-                    if (m_LastStancedVehicle != 0 && m_LastStancedVehicle != vehicle)
-                        RestoreLastStance();
+                if (m_LastStancedVehicle != 0 && m_LastStancedVehicle != vehicle)
+                    RestoreLastStance();
 
-                    if (SetReducedSuspensionForce(vehicle, true))
-                        m_LastStancedVehicle = vehicle;
-                }
+                if (SetReducedSuspensionForce(vehicle, true))
+                    m_LastStancedVehicle = vehicle;
             }
-            else
+            else if (!lowered)
             {
                 RestoreLastStance();
             }
@@ -186,8 +181,6 @@ namespace Tutones::Game::Mods
                 return;
 
             m_Ticking.store(false, std::memory_order_release);
-
-            // Close the small enable/schedule race if a toggle changed while this tick completed.
             if (AnyEnabled())
                 EnsureTicking();
         }
