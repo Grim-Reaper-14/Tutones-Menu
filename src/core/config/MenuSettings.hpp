@@ -9,10 +9,19 @@ namespace Tutones::Core::Config
     struct PlayerMenuSettings final
     {
         bool invincible{};
+        bool bulletproof{};
+        bool aquaLungs{};
+        bool infiniteOxygen{};
         bool invisible{};
         bool noRagdoll{};
         bool superJump{};
         bool infiniteStamina{};
+        bool keepPlayerClean{};
+        bool disableCriticalHits{};
+        bool standOnVehicles{};
+        bool disableActionMode{};
+        bool infiniteParachutes{};
+        bool mobileRadio{};
         bool neverWanted{};
         bool policeIgnore{};
         bool everyoneIgnore{};
@@ -39,6 +48,42 @@ namespace Tutones::Core::Config
         float explosionCameraShake{0.1f};
     };
 
+    struct NetworkMenuSettings final
+    {
+        bool silencePhoneCalls{};
+        bool disableDeathBarriers{};
+    };
+
+    struct RecoveryMenuSettings final
+    {
+        bool rpMultiplierEnabled{};
+        float rpMultiplier{1.0f};
+    };
+
+    struct WorldMenuSettings final
+    {
+        float pedDensity{1.0f};
+        float scenarioPedDensity{1.0f};
+        float vehicleDensity{1.0f};
+        float randomVehicleDensity{1.0f};
+        float parkedVehicleDensity{1.0f};
+        bool freezeClock{};
+        bool blackout{};
+        int setHour{12};
+        int setMinute{};
+        int weatherIndex{};
+        float clearRadius{50.0f};
+    };
+
+    struct MiscMenuSettings final
+    {
+        bool showCoordinates{};
+        bool showHeading{};
+        bool showFps{};
+        bool showSessionInfo{};
+        bool disableCameraShake{};
+    };
+
     struct UiMenuSettings final
     {
         std::string activeTheme{"default.json"};
@@ -46,11 +91,15 @@ namespace Tutones::Core::Config
 
     struct MenuSettingsData final
     {
-        std::uint32_t version{2};
+        std::uint32_t version{3};
         PlayerMenuSettings player{};
         bool offRadar{};
         VehicleMenuSettings vehicle{};
         WeaponMenuSettings weapons{};
+        NetworkMenuSettings network{};
+        RecoveryMenuSettings recovery{};
+        WorldMenuSettings world{};
+        MiscMenuSettings misc{};
         UiMenuSettings ui{};
     };
 
