@@ -1,7 +1,6 @@
 #pragma once
 
 #include "MiscPanel.hpp"
-#include "../app/Application.hpp"
 #include "../core/config/MenuSettings.hpp"
 #include "../features/network/NetworkRuntime.hpp"
 #include "../features/player/OffRadarRuntime.hpp"
@@ -160,8 +159,14 @@ namespace Tutones::UI
     inline void SyncPersistentMenuState() noexcept
     {
         using namespace PersistentMenuStateDetail;
-        if (!App::Application::Get().IsRunning())
+
+        // Recovery and Network are the final gameplay services started by Application.
+        // Waiting for both avoids staging settings while a later Start() could reset them.
+        if (!Game::Recovery::RecoveryRuntime::Get().IsRunning()
+            || !Game::NetworkFeatures::NetworkRuntime::Get().IsRunning())
+        {
             return;
+        }
 
         if (!g_Staged)
         {
