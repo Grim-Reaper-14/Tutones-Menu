@@ -3,6 +3,7 @@
 #include "V11Description.hpp"
 #include "V11Theme.hpp"
 #include "../features/vehicle/LscBypassRuntime.hpp"
+#include "../features/vehicle/VehicleLoopFeatures.hpp"
 
 #include <imgui.h>
 
@@ -56,5 +57,21 @@ namespace Tutones::UI
         }
 
         ImGui::TextDisabled("This is separate from Tutones' direct native mod apply path and removes the real script-side LSC restrictions.");
+
+        ImGui::SeparatorText("Persistent Vehicle Features");
+        auto& vehicleFeatures = Game::Mods::VehicleLoopFeatures::Get();
+
+        bool keepClean = vehicleFeatures.KeepVehicleClean();
+        if (ImGui::Checkbox("Keep Vehicle Clean", &keepClean))
+            vehicleFeatures.SetKeepVehicleClean(keepClean);
+        DescribeLastV11Item("Continuously keeps the vehicle you are driving at zero dirt level. The loop follows you when you change vehicles.");
+
+        bool loweredStance = vehicleFeatures.LoweredStance();
+        if (ImGui::Checkbox("Lowered Stance", &loweredStance))
+            vehicleFeatures.SetLoweredStance(loweredStance);
+        DescribeLastV11Item("Continuously applies the reduced-suspension stance to supported vehicles. Turning this off restores normal suspension on the last affected vehicle.");
+
+        if (loweredStance)
+            ImGui::TextDisabled("Lowered stance is active; only vehicles supported by GTA's suspension native will visibly change.");
     }
 }
