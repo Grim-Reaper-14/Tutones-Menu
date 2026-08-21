@@ -2,6 +2,8 @@
 
 #include "../../core/logging/Logger.hpp"
 #include "../../game/GamePointers.hpp"
+#include "../../game/NetshoppingNatives.hpp"
+#include "../../game/script/ScriptFunction.hpp"
 #include "../../game/script/ScriptGlobal.hpp"
 #include "../../game/script/ScriptPointer.hpp"
 #include "../../game/script/ScriptRuntime.hpp"
@@ -33,6 +35,8 @@ namespace Tutones::Game::NetworkFeatures
         }
 
         constexpr std::uint32_t FreemodeHash = Joaat("freemode");
+        constexpr std::uint32_t ShopControllerHash = Joaat("shop_controller");
+        constexpr std::uint32_t ServiceThresholdCategory = Joaat("CATEGORY_SERVICE_WITH_THRESHOLD");
         constexpr std::size_t PhoneCallStateGlobal = 23040;
         constexpr std::size_t PhoneCallInProgressGlobal = 23046;
         constexpr std::size_t IncomingCallGlobal = 23050;
@@ -53,6 +57,7 @@ namespace Tutones::Game::NetworkFeatures
 
         m_LastSilencedCaller = -1;
         m_SilencedCalls = 0;
+        m_TransactionPending.store(false, std::memory_order_release);
 
         auto& patches = Script::ScriptPatchRuntime::Get();
         if (!patches.Start())
@@ -90,6 +95,7 @@ namespace Tutones::Game::NetworkFeatures
 
         m_SilencePhoneCalls.store(false, std::memory_order_release);
         m_DisableDeathBarriers.store(false, std::memory_order_release);
+        m_TransactionPending.store(false, std::memory_order_release);
 
         auto& patches = Script::ScriptPatchRuntime::Get();
         if (m_DeathBarrierPatch != 0)
@@ -120,10 +126,33 @@ namespace Tutones::Game::NetworkFeatures
         m_DisableDeathBarriers.store(enabled, std::memory_order_release);
     }
 
+    bool NetworkRuntime::QueueServiceTransaction(std::uint32_t serviceHash)
+    {
+        if (!IsRunning() || serviceHash == 0)
+            return false;
+
+        bool expected = false;
+        if (!m_TransactionPending.compare_exchange_strong(expected, true, std::memory_order_acq_rel))
+            return false;
+
+        RecordServiceTransaction(serviceHash, 0, -1, ServiceTransactionResult::Queued);
+        if (Runtime::GameRuntime::Get().Enqueue([this, serviceHash] {
+                ExecuteServiceTransactionOnGameThread(serviceHash);
+            }))
+        {
+            return true;
+        }
+
+        RecordServiceTransaction(serviceHash, 0, -1, ServiceTransactionResult::DispatchFailed);
+        return false;
+    }
+
     NetworkSnapshot NetworkRuntime::Snapshot() const noexcept
     {
         std::scoped_lock lock(m_Mutex);
-        return m_Snapshot;
+        NetworkSnapshot snapshot = m_Snapshot;
+        snapshot.transactionPending = m_TransactionPending.load(std::memory_order_acquire);
+        return snapshot;
     }
 
     bool NetworkRuntime::QueueNextTick()
@@ -189,9 +218,103 @@ namespace Tutones::Game::NetworkFeatures
         }
     }
 
+    void NetworkRuntime::ExecuteServiceTransactionOnGameThread(std::uint32_t serviceHash) noexcept
+    {
+        bool* sessionStarted = GamePointers::Get().IsSessionStarted();
+        if (!sessionStarted || !*sessionStarted)
+        {
+            RecordServiceTransaction(serviceHash, 0, -1, ServiceTransactionResult::SessionUnavailable);
+            TUTONES_LOG_WARN("network.transaction", "Service transaction rejected because GTA Online is not active");
+            return;
+        }
+
+        const auto serverTransactions = NetshoppingNatives::UseServerTransactions();
+        if (!serverTransactions || !*serverTransactions)
+        {
+            RecordServiceTransaction(serviceHash, 0, -1, ServiceTransactionResult::ServerTransactionsUnavailable);
+            TUTONES_LOG_WARN("network.transaction", "Server-backed NETSHOP transactions are unavailable");
+            return;
+        }
+
+        const auto validCatalogItem = NetshoppingNatives::CatalogItemKeyIsValid(serviceHash);
+        if (!validCatalogItem || !*validCatalogItem)
+        {
+            RecordServiceTransaction(serviceHash, 0, -1, ServiceTransactionResult::CatalogItemInvalid);
+            TUTONES_LOG_WARN("network.transaction", "Requested service hash is not valid in the current NETSHOP catalog");
+            return;
+        }
+
+        const auto price = NetshoppingNatives::GetPrice(serviceHash, ServiceThresholdCategory, true);
+        if (!price || *price < 0)
+        {
+            RecordServiceTransaction(serviceHash, 0, -1, ServiceTransactionResult::PriceUnavailable);
+            TUTONES_LOG_WARN("network.transaction", "NETSHOP could not resolve a current price for the service hash");
+            return;
+        }
+
+        auto& scriptRuntime = Script::ScriptRuntime::Get();
+        if (!scriptRuntime.IsReady()
+            || !scriptRuntime.FindThread(ShopControllerHash)
+            || !scriptRuntime.FindProgram(ShopControllerHash))
+        {
+            RecordServiceTransaction(serviceHash, *price, -1, ServiceTransactionResult::ShopControllerUnavailable);
+            TUTONES_LOG_WARN("network.transaction", "shop_controller is unavailable for the service transaction helper");
+            return;
+        }
+
+        static Script::ScriptFunction serviceTransaction(
+            ShopControllerHash,
+            Script::ScriptPointer(
+                "ServiceTransaction",
+                "2D 06 09 00 00 5D ? ? ? 06"));
+
+        std::int32_t transactionIndex{-1};
+        const bool dispatched = serviceTransaction.CallVoid(
+            static_cast<std::int32_t>(serviceHash),
+            static_cast<std::int32_t>(*price),
+            &transactionIndex,
+            std::int32_t{1},
+            std::int32_t{0},
+            std::int32_t{0});
+
+        RecordServiceTransaction(
+            serviceHash,
+            *price,
+            transactionIndex,
+            dispatched ? ServiceTransactionResult::Dispatched : ServiceTransactionResult::ShopControllerUnavailable);
+
+        if (dispatched)
+            TUTONES_LOG_INFO("network.transaction", "Service transaction dispatched through shop_controller");
+        else
+            TUTONES_LOG_WARN("network.transaction", "Service transaction helper could not be resolved or executed");
+    }
+
+    void NetworkRuntime::RecordServiceTransaction(
+        std::uint32_t serviceHash,
+        int price,
+        int transactionIndex,
+        ServiceTransactionResult result) noexcept
+    {
+        if (result != ServiceTransactionResult::Queued)
+            m_TransactionPending.store(false, std::memory_order_release);
+
+        std::scoped_lock lock(m_Mutex);
+        m_Snapshot.transactionPending = m_TransactionPending.load(std::memory_order_acquire);
+        m_Snapshot.lastTransactionHash = serviceHash;
+        m_Snapshot.lastTransactionPrice = price;
+        m_Snapshot.lastTransactionIndex = transactionIndex;
+        m_Snapshot.lastTransactionResult = result;
+    }
+
     void NetworkRuntime::PublishSnapshot(const NetworkSnapshot& snapshot) noexcept
     {
         std::scoped_lock lock(m_Mutex);
-        m_Snapshot = snapshot;
+        NetworkSnapshot merged = snapshot;
+        merged.transactionPending = m_TransactionPending.load(std::memory_order_acquire);
+        merged.lastTransactionHash = m_Snapshot.lastTransactionHash;
+        merged.lastTransactionPrice = m_Snapshot.lastTransactionPrice;
+        merged.lastTransactionIndex = m_Snapshot.lastTransactionIndex;
+        merged.lastTransactionResult = m_Snapshot.lastTransactionResult;
+        m_Snapshot = merged;
     }
 }
