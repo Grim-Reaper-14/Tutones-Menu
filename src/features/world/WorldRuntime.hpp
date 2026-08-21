@@ -12,6 +12,7 @@
 #include <cstdint>
 #include <functional>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <utility>
 
@@ -277,14 +278,16 @@ namespace Tutones::Game::World
                 m_Message = label + " queued";
             }
 
+            const std::string failureLabel = label;
+            std::function<bool()> fn(std::forward<Fn>(action));
             if (!Runtime::GameRuntime::Get().Enqueue(
-                    [this, label = std::move(label), fn = std::function<bool()>(std::forward<Fn>(action))]() mutable {
+                    [this, label = std::move(label), fn = std::move(fn)]() mutable {
                         const bool success = fn && fn();
                         SetResult(success, success ? label + " complete" : label + " failed");
                     }))
             {
                 m_ActionPending.store(false, std::memory_order_release);
-                SetResult(false, label + " queue unavailable");
+                SetResult(false, failureLabel + " queue unavailable");
                 return false;
             }
             return true;
