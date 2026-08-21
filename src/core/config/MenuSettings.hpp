@@ -69,6 +69,8 @@ namespace Tutones::Core::Config
         float parkedVehicleDensity{1.0f};
         bool freezeClock{};
         bool blackout{};
+        bool autoWaypoint{};
+        bool entityInspectorLive{true};
         int setHour{12};
         int setMinute{};
         int weatherIndex{};
