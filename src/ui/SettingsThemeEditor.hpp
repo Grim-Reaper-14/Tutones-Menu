@@ -199,6 +199,14 @@ namespace Tutones::UI::SettingsThemeEditor
         ImageCombo("Background", theme.backgroundImage, "Image from Tutones Menu\\images behind the menu body.");
         ImGui::SliderFloat("Background Opacity", &theme.backgroundOpacity, 0.0f, 1.0f, "%.2f");
 
+        if (ImGui::Button("Apply Image", ImVec2(-1.0f, 0.0f)))
+        {
+            manager.MarkImagesDirty();
+            manager.ApplyPendingResources();
+            message = "Images applied";
+        }
+        DescribeLastV11Item("Applies the selected header banner, bottom banner and background image now.");
+
         ImGui::Separator();
         ImGui::TextColored(V11Theme::Accent, "Font");
         ImGui::TextDisabled("Font loader reads directly from: %s", storage.FontsDirectory().string().c_str());
