@@ -398,22 +398,14 @@ namespace Tutones::UI
     {
         using namespace EntityInspectorDetail;
 
-        static bool initialized{};
-        static bool liveTargeting{true};
-        if (!initialized)
-        {
-            liveTargeting = Core::Config::MenuSettingsService::Get().Current().world.entityInspectorLive;
-            initialized = true;
-        }
-
+        auto& liveTargeting = Core::Config::MenuSettingsService::Get().Current().world.entityInspectorLive;
         if (liveTargeting)
             Runtime::Get().RequestScan();
 
         const Snapshot snapshot = Runtime::Get().GetSnapshot();
 
         ImGui::SeparatorText("Entity Inspector");
-        if (ImGui::Checkbox("Target Under Crosshair", &liveTargeting))
-            Core::Config::MenuSettingsService::Get().Current().world.entityInspectorLive = liveTargeting;
+        ImGui::Checkbox("Target Under Crosshair", &liveTargeting);
         DescribeLastV11Item("Continuously raycast from the gameplay camera and inspect the entity currently under the crosshair. Your own ped is ignored by the ray.");
         ImGui::SameLine();
         ImGui::TextDisabled("%s", liveTargeting ? "LIVE" : "PAUSED");
