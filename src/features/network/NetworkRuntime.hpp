@@ -3,9 +3,12 @@
 #include "EnhancedCatalog.hpp"
 #include "../../game/script/ScriptPatchRuntime.hpp"
 
+#include <array>
 #include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <mutex>
+#include <string>
 
 namespace Tutones::Game::NetworkFeatures
 {
@@ -20,6 +23,42 @@ namespace Tutones::Game::NetworkFeatures
         PriceUnavailable,
         ShopControllerUnavailable,
         DispatchFailed,
+    };
+
+    struct NetworkPlayerSnapshot final
+    {
+        int id{-1};
+        bool active{};
+        bool local{};
+        std::string name{};
+        int ped{};
+        bool pedAvailable{};
+        bool healthReadable{};
+        int health{};
+        int maxHealth{};
+        bool armourReadable{};
+        int armour{};
+        bool wantedReadable{};
+        int wantedLevel{};
+        bool positionReadable{};
+        float x{};
+        float y{};
+        float z{};
+        bool distanceReadable{};
+        float distance{};
+        bool latencyReadable{};
+        float averageLatency{};
+        bool packetLossReadable{};
+        float averagePacketLoss{};
+    };
+
+    struct NetworkPlayerRosterSnapshot final
+    {
+        bool backendReady{};
+        int localPlayer{-1};
+        int activeCount{};
+        std::uint64_t generation{};
+        std::array<NetworkPlayerSnapshot, 32> players{};
     };
 
     struct NetworkSnapshot final
@@ -38,6 +77,7 @@ namespace Tutones::Game::NetworkFeatures
         bool deathBarrierApplied{};
         CooldownObservations cooldowns{};
         RewardObservations rewards{};
+        NetworkPlayerRosterSnapshot playerRoster{};
 
         bool transactionPending{};
         std::uint32_t lastTransactionHash{};
@@ -67,6 +107,7 @@ namespace Tutones::Game::NetworkFeatures
 
         bool QueueNextTick();
         void TickOnGameThread() noexcept;
+        void RefreshPlayerRosterOnGameThread(bool sessionStarted) noexcept;
         void ExecuteServiceTransactionOnGameThread(std::uint32_t serviceHash) noexcept;
         void RecordServiceTransaction(
             std::uint32_t serviceHash,
@@ -82,6 +123,8 @@ namespace Tutones::Game::NetworkFeatures
         Script::ScriptPatchHandle m_DeathBarrierPatch{};
         int m_LastSilencedCaller{-1};
         std::uint64_t m_SilencedCalls{};
+        NetworkPlayerRosterSnapshot m_PlayerRoster{};
+        std::chrono::steady_clock::time_point m_LastPlayerRosterRefresh{};
         mutable std::mutex m_Mutex;
         NetworkSnapshot m_Snapshot{};
     };
