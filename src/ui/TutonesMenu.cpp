@@ -1,4 +1,5 @@
 #include "MiscPanel.hpp"
+#include "PersistentMenuState.hpp"
 
 #define Categories BaseCategories
 #include "TutonesMenu.part00.inc"
