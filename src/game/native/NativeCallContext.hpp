@@ -14,12 +14,27 @@ namespace Tutones::Game::Native
     // This matches YimMenuV2's rage::scrVector layout (x @ 0, y @ 8, z @ 16).
     struct NativeVector3 final
     {
+        constexpr NativeVector3() noexcept = default;
+        constexpr NativeVector3(float xValue, float yValue, float zValue) noexcept
+            : x(xValue), y(yValue), z(zValue)
+        {
+        }
+
+        // Compatibility for older call sites that initialized the previous
+        // packed vector shape with an unused fourth/padding value. The padding
+        // argument is intentionally ignored so the GTA script-vector ABI stays 0x18.
+        constexpr NativeVector3(float xValue, float yValue, float zValue, float) noexcept
+            : x(xValue), y(yValue), z(zValue)
+        {
+        }
+
         alignas(8) float x{};
         alignas(8) float y{};
         alignas(8) float z{};
     };
 
     static_assert(sizeof(NativeVector3) == 0x18);
+    static_assert(std::is_trivially_copyable_v<NativeVector3>);
 
     // Native handlers keep temporary vector-ref sources as the engine's packed
     // 16-byte fvector3 representation. Keep this separate from NativeVector3
