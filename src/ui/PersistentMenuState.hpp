@@ -1,6 +1,7 @@
 #pragma once
 
 #include "MiscPanel.hpp"
+#include "../app/Application.hpp"
 #include "../core/config/MenuSettings.hpp"
 #include "../features/network/NetworkRuntime.hpp"
 #include "../features/player/OffRadarRuntime.hpp"
@@ -159,6 +160,9 @@ namespace Tutones::UI
     inline void SyncPersistentMenuState() noexcept
     {
         using namespace PersistentMenuStateDetail;
+        if (!App::Application::Get().IsRunning())
+            return;
+
         if (!g_Staged)
         {
             StageLoadedSettings();
