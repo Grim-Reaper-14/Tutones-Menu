@@ -37,55 +37,27 @@ namespace Tutones::Game
             return Invoke<Native::NativeVector3>(GetGameplayCamRotIndex, rotationOrder);
         }
 
-        [[nodiscard]] static std::optional<int> StartShapeTestLosProbe(
+        // The inspector samples at a deliberately throttled rate, so use the
+        // synchronous LOS probe and consume its result immediately. Async GTA
+        // shape-test handles must be polled every frame or can be invalidated.
+        [[nodiscard]] static std::optional<ShapeResult> CastLosProbe(
             const Native::NativeVector3& start,
             const Native::NativeVector3& finish,
             int flags,
             Entity ignoredEntity,
             int optionFlags = 7) noexcept
         {
-            return Invoke<int>(
-                StartShapeTestLosProbeIndex,
+            const auto handle = Invoke<int>(
+                StartExpensiveSynchronousShapeTestLosProbeIndex,
                 start.x, start.y, start.z,
                 finish.x, finish.y, finish.z,
                 flags,
                 ignoredEntity,
                 optionFlags);
-        }
-
-        [[nodiscard]] static std::optional<ShapeResult> GetShapeTestResultIncludingMaterial(int handle) noexcept
-        {
-            if (handle == 0 || !ResolveHandlers())
+            if (!handle || *handle == 0)
                 return std::nullopt;
 
-            std::int32_t hit{};
-            Native::NativeVector3 endCoords{};
-            Native::NativeVector3 surfaceNormal{};
-            Hash materialHash{};
-            Entity entity{};
-
-            Native::CallContext context;
-            if (!context.PushArg(handle)
-                || !context.PushArg(&hit)
-                || !context.PushArg(&endCoords)
-                || !context.PushArg(&surfaceNormal)
-                || !context.PushArg(&materialHash)
-                || !context.PushArg(&entity))
-            {
-                return std::nullopt;
-            }
-
-            s_Handlers[GetShapeTestResultIncludingMaterialIndex](&context);
-            context.FixVectors();
-
-            ShapeResult result;
-            result.status = context.GetReturnValue<int>();
-            result.hit = hit != 0;
-            result.endCoords = endCoords;
-            result.surfaceNormal = surfaceNormal;
-            result.materialHash = materialHash;
-            result.entity = entity;
-            return result;
+            return GetShapeTestResultIncludingMaterial(*handle);
         }
 
         [[nodiscard]] static std::optional<int> GetEntityType(Entity entity) noexcept
@@ -144,7 +116,7 @@ namespace Tutones::Game
         {
             GetGameplayCamCoordIndex,
             GetGameplayCamRotIndex,
-            StartShapeTestLosProbeIndex,
+            StartExpensiveSynchronousShapeTestLosProbeIndex,
             GetShapeTestResultIncludingMaterialIndex,
             GetEntityTypeIndex,
             GetEntityVelocityIndex,
@@ -160,7 +132,7 @@ namespace Tutones::Game
         inline static constexpr std::array<std::uint64_t, HandlerCount> HandlerHashes{{
             0xCF141FCD0940B0A3ull, // GET_GAMEPLAY_CAM_COORD
             0xD84A545408A3099Aull, // GET_GAMEPLAY_CAM_ROT
-            0x120E577522852984ull, // START_SHAPE_TEST_LOS_PROBE
+            0x14C30F326F5883DAull, // START_EXPENSIVE_SYNCHRONOUS_SHAPE_TEST_LOS_PROBE
             0xEE92B4A78668B1CEull, // GET_SHAPE_TEST_RESULT_INCLUDING_MATERIAL
             0x75A2D1BBA9D95D0Eull, // GET_ENTITY_TYPE
             0xE5741C6B6539231Full, // GET_ENTITY_VELOCITY
@@ -170,6 +142,41 @@ namespace Tutones::Game
             0x0DFE7358172FC006ull, // GET_PED_TYPE
             0x501EBB0523078750ull, // IS_PED_A_PLAYER
         }};
+
+        [[nodiscard]] static std::optional<ShapeResult> GetShapeTestResultIncludingMaterial(int handle) noexcept
+        {
+            if (handle == 0 || !ResolveHandlers())
+                return std::nullopt;
+
+            std::int32_t hit{};
+            Native::NativeVector3 endCoords{};
+            Native::NativeVector3 surfaceNormal{};
+            Hash materialHash{};
+            Entity entity{};
+
+            Native::CallContext context;
+            if (!context.PushArg(handle)
+                || !context.PushArg(&hit)
+                || !context.PushArg(&endCoords)
+                || !context.PushArg(&surfaceNormal)
+                || !context.PushArg(&materialHash)
+                || !context.PushArg(&entity))
+            {
+                return std::nullopt;
+            }
+
+            s_Handlers[GetShapeTestResultIncludingMaterialIndex](&context);
+            context.FixVectors();
+
+            ShapeResult result;
+            result.status = context.GetReturnValue<int>();
+            result.hit = hit != 0;
+            result.endCoords = endCoords;
+            result.surfaceNormal = surfaceNormal;
+            result.materialHash = materialHash;
+            result.entity = entity;
+            return result;
+        }
 
         static bool ResolveHandlers() noexcept
         {
