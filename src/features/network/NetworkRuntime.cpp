@@ -15,7 +15,9 @@
 #include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace Tutones::Game::NetworkFeatures
@@ -47,6 +49,12 @@ namespace Tutones::Game::NetworkFeatures
         constexpr std::size_t PhoneCallInProgressGlobal = 23046;
         constexpr std::size_t IncomingCallGlobal = 23050;
         constexpr std::size_t CallingCharacterGlobal = 8818;
+        constexpr std::size_t GpbdFmGlobal = 1845347;
+        constexpr std::size_t GpbdFmEntryStride = 884;
+        constexpr std::size_t PlayerStatsOffset = 205;
+        constexpr std::size_t PlayerStatsRpOffset = 1;
+        constexpr std::size_t PlayerStatsRankOffset = 6;
+        constexpr std::size_t PlayerStatsMoneyOffset = 56;
         constexpr auto PlayerRosterRefreshInterval = std::chrono::milliseconds(500);
 
         [[nodiscard]] std::optional<Native::NativeVector3> EntityCoords(int entity) noexcept
@@ -214,7 +222,7 @@ namespace Tutones::Game::NetworkFeatures
         else if (m_LastPlayerRosterRefresh.time_since_epoch().count() == 0
             || now - m_LastPlayerRosterRefresh >= PlayerRosterRefreshInterval)
         {
-            RefreshPlayerRosterOnGameThread(true);
+            RefreshPlayerRosterOnGameThread(true, globals);
             m_LastPlayerRosterRefresh = now;
         }
         next.playerRoster = m_PlayerRoster;
@@ -259,7 +267,7 @@ namespace Tutones::Game::NetworkFeatures
         }
     }
 
-    void NetworkRuntime::RefreshPlayerRosterOnGameThread(bool sessionStarted) noexcept
+    void NetworkRuntime::RefreshPlayerRosterOnGameThread(bool sessionStarted, std::int64_t** globals) noexcept
     {
         NetworkPlayerRosterSnapshot next{};
         next.generation = m_PlayerRoster.generation + 1;
@@ -303,6 +311,23 @@ namespace Tutones::Game::NetworkFeatures
 
             if (const auto name = NetworkPlayerNatives::GetPlayerName(playerId); name && !name->empty())
                 player.name = *name;
+
+            if (globals)
+            {
+                const auto stats = Script::ScriptGlobal(GpbdFmGlobal)
+                    .At(static_cast<std::size_t>(playerId), GpbdFmEntryStride)
+                    .At(PlayerStatsOffset);
+                int* rp = stats.At(PlayerStatsRpOffset).As<int>(globals);
+                int* rank = stats.At(PlayerStatsRankOffset).As<int>(globals);
+                int* money = stats.At(PlayerStatsMoneyOffset).As<int>(globals);
+                if (rp && rank && money)
+                {
+                    player.statsReadable = true;
+                    player.rp = *rp;
+                    player.rank = *rank;
+                    player.money = *money;
+                }
+            }
 
             if (const auto wanted = PlayerNatives::GetPlayerWantedLevel(playerId))
             {
