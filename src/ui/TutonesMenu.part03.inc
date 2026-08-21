@@ -59,7 +59,7 @@ namespace Tutones::UI
             break;
 
         case 9:
-            RenderMiscPanel(m_Item);
+            RenderMiscPanel(m_Item == 2 ? 3 : m_Item);
             break;
 
         default:
