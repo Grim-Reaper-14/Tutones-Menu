@@ -31,6 +31,10 @@ namespace Tutones::Game::NetworkFeatures
         bool active{};
         bool local{};
         std::string name{};
+        bool statsReadable{};
+        int rank{};
+        int rp{};
+        int money{};
         int ped{};
         bool pedAvailable{};
         bool healthReadable{};
@@ -107,7 +111,7 @@ namespace Tutones::Game::NetworkFeatures
 
         bool QueueNextTick();
         void TickOnGameThread() noexcept;
-        void RefreshPlayerRosterOnGameThread(bool sessionStarted) noexcept;
+        void RefreshPlayerRosterOnGameThread(bool sessionStarted, std::int64_t** globals) noexcept;
         void ExecuteServiceTransactionOnGameThread(std::uint32_t serviceHash) noexcept;
         void RecordServiceTransaction(
             std::uint32_t serviceHash,
