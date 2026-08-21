@@ -3,13 +3,19 @@
 #include "../../core/logging/Logger.hpp"
 #include "../../game/GamePointers.hpp"
 #include "../../game/NetshoppingNatives.hpp"
+#include "../../game/NetworkPlayerNatives.hpp"
+#include "../../game/PlayerNatives.hpp"
+#include "../../game/native/NativeInvoker.hpp"
 #include "../../game/script/ScriptFunction.hpp"
 #include "../../game/script/ScriptGlobal.hpp"
 #include "../../game/script/ScriptPointer.hpp"
 #include "../../game/script/ScriptRuntime.hpp"
 #include "../../runtime/GameRuntime.hpp"
 
+#include <chrono>
+#include <cmath>
 #include <cstdint>
+#include <string>
 #include <vector>
 
 namespace Tutones::Game::NetworkFeatures
@@ -41,6 +47,18 @@ namespace Tutones::Game::NetworkFeatures
         constexpr std::size_t PhoneCallInProgressGlobal = 23046;
         constexpr std::size_t IncomingCallGlobal = 23050;
         constexpr std::size_t CallingCharacterGlobal = 8818;
+        constexpr auto PlayerRosterRefreshInterval = std::chrono::milliseconds(500);
+
+        [[nodiscard]] std::optional<Native::NativeVector3> EntityCoords(int entity) noexcept
+        {
+            if (entity == 0)
+                return std::nullopt;
+
+            return Native::NativeInvoker::Invoke<Native::NativeVector3>(
+                Native::NativeId::GetEntityCoords,
+                entity,
+                std::int32_t{0});
+        }
     }
 
     NetworkRuntime& NetworkRuntime::Get() noexcept
@@ -57,6 +75,8 @@ namespace Tutones::Game::NetworkFeatures
 
         m_LastSilencedCaller = -1;
         m_SilencedCalls = 0;
+        m_PlayerRoster = {};
+        m_LastPlayerRosterRefresh = {};
         m_TransactionPending.store(false, std::memory_order_release);
 
         auto& patches = Script::ScriptPatchRuntime::Get();
@@ -106,6 +126,8 @@ namespace Tutones::Game::NetworkFeatures
         }
         patches.Stop();
 
+        m_PlayerRoster = {};
+        m_LastPlayerRosterRefresh = {};
         std::scoped_lock lock(m_Mutex);
         m_Snapshot = {};
         TUTONES_LOG_INFO("network.runtime", "Enhanced network/QoL runtime stopped");
@@ -178,6 +200,25 @@ namespace Tutones::Game::NetworkFeatures
         next.scriptGlobalsReady = globals != nullptr;
         next.sessionStarted = sessionStarted && *sessionStarted;
 
+        const auto now = std::chrono::steady_clock::now();
+        if (!next.sessionStarted)
+        {
+            if (m_PlayerRoster.backendReady || m_PlayerRoster.activeCount != 0 || m_PlayerRoster.localPlayer >= 0)
+            {
+                const auto generation = m_PlayerRoster.generation + 1;
+                m_PlayerRoster = {};
+                m_PlayerRoster.generation = generation;
+            }
+            m_LastPlayerRosterRefresh = {};
+        }
+        else if (m_LastPlayerRosterRefresh.time_since_epoch().count() == 0
+            || now - m_LastPlayerRosterRefresh >= PlayerRosterRefreshInterval)
+        {
+            RefreshPlayerRosterOnGameThread(true);
+            m_LastPlayerRosterRefresh = now;
+        }
+        next.playerRoster = m_PlayerRoster;
+
         next.cooldowns = SampleCooldownTunables(globals);
         next.rewards = SampleRewardTunables(globals);
         if (globals)
@@ -216,6 +257,115 @@ namespace Tutones::Game::NetworkFeatures
             TUTONES_LOG_ERROR("network.runtime", "Network Enhancement runtime lost its GTA script-thread scheduling slot");
             Stop();
         }
+    }
+
+    void NetworkRuntime::RefreshPlayerRosterOnGameThread(bool sessionStarted) noexcept
+    {
+        NetworkPlayerRosterSnapshot next{};
+        next.generation = m_PlayerRoster.generation + 1;
+        if (!sessionStarted)
+        {
+            m_PlayerRoster = std::move(next);
+            return;
+        }
+
+        next.backendReady = NetworkPlayerNatives::Ready();
+        if (!next.backendReady)
+        {
+            m_PlayerRoster = std::move(next);
+            return;
+        }
+
+        const auto localPlayer = PlayerNatives::PlayerId();
+        if (localPlayer && *localPlayer >= 0 && *localPlayer < 32)
+            next.localPlayer = *localPlayer;
+
+        std::optional<Native::NativeVector3> localCoords;
+        if (next.localPlayer >= 0)
+        {
+            const auto localPed = NetworkPlayerNatives::GetPlayerPedScriptIndex(next.localPlayer);
+            if (localPed && *localPed != 0)
+                localCoords = EntityCoords(*localPed);
+        }
+
+        for (int playerId = 0; playerId < 32; ++playerId)
+        {
+            const auto active = NetworkPlayerNatives::IsPlayerActive(playerId);
+            if (!active || !*active)
+                continue;
+
+            auto& player = next.players[static_cast<std::size_t>(playerId)];
+            player.id = playerId;
+            player.active = true;
+            player.local = playerId == next.localPlayer;
+            player.name = "Player " + std::to_string(playerId);
+            ++next.activeCount;
+
+            if (const auto name = NetworkPlayerNatives::GetPlayerName(playerId); name && !name->empty())
+                player.name = *name;
+
+            if (const auto wanted = PlayerNatives::GetPlayerWantedLevel(playerId))
+            {
+                player.wantedReadable = true;
+                player.wantedLevel = *wanted;
+            }
+
+            if (const auto latency = NetworkPlayerNatives::GetAverageLatency(playerId);
+                latency && std::isfinite(*latency) && *latency >= 0.0f)
+            {
+                player.latencyReadable = true;
+                player.averageLatency = *latency;
+            }
+
+            if (const auto packetLoss = NetworkPlayerNatives::GetAveragePacketLoss(playerId);
+                packetLoss && std::isfinite(*packetLoss) && *packetLoss >= 0.0f)
+            {
+                player.packetLossReadable = true;
+                player.averagePacketLoss = *packetLoss;
+            }
+
+            const auto ped = NetworkPlayerNatives::GetPlayerPedScriptIndex(playerId);
+            if (!ped || *ped == 0)
+                continue;
+
+            player.ped = *ped;
+            player.pedAvailable = true;
+
+            const auto health = PlayerNatives::GetEntityHealth(*ped);
+            const auto maxHealth = PlayerNatives::GetEntityMaxHealth(*ped);
+            if (health && maxHealth)
+            {
+                player.healthReadable = true;
+                player.health = *health;
+                player.maxHealth = *maxHealth;
+            }
+
+            if (const auto armour = PlayerNatives::GetPedArmour(*ped))
+            {
+                player.armourReadable = true;
+                player.armour = *armour;
+            }
+
+            const auto coords = EntityCoords(*ped);
+            if (!coords)
+                continue;
+
+            player.positionReadable = true;
+            player.x = coords->x;
+            player.y = coords->y;
+            player.z = coords->z;
+
+            if (localCoords)
+            {
+                const float dx = coords->x - localCoords->x;
+                const float dy = coords->y - localCoords->y;
+                const float dz = coords->z - localCoords->z;
+                player.distance = std::sqrt((dx * dx) + (dy * dy) + (dz * dz));
+                player.distanceReadable = std::isfinite(player.distance);
+            }
+        }
+
+        m_PlayerRoster = std::move(next);
     }
 
     void NetworkRuntime::ExecuteServiceTransactionOnGameThread(std::uint32_t serviceHash) noexcept
@@ -315,6 +465,6 @@ namespace Tutones::Game::NetworkFeatures
         merged.lastTransactionPrice = m_Snapshot.lastTransactionPrice;
         merged.lastTransactionIndex = m_Snapshot.lastTransactionIndex;
         merged.lastTransactionResult = m_Snapshot.lastTransactionResult;
-        m_Snapshot = merged;
+        m_Snapshot = std::move(merged);
     }
 }
