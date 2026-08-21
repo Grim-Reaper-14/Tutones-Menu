@@ -1,5 +1,6 @@
 #include "RecoveryPanel.hpp"
 
+#include "EnhancedHashCatalogWidget.hpp"
 #include "V11Description.hpp"
 #include "V11Theme.hpp"
 #include "../features/recovery/ClothingUnlockRuntime.hpp"
@@ -260,6 +261,8 @@ namespace Tutones::UI
             ImGui::Spacing();
             ImGui::TextDisabled("%s", g_Message);
             RenderLastAction(snapshot);
+            ImGui::Spacing();
+            RenderAdditionalTransactionLists();
         }
 
         void RenderUnlocks(const RecoverySnapshot& snapshot) noexcept
