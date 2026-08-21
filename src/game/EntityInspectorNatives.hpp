@@ -88,6 +88,11 @@ namespace Tutones::Game
             return result;
         }
 
+        [[nodiscard]] static std::optional<int> GetEntityType(Entity entity) noexcept
+        {
+            return entity != 0 ? Invoke<int>(GetEntityTypeIndex, entity) : std::nullopt;
+        }
+
         [[nodiscard]] static std::optional<Native::NativeVector3> GetEntityVelocity(Entity entity) noexcept
         {
             return entity != 0 ? Invoke<Native::NativeVector3>(GetEntityVelocityIndex, entity) : std::nullopt;
@@ -141,6 +146,7 @@ namespace Tutones::Game
             GetGameplayCamRotIndex,
             StartShapeTestLosProbeIndex,
             GetShapeTestResultIncludingMaterialIndex,
+            GetEntityTypeIndex,
             GetEntityVelocityIndex,
             GetEntitySpeedIndex,
             GetVehicleEngineHealthIndex,
@@ -156,6 +162,7 @@ namespace Tutones::Game
             0xD84A545408A3099Aull, // GET_GAMEPLAY_CAM_ROT
             0x120E577522852984ull, // START_SHAPE_TEST_LOS_PROBE
             0xEE92B4A78668B1CEull, // GET_SHAPE_TEST_RESULT_INCLUDING_MATERIAL
+            0x75A2D1BBA9D95D0Eull, // GET_ENTITY_TYPE
             0xE5741C6B6539231Full, // GET_ENTITY_VELOCITY
             0xDF93B3CFAC96698Full, // GET_ENTITY_SPEED
             0x4C7724D572378B05ull, // GET_VEHICLE_ENGINE_HEALTH
