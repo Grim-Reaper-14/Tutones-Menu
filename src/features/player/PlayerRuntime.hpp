@@ -47,6 +47,8 @@ namespace Tutones::Game::PlayerFeatures
         int currentPalette{};
         bool invincible{};
         bool bulletproof{};
+        bool aquaLungs{};
+        bool infiniteOxygen{};
         bool invisible{};
         bool noRagdoll{};
         bool superJump{};
