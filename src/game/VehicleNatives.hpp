@@ -77,6 +77,88 @@ namespace Tutones::Game
                 return handlers[0] && handlers[1];
             }
 
+            enum SpawnPostHandlerIndex : std::size_t
+            {
+                DecorSetInt,
+                VehToNet,
+                SetNetworkIdExistsOnAllMachines,
+                SpawnPostHandlerCount,
+            };
+
+            inline std::array<Native::NativeHandler, SpawnPostHandlerCount>& SpawnPostHandlers() noexcept
+            {
+                static std::array<Native::NativeHandler, SpawnPostHandlerCount> handlers{};
+                return handlers;
+            }
+
+            inline bool ResolveSpawnPostHandlers() noexcept
+            {
+                auto& handlers = SpawnPostHandlers();
+                if (handlers[0] && handlers[1] && handlers[2])
+                    return true;
+                if (!Native::NativeRegistry::Get().CanInvokeOnCurrentThread())
+                    return false;
+
+                const auto init = GamePointers::Get().InitNativeTables();
+                if (!init)
+                    return false;
+
+                // Current GTA V Enhanced mappings from YimMenuV2's enhanced crossmap:
+                // DECOR_SET_INT, VEH_TO_NET, SET_NETWORK_ID_EXISTS_ON_ALL_MACHINES.
+                std::array<std::uint64_t, SpawnPostHandlerCount> slots{
+                    0xEE8559BBFC27701Bull,
+                    0x913A6486719A87D2ull,
+                    0x3C1752E361ED8FC9ull,
+                };
+
+                NativeProgram program{};
+                program.nativeCount = static_cast<std::uint32_t>(slots.size());
+                program.nativeEntrypoints = reinterpret_cast<Native::NativeHandler*>(slots.data());
+                init(&program);
+
+                for (std::size_t i = 0; i < slots.size(); ++i)
+                    handlers[i] = reinterpret_cast<Native::NativeHandler>(static_cast<std::uintptr_t>(slots[i]));
+                return handlers[0] && handlers[1] && handlers[2];
+            }
+
+            inline bool ConfigureNetworkedSpawn(Vehicle vehicle) noexcept
+            {
+                if (vehicle == 0 || !ResolveSpawnPostHandlers())
+                    return false;
+
+                {
+                    Native::CallContext context;
+                    if (!context.PushArg(vehicle)
+                        || !context.PushArg("MPBitset")
+                        || !context.PushArg(std::int32_t{0}))
+                    {
+                        return false;
+                    }
+                    SpawnPostHandlers()[DecorSetInt](&context);
+                }
+
+                int networkId{};
+                {
+                    Native::CallContext context;
+                    if (!context.PushArg(vehicle))
+                        return false;
+                    SpawnPostHandlers()[VehToNet](&context);
+                    networkId = context.GetReturnValue<int>();
+                }
+
+                if (networkId <= 0)
+                    return false;
+
+                {
+                    Native::CallContext context;
+                    if (!context.PushArg(networkId) || !context.PushArg(std::int32_t{1}))
+                        return false;
+                    SpawnPostHandlers()[SetNetworkIdExistsOnAllMachines](&context);
+                }
+
+                return true;
+            }
+
             enum PlateHandlerIndex : std::size_t
             {
                 GetNumberPlateText,
@@ -185,9 +267,8 @@ namespace Tutones::Game
             bool netMissionEntity = false,
             bool p7 = false) noexcept
         {
-            // YimMenuV2 places spawned vehicles using the model's dimensions and
-            // GET_OFFSET_FROM_ENTITY_IN_WORLD_COORDS instead of a fixed distance.
-            // Fall back to the caller coordinates if those two natives are unavailable.
+            // Match YimMenuV2's model-relative placement. The caller coordinates
+            // remain a fallback when the dimension/offset helpers are unavailable.
             float spawnX = x;
             float spawnY = y;
             float spawnZ = z;
@@ -213,7 +294,7 @@ namespace Tutones::Game
                 }
             }
 
-            return Native::NativeInvoker::Invoke<Vehicle>(
+            auto created = Native::NativeInvoker::Invoke<Vehicle>(
                 Native::NativeId::CreateVehicle,
                 model,
                 spawnX,
@@ -223,6 +304,18 @@ namespace Tutones::Game
                 static_cast<std::int32_t>(isNetwork),
                 static_cast<std::int32_t>(netMissionEntity),
                 static_cast<std::int32_t>(p7));
+
+            if (!created || *created == 0)
+                return created;
+
+            // YimMenuV2 marks spawned network vehicles with MPBitset and broadcasts
+            // their network ID to all machines immediately after CREATE_VEHICLE.
+            if (isNetwork)
+                static_cast<void>(Detail::ConfigureNetworkedSpawn(*created));
+
+            // Put the new vehicle on the ground before optional enter/max handling.
+            static_cast<void>(Natives::SetVehicleOnGroundProperly(*created, 0.0f));
+            return created;
         }
 
         inline bool SetPedIntoVehicle(Ped ped, Vehicle vehicle, int seatIndex = -1) noexcept
