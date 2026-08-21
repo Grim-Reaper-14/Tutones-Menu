@@ -79,7 +79,7 @@ namespace Tutones::UI
                 }
                 else
                 {
-                    ImGui::TextDisabled("Reference-only transaction metadata; not an executable service item.");
+                    ImGui::TextDisabled("Reference only");
                 }
 
                 ImGui::PopID();
@@ -89,7 +89,7 @@ namespace Tutones::UI
         ImGui::EndChild();
     }
 
-    inline void RenderAdditionalTransactionLists() noexcept
+    inline void RenderAdditionalTransactionLists(bool executable = false) noexcept
     {
         using namespace Game::NetworkFeatures;
         using namespace Game::NetworkFeatures::TransactionLists;
@@ -98,50 +98,63 @@ namespace Tutones::UI
         const auto snapshot = runtime.Snapshot();
 
         ImGui::SeparatorText("Business Transactions");
-        ImGui::TextWrapped(
-            "Named service items execute through GTA Online's server transaction catalog. "
-            "Each request checks the active Online session, server-transaction support, catalog validity, live service price and shop_controller before dispatch.");
-
-        if (snapshot.lastTransactionHash != 0)
+        if (executable)
         {
-            ImGui::Text(
-                "Last: 0x%08X - %s",
-                snapshot.lastTransactionHash,
-                ServiceTransactionResultName(snapshot.lastTransactionResult));
-            if (snapshot.lastTransactionPrice >= 0)
-                ImGui::TextDisabled("Catalog price/value: $%d", snapshot.lastTransactionPrice);
-            if (snapshot.lastTransactionIndex >= 0)
-                ImGui::TextDisabled("Transaction index: %d", snapshot.lastTransactionIndex);
-        }
-        if (snapshot.transactionPending)
-            ImGui::TextDisabled("Waiting for the queued service transaction to run on the GTA script thread...");
+            ImGui::TextWrapped(
+                "Named service items execute through GTA Online's server transaction catalog. "
+                "Each request checks the active Online session, server-transaction support, catalog validity, live service price and shop_controller before dispatch.");
 
-        ImGui::TextDisabled(
-            "Dispatched means the shop_controller transaction helper ran; the Rockstar service may still accept, reject or cap the transaction asynchronously.");
+            if (snapshot.lastTransactionHash != 0)
+            {
+                ImGui::Text(
+                    "Last: 0x%08X - %s",
+                    snapshot.lastTransactionHash,
+                    ServiceTransactionResultName(snapshot.lastTransactionResult));
+                if (snapshot.lastTransactionPrice >= 0)
+                    ImGui::TextDisabled("Catalog price/value: $%d", snapshot.lastTransactionPrice);
+                if (snapshot.lastTransactionIndex >= 0)
+                    ImGui::TextDisabled("Transaction index: %d", snapshot.lastTransactionIndex);
+            }
+            if (snapshot.transactionPending)
+                ImGui::TextDisabled("Waiting for the queued service transaction to run on the GTA script thread...");
+
+            ImGui::TextDisabled(
+                "Dispatched means the shop_controller transaction helper ran; the Rockstar service may still accept, reject or cap the transaction asynchronously.");
+        }
+        else
+        {
+            ImGui::TextDisabled("Read-only transaction catalog inspector. Execute actions are available under Recovery > Businesses.");
+        }
 
         if (ImGui::BeginTabBar("##extra_transaction_hash_tabs"))
         {
             if (ImGui::BeginTabItem("Spend"))
             {
                 static ImGuiTextFilter filter;
-                ImGui::TextDisabled("109 executable SERVICE_SPEND_* service items. These can deduct the live catalog price.");
-                RenderNamedHashList("##spend_hash_list", "Filter spend", SpendNames, filter, true);
+                ImGui::TextDisabled(executable
+                    ? "109 executable SERVICE_SPEND_* service items. These can deduct the live catalog price."
+                    : "109 SERVICE_SPEND_* identifiers");
+                RenderNamedHashList("##spend_hash_list", "Filter spend", SpendNames, filter, executable);
                 ImGui::EndTabItem();
             }
 
             if (ImGui::BeginTabItem("Awards"))
             {
                 static ImGuiTextFilter filter;
-                ImGui::TextDisabled("63 executable award / bonus SERVICE_EARN_* service items.");
-                RenderNamedHashList("##award_hash_list", "Filter awards", AwardNames, filter, true);
+                ImGui::TextDisabled(executable
+                    ? "63 executable award / bonus SERVICE_EARN_* service items."
+                    : "63 award / bonus SERVICE_EARN_* identifiers");
+                RenderNamedHashList("##award_hash_list", "Filter awards", AwardNames, filter, executable);
                 ImGui::EndTabItem();
             }
 
             if (ImGui::BeginTabItem("Refunds"))
             {
                 static ImGuiTextFilter filter;
-                ImGui::TextDisabled("17 executable named refund service items.");
-                RenderNamedHashList("##refund_hash_list", "Filter refunds", RefundNames, filter, true);
+                ImGui::TextDisabled(executable
+                    ? "17 executable named refund service items."
+                    : "17 named refund identifiers");
+                RenderNamedHashList("##refund_hash_list", "Filter refunds", RefundNames, filter, executable);
                 ImGui::EndTabItem();
             }
 
