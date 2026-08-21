@@ -106,6 +106,21 @@ namespace Tutones::Game::World
             m_ParkedVehicleDensity.store(1.0f, std::memory_order_release);
         }
 
+        bool QueuePersistentWorldState(bool freezeClock, bool blackout)
+        {
+            return QueueAction("Restore saved world state", [this, freezeClock, blackout] {
+                const bool clockSuccess = MiscNatives::PauseClock(freezeClock);
+                if (clockSuccess)
+                    m_FreezeClock.store(freezeClock, std::memory_order_release);
+
+                const bool blackoutSuccess = MiscNatives::SetArtificialLightsState(blackout);
+                if (blackoutSuccess)
+                    m_Blackout.store(blackout, std::memory_order_release);
+
+                return clockSuccess && blackoutSuccess;
+            });
+        }
+
         bool QueueSetTime(int hour, int minute)
         {
             hour = std::clamp(hour, 0, 23);
