@@ -16,7 +16,7 @@ namespace Tutones::UI
             {"O", "WORLD",
                 {{"General", "Time & Weather", "Teleport", "Entities"}},
                 {{"O", "Q", "L", "E"}},
-                {{"Pedestrian, scenario, traffic and parked-vehicle population density controls.", "Verified Enhanced local clock, freeze-time, weather and blackout controls.", "Waypoint and map-destination teleport tools with ground-height resolution.", "Radius-based local cleanup for ambient peds, vehicles and world objects."}}, 4, true},
+                {{"Pedestrian, scenario, traffic and parked-vehicle population density controls.", "Verified Enhanced local clock, freeze-time, weather and blackout controls.", "Waypoint and map-destination teleport tools with ground-height resolution.", "Local entity cleanup plus a live crosshair inspector for model, transform, health, material, vehicle and ped debug data."}}, 4, true},
             BaseCategories[5],
             BaseCategories[6],
             BaseCategories[7],
