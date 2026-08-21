@@ -86,6 +86,8 @@ namespace Tutones::Game::PlayerFeatures
         m_Snapshot.currentPalette = *currentPalette;
         m_Snapshot.invincible = m_Invincible.load(std::memory_order_acquire);
         m_Snapshot.bulletproof = m_Bulletproof.load(std::memory_order_acquire);
+        m_Snapshot.aquaLungs = m_AquaLungs.load(std::memory_order_acquire);
+        m_Snapshot.infiniteOxygen = m_InfiniteOxygen.load(std::memory_order_acquire);
         m_Snapshot.invisible = m_Invisible.load(std::memory_order_acquire);
         m_Snapshot.noRagdoll = m_NoRagdoll.load(std::memory_order_acquire);
         m_Snapshot.superJump = m_SuperJump.load(std::memory_order_acquire);
@@ -221,6 +223,8 @@ namespace Tutones::Game::PlayerFeatures
         m_Snapshot.lastActionSucceeded = lastSuccess;
         m_Snapshot.invincible = m_Invincible.load(std::memory_order_acquire);
         m_Snapshot.bulletproof = m_Bulletproof.load(std::memory_order_acquire);
+        m_Snapshot.aquaLungs = m_AquaLungs.load(std::memory_order_acquire);
+        m_Snapshot.infiniteOxygen = m_InfiniteOxygen.load(std::memory_order_acquire);
         m_Snapshot.invisible = m_Invisible.load(std::memory_order_acquire);
         m_Snapshot.noRagdoll = m_NoRagdoll.load(std::memory_order_acquire);
         m_Snapshot.superJump = m_SuperJump.load(std::memory_order_acquire);
