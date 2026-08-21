@@ -336,8 +336,12 @@ namespace Tutones::Game::NetworkFeatures
         const auto localPlayer = PlayerNatives::PlayerId();
         if (localPlayer && *localPlayer >= 0 && *localPlayer < 32)
             next.localPlayer = *localPlayer;
-        else if (manager && manager->localPlayer && manager->localPlayer->playerIndex < 32)
+        else if (manager
+            && NetworkPlayerManager::IsPlayerReadable(manager->localPlayer)
+            && manager->localPlayer->playerIndex < 32)
+        {
             next.localPlayer = static_cast<int>(manager->localPlayer->playerIndex);
+        }
 
         if (const auto host = NetworkPlayerNatives::GetHostOfScript("freemode", -1, 0);
             host && *host >= 0 && *host < 32)
@@ -376,7 +380,7 @@ namespace Tutones::Game::NetworkFeatures
             if (manager)
             {
                 auto* managerPlayer = manager->players[static_cast<std::size_t>(playerId)];
-                if (managerPlayer)
+                if (NetworkPlayerManager::IsPlayerReadable(managerPlayer))
                 {
                     player.managerSlotPresent = true;
                     player.managerIndexMatches = managerPlayer->playerIndex == playerId;
