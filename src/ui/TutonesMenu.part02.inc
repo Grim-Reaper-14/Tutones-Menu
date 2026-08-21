@@ -96,7 +96,6 @@ namespace Tutones::UI
             const float footerY = pos.y + V11Theme::FooterY;
 
             draw->AddRectFilled(pos, ImVec2(pos.x + V11Theme::MenuWidth, pos.y + V11Theme::MenuHeight), ImGui::GetColorU32(V11Theme::WindowBg));
-            DrawTopBanner(draw, pos, V11Theme::MenuWidth);
 
             const ImTextureRef headerTexture = themes.HeaderTexture();
             if (headerTexture.GetTexID() != ImTextureID_Invalid)
@@ -106,6 +105,10 @@ namespace Tutones::UI
                     draw->AddImage(headerTexture, pos, headerMax);
                 else
                     draw->AddImage(headerTexture, pos, headerMax, ImVec2(0.0f, 0.045f), ImVec2(1.0f, 0.605f));
+            }
+            else
+            {
+                DrawTopBanner(draw, pos, V11Theme::MenuWidth);
             }
 
             const ImVec2 bodyMin{pos.x, pos.y + V11Theme::HeaderHeight};
@@ -167,7 +170,6 @@ namespace Tutones::UI
                 ImGui::GetColorU32(V11Theme::MutedText),
                 ::Tutones::App::BuildInfo::Label);
 
-            DrawDescriptionBanner(draw, pos, V11Theme::MenuWidth, m_Category, m_Item);
             const ImTextureRef footerTexture = themes.FooterTexture();
             if (footerTexture.GetTexID() != ImTextureID_Invalid)
             {
@@ -200,6 +202,10 @@ namespace Tutones::UI
                     description,
                     nullptr,
                     textMax.x - textMin.x);
+            }
+            else
+            {
+                DrawDescriptionBanner(draw, pos, V11Theme::MenuWidth, m_Category, m_Item);
             }
         }
 
