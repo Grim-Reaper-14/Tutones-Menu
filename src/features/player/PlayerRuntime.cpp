@@ -41,6 +41,13 @@ namespace Tutones::Game::PlayerFeatures
                 Native::NativeId::SetPedResetFlag, ped, flag, std::int32_t{1});
         }
 
+        bool SetBlockingOfNonTemporaryEventsForAmbientPedsThisFrame(bool enabled) noexcept
+        {
+            return Native::NativeInvoker::InvokeVoid(
+                Native::NativeId::SetBlockingOfNonTemporaryEventsForAmbientPedsThisFrame,
+                static_cast<std::int32_t>(enabled));
+        }
+
         bool SetPlayerHasReserveParachute(Player player) noexcept
         {
             return Native::NativeInvoker::InvokeVoid(Native::NativeId::SetPlayerHasReserveParachute, player);
@@ -256,12 +263,19 @@ namespace Tutones::Game::PlayerFeatures
                 static_cast<void>(PlayerNatives::ClearPlayerWantedLevel(*player));
 
             // GTA can reset these relationship/dispatch states during normal world and
-            // session processing, so treat them as real persistent loop features instead
-            // of one-shot settings. Each toggle stays independent.
+            // session processing, so treat them as real per-frame features. Police Ignore
+            // and Ignore Everyone remain independent toggles.
             if (m_PoliceIgnore.load(std::memory_order_acquire))
                 static_cast<void>(PlayerNatives::SetPoliceIgnorePlayer(*player, true));
+
             if (m_EveryoneIgnore.load(std::memory_order_acquire))
+            {
                 static_cast<void>(PlayerNatives::SetEveryoneIgnorePlayer(*player, true));
+                // Match the stronger Yim-style peds-ignore behavior: stop ambient peds
+                // reacting to non-temporary events this frame and keep reset flag 124 set.
+                static_cast<void>(SetBlockingOfNonTemporaryEventsForAmbientPedsThisFrame(true));
+                static_cast<void>(SetPedResetFlag(*ped, 124));
+            }
 
             ProcessPendingModel(*player);
 
