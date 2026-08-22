@@ -101,10 +101,17 @@ namespace Tutones::Game::PlayerFeatures
 
         const bool restoreCriticalHits = m_DisableCriticalHits.exchange(false, std::memory_order_acq_rel);
         const bool disableMobileRadio = m_MobileRadio.exchange(false, std::memory_order_acq_rel);
-        if (!restoreCriticalHits && !disableMobileRadio)
+        const bool restorePoliceIgnore = m_PoliceIgnore.exchange(false, std::memory_order_acq_rel);
+        const bool restoreEveryoneIgnore = m_EveryoneIgnore.exchange(false, std::memory_order_acq_rel);
+        if (!restoreCriticalHits && !disableMobileRadio && !restorePoliceIgnore && !restoreEveryoneIgnore)
             return;
 
-        static_cast<void>(Runtime::GameRuntime::Get().Enqueue([restoreCriticalHits, disableMobileRadio] {
+        static_cast<void>(Runtime::GameRuntime::Get().Enqueue([
+            restoreCriticalHits,
+            disableMobileRadio,
+            restorePoliceIgnore,
+            restoreEveryoneIgnore] {
+            const auto player = PlayerNatives::PlayerId();
             const auto ped = PlayerNatives::PlayerPedId();
             if (restoreCriticalHits && ped && *ped != 0)
             {
@@ -117,6 +124,13 @@ namespace Tutones::Game::PlayerFeatures
                     Native::NativeId::SetMobilePhoneRadioState, std::int32_t{0}));
                 static_cast<void>(Native::NativeInvoker::InvokeVoid(
                     Native::NativeId::SetMobileRadioEnabledDuringGameplay, std::int32_t{0}));
+            }
+            if (player)
+            {
+                if (restorePoliceIgnore)
+                    static_cast<void>(PlayerNatives::SetPoliceIgnorePlayer(*player, false));
+                if (restoreEveryoneIgnore)
+                    static_cast<void>(PlayerNatives::SetEveryoneIgnorePlayer(*player, false));
             }
         }));
     }
@@ -240,6 +254,14 @@ namespace Tutones::Game::PlayerFeatures
 
             if (m_NeverWanted.load(std::memory_order_acquire))
                 static_cast<void>(PlayerNatives::ClearPlayerWantedLevel(*player));
+
+            // GTA can reset these relationship/dispatch states during normal world and
+            // session processing, so treat them as real persistent loop features instead
+            // of one-shot settings. Each toggle stays independent.
+            if (m_PoliceIgnore.load(std::memory_order_acquire))
+                static_cast<void>(PlayerNatives::SetPoliceIgnorePlayer(*player, true));
+            if (m_EveryoneIgnore.load(std::memory_order_acquire))
+                static_cast<void>(PlayerNatives::SetEveryoneIgnorePlayer(*player, true));
 
             ProcessPendingModel(*player);
 
