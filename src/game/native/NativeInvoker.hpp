@@ -2,6 +2,7 @@
 
 #include "NativeRegistry.hpp"
 #include "../WeaponLaserNatives.hpp"
+#include "../types/ScriptTypes.hpp"
 
 #include <optional>
 #include <type_traits>
@@ -19,6 +20,10 @@ namespace Tutones::Game::Native
 
             auto& registry = NativeRegistry::Get();
             if (!registry.IsReady() || !registry.CanInvokeOnCurrentThread())
+                return std::nullopt;
+
+            auto* tls = Types::TlsContext::Get();
+            if (!tls || !tls->scriptThreadActive || !tls->currentScriptThread)
                 return std::nullopt;
 
             const auto handler = registry.Handler(id);
@@ -39,6 +44,10 @@ namespace Tutones::Game::Native
         {
             auto& registry = NativeRegistry::Get();
             if (!registry.IsReady() || !registry.CanInvokeOnCurrentThread())
+                return false;
+
+            auto* tls = Types::TlsContext::Get();
+            if (!tls || !tls->scriptThreadActive || !tls->currentScriptThread)
                 return false;
 
             const auto handler = registry.Handler(id);
@@ -67,9 +76,6 @@ namespace Tutones::Game::Native
             handler(&context);
             context.FixVectors();
 
-            // GTA's laser-sight native can resolve successfully without producing
-            // a visible beam. Use that exact aimbot call as the trigger for the
-            // Tutones muzzle-to-crosshair rendering fallback.
             if (id == NativeId::EnableLaserSightRendering)
                 static_cast<void>(Tutones::Game::WeaponLaserNatives::RenderAimbotLaser(laserEnabled));
 

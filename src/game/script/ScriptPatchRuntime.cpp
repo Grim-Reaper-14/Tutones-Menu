@@ -1,6 +1,7 @@
 #include "ScriptPatchRuntime.hpp"
 
 #include "../../core/logging/Logger.hpp"
+#include "../../runtime/GameRuntime.hpp"
 
 #include <MinHook.h>
 
@@ -74,7 +75,7 @@ namespace Tutones::Game::Script
         }
 
         m_HookActive.store(true, std::memory_order_release);
-        TUTONES_LOG_INFO("script.patch", "ScriptVM shadow-bytecode patch runtime installed");
+        TUTONES_LOG_INFO("script.patch", "ScriptVM shadow-bytecode patch runtime installed; live native scheduling enabled");
         return true;
     }
 
@@ -441,6 +442,14 @@ namespace Tutones::Game::Script
     {
         auto& runtime = Get();
         runtime.m_ActiveCallbacks.fetch_add(1, std::memory_order_acq_rel);
+
+        if (!runtime.m_ShuttingDown.load(std::memory_order_acquire) && program)
+        {
+            // ScriptVM is entered with Rockstar's real script TLS state active.
+            // Dispatch Tutones native work here instead of fabricating TLS after
+            // RunScriptThreads has already returned.
+            ::Tutones::Runtime::GameRuntime::Get().TickLiveScriptContext(program->hash, program->nameHash);
+        }
 
         auto** originalBlocks = program ? program->codeBlocks : nullptr;
         auto** patchedBlocks = (!runtime.m_ShuttingDown.load(std::memory_order_acquire) && program)
