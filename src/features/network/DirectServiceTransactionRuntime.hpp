@@ -74,27 +74,12 @@ namespace Tutones::Game::NetworkFeatures
         }
 
     private:
-        static constexpr std::uint32_t Joaat(const char* text) noexcept
-        {
-            std::uint32_t hash{};
-            while (text && *text)
-            {
-                char c = *text++;
-                if (c >= 'A' && c <= 'Z')
-                    c = static_cast<char>(c - 'A' + 'a');
-                hash += static_cast<std::uint8_t>(c);
-                hash += hash << 10;
-                hash ^= hash >> 6;
-            }
-            hash += hash << 3;
-            hash ^= hash >> 11;
-            hash += hash << 15;
-            return hash;
-        }
-
-        static constexpr std::uint32_t ShopControllerHash = Joaat("shop_controller");
-        static constexpr std::uint32_t ServiceThresholdCategory = Joaat("CATEGORY_SERVICE_WITH_THRESHOLD");
-        static constexpr std::uint32_t EarnAction = Joaat("NET_SHOP_ACTION_EARN");
+        // Precomputed JOAAT values. Keeping these as literals avoids MSVC C2131
+        // when a constexpr member function is used to initialize static data
+        // before the class definition is complete.
+        static constexpr std::uint32_t ShopControllerHash = 0x39DA738Bu;
+        static constexpr std::uint32_t ServiceThresholdCategory = 0x57DE404Eu;
+        static constexpr std::uint32_t EarnAction = 0x562592BBu;
 
         class ScriptTlsScope final
         {
