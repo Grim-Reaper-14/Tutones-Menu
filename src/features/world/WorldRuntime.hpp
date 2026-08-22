@@ -44,10 +44,11 @@ namespace Tutones::Game::World
         inline constexpr std::uint32_t ShopControllerHash = Joaat("shop_controller");
     }
 
-    inline constexpr std::array<const char*, 15> WeatherCodes{{
+    inline constexpr std::array<const char*, 17> WeatherCodes{{
         "EXTRASUNNY", "CLEAR", "CLOUDS", "SMOG", "FOGGY",
         "OVERCAST", "RAIN", "THUNDER", "CLEARING", "NEUTRAL",
         "SNOW", "BLIZZARD", "SNOWLIGHT", "XMAS", "HALLOWEEN",
+        "RAIN_HALLOWEEN", "SNOW_HALLOWEEN",
     }};
 
     struct WorldSnapshot final
@@ -175,12 +176,11 @@ namespace Tutones::Game::World
                 m_SelectedHour.store(hour, std::memory_order_release);
                 m_SelectedMinute.store(minute, std::memory_order_release);
 
-                bool clockSuccess{};
-                if (freezeClock)
-                    clockSuccess = MiscNatives::NetworkOverrideClockTime(hour, minute, 0);
-                else
-                    clockSuccess = MiscNatives::NetworkClearClockTimeOverride();
-                m_FreezeClock.store(freezeClock && clockSuccess, std::memory_order_release);
+                const bool clockSuccess = freezeClock
+                    ? MiscNatives::NetworkOverrideClockTime(hour, minute, 0)
+                    : MiscNatives::NetworkClearClockTimeOverride();
+                if (clockSuccess)
+                    m_FreezeClock.store(freezeClock, std::memory_order_release);
 
                 bool weatherSuccess{};
                 if (forceWeather)
@@ -191,22 +191,28 @@ namespace Tutones::Game::World
                     weatherSuccess = MiscNatives::SetOverrideWeather(weather.c_str()) && weatherSuccess;
                     if (weatherSuccess)
                     {
-                        std::scoped_lock lock(m_StatusMutex);
-                        m_WeatherCode = weather;
+                        {
+                            std::scoped_lock lock(m_StatusMutex);
+                            m_WeatherCode = weather;
+                        }
+                        m_WeatherOverrideActive.store(true, std::memory_order_release);
                     }
-                    m_WeatherOverrideActive.store(weatherSuccess, std::memory_order_release);
                 }
                 else
                 {
-                    DisableWeatherScriptPatch();
                     weatherSuccess = MiscNatives::ClearOverrideWeather();
-                    m_WeatherOverrideActive.store(false, std::memory_order_release);
-                    std::scoped_lock lock(m_StatusMutex);
-                    m_WeatherCode = weather;
+                    if (weatherSuccess)
+                    {
+                        DisableWeatherScriptPatch();
+                        m_WeatherOverrideActive.store(false, std::memory_order_release);
+                        std::scoped_lock lock(m_StatusMutex);
+                        m_WeatherCode = weather;
+                    }
                 }
 
                 const bool blackoutSuccess = MiscNatives::SetArtificialLightsState(blackout);
-                m_Blackout.store(blackoutSuccess ? blackout : false, std::memory_order_release);
+                if (blackoutSuccess)
+                    m_Blackout.store(blackout, std::memory_order_release);
 
                 if (HasPersistentWorldOverride())
                     EnsureWorldControlLoop();
@@ -281,10 +287,12 @@ namespace Tutones::Game::World
         bool QueueClearWeatherOverride()
         {
             return QueueAction("Release weather override", [this] {
-                DisableWeatherScriptPatch();
                 const bool success = MiscNatives::ClearOverrideWeather();
                 if (success)
+                {
+                    DisableWeatherScriptPatch();
                     m_WeatherOverrideActive.store(false, std::memory_order_release);
+                }
                 return success;
             });
         }
@@ -306,12 +314,17 @@ namespace Tutones::Game::World
         bool QueueReleasePersistentOverrides()
         {
             return QueueAction("Release time/weather overrides", [this] {
-                DisableWeatherScriptPatch();
-                bool success = MiscNatives::NetworkClearClockTimeOverride();
-                success = MiscNatives::ClearOverrideWeather() && success;
-                m_FreezeClock.store(false, std::memory_order_release);
-                m_WeatherOverrideActive.store(false, std::memory_order_release);
-                return success;
+                const bool clockSuccess = MiscNatives::NetworkClearClockTimeOverride();
+                const bool weatherSuccess = MiscNatives::ClearOverrideWeather();
+
+                if (clockSuccess)
+                    m_FreezeClock.store(false, std::memory_order_release);
+                if (weatherSuccess)
+                {
+                    DisableWeatherScriptPatch();
+                    m_WeatherOverrideActive.store(false, std::memory_order_release);
+                }
+                return clockSuccess && weatherSuccess;
             });
         }
 
@@ -396,6 +409,12 @@ namespace Tutones::Game::World
         {
             auto& patches = Script::ScriptPatchRuntime::Get();
             auto handle = m_WeatherScriptPatch.load(std::memory_order_acquire);
+            if (handle != 0 && !patches.Status(handle).registered)
+            {
+                m_WeatherScriptPatch.store(0, std::memory_order_release);
+                handle = 0;
+            }
+
             if (handle == 0)
             {
                 handle = patches.AddPatch(
@@ -413,9 +432,13 @@ namespace Tutones::Game::World
 
         void DisableWeatherScriptPatch() noexcept
         {
-            const auto handle = m_WeatherScriptPatch.load(std::memory_order_acquire);
-            if (handle != 0)
-                static_cast<void>(Script::ScriptPatchRuntime::Get().SetPatchEnabled(handle, false));
+            const auto handle = m_WeatherScriptPatch.exchange(0, std::memory_order_acq_rel);
+            if (handle == 0)
+                return;
+
+            auto& patches = Script::ScriptPatchRuntime::Get();
+            static_cast<void>(patches.SetPatchEnabled(handle, false));
+            patches.RemovePatch(handle);
         }
 
         [[nodiscard]] bool HasDensityOverride() const noexcept
