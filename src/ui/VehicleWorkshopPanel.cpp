@@ -2,6 +2,7 @@
 
 #include "V11Description.hpp"
 #include "V11Theme.hpp"
+#include "../features/vehicle/VehicleAppearanceRuntime.hpp"
 #include "../features/vehicle/VehicleModificationRuntime.hpp"
 #include "../features/vehicle/VehicleWorkshopRuntime.hpp"
 #include "../game/GameState.hpp"
@@ -23,6 +24,7 @@ namespace Tutones::UI
         {
             Overview,
             Performance,
+            Appearance,
             Advanced,
         };
 
@@ -32,6 +34,32 @@ namespace Tutones::UI
             "Transmission",
             "Suspension",
             "Armor",
+        }};
+
+        constexpr std::array<const char*, 7> WindowTintNames{{
+            "None",
+            "Pure Black",
+            "Dark Smoke",
+            "Light Smoke",
+            "Stock",
+            "Limo",
+            "Green",
+        }};
+
+        constexpr std::array<const char*, 13> PlateStyleNames{{
+            "Blue on White 1",
+            "Yellow on Black",
+            "Yellow on Blue",
+            "Blue on White 2",
+            "Blue on White 3",
+            "Yankton",
+            "Ecola",
+            "Las Venturas",
+            "Liberty City",
+            "Los Santos Car Meet",
+            "Los Santos Panic",
+            "Los Santos Pounders",
+            "Sprunk",
         }};
 
         WorkshopPage g_WorkshopPage{WorkshopPage::Overview};
@@ -78,8 +106,8 @@ namespace Tutones::UI
 
         void DrawWorkshopNavigation() noexcept
         {
-            constexpr std::array<const char*, 3> labels{{"Overview", "Performance", "Advanced"}};
-            if (!ImGui::BeginTable("##vehicle_workshop_navigation", 3, ImGuiTableFlags_SizingStretchSame))
+            constexpr std::array<const char*, 4> labels{{"Overview", "Performance", "Appearance", "Advanced"}};
+            if (!ImGui::BeginTable("##vehicle_workshop_navigation", 4, ImGuiTableFlags_SizingStretchSame))
                 return;
 
             ImGui::TableNextRow();
@@ -327,6 +355,66 @@ namespace Tutones::UI
             ImGui::TextWrapped("Package actions verify every supported performance slot after writing it. A vehicle switch is rejected as stale instead of modifying the wrong vehicle.");
         }
 
+        void RenderAppearance(Game::Vehicle vehicle) noexcept
+        {
+            auto& runtime = Game::Mods::VehicleAppearanceRuntime::Get();
+            runtime.RequestRefresh(vehicle);
+            const auto snapshot = runtime.Snapshot();
+
+            ImGui::TextColored(V11Theme::Accent, "Vehicle Appearance");
+            ImGui::TextWrapped("Window tint and plate style are dedicated GTA vehicle values, so they are exposed separately from normal mod slots.");
+            ImGui::Separator();
+
+            if (!snapshot.ready || snapshot.vehicle != vehicle)
+            {
+                ImGui::TextDisabled("Reading window tint and plate style from the current vehicle...");
+                return;
+            }
+
+            const int currentTint = std::clamp(snapshot.windowTint, 0, static_cast<int>(WindowTintNames.size()) - 1);
+            ImGui::SeparatorText("Window Tint");
+            ImGui::TextDisabled("Current: %s", WindowTintNames[static_cast<std::size_t>(currentTint)]);
+            ImGui::SetNextItemWidth(-1.0f);
+            if (ImGui::BeginCombo("##workshop_window_tint", WindowTintNames[static_cast<std::size_t>(currentTint)]))
+            {
+                for (std::size_t i = 0; i < WindowTintNames.size(); ++i)
+                {
+                    const bool selected = static_cast<int>(i) == currentTint;
+                    if (ImGui::Selectable(WindowTintNames[i], selected))
+                        static_cast<void>(runtime.QueueWindowTint(vehicle, static_cast<int>(i)));
+                    if (selected)
+                        ImGui::SetItemDefaultFocus();
+                }
+                ImGui::EndCombo();
+            }
+            DescribeLastV11Item("Set the current vehicle's window tint and verify the value by reading it back from GTA.");
+
+            const int currentPlate = std::clamp(snapshot.plateStyle, 0, static_cast<int>(PlateStyleNames.size()) - 1);
+            ImGui::SeparatorText("Plate Style");
+            ImGui::SetNextItemWidth(-1.0f);
+            if (ImGui::BeginCombo("##workshop_plate_style", PlateStyleNames[static_cast<std::size_t>(currentPlate)]))
+            {
+                for (std::size_t i = 0; i < PlateStyleNames.size(); ++i)
+                {
+                    const bool selected = static_cast<int>(i) == currentPlate;
+                    if (ImGui::Selectable(PlateStyleNames[i], selected))
+                        static_cast<void>(runtime.QueuePlateStyle(vehicle, static_cast<int>(i)));
+                    if (selected)
+                        ImGui::SetItemDefaultFocus();
+                }
+                ImGui::EndCombo();
+            }
+            DescribeLastV11Item("Set the current vehicle's number-plate background/style and verify it by read-back.");
+
+            ImGui::SeparatorText("Status");
+            if (snapshot.pending)
+                ImGui::TextDisabled("%s", snapshot.message.c_str());
+            else if (snapshot.haveResult)
+                ImGui::TextWrapped("%s: %s", snapshot.lastSucceeded ? "Verified" : "Failed", snapshot.message.c_str());
+            else
+                ImGui::TextDisabled("Ready");
+        }
+
         void RenderAdvancedReturnOverlay(const ImVec2& hostWindowPosition) noexcept
         {
             ImGui::SetNextWindowPos(
@@ -393,6 +481,10 @@ namespace Tutones::UI
             else if (currentVehicle == 0)
             {
                 ImGui::TextDisabled("Enter a vehicle to open the workshop.");
+            }
+            else if (g_WorkshopPage == WorkshopPage::Appearance)
+            {
+                RenderAppearance(currentVehicle);
             }
             else if (!workshop.valid || workshop.vehicle != currentVehicle)
             {
