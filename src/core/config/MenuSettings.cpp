@@ -36,8 +36,8 @@ namespace Tutones::Core::Config
             const auto misc = document.value("misc", nlohmann::json::object());
             const auto ui = document.value("ui", nlohmann::json::object());
 
-            // Older files remain valid. The next save upgrades them to schema v3.
-            m_Settings.version = 3;
+            // Older files remain valid. The next save upgrades them to schema v4.
+            m_Settings.version = 4;
             m_Settings.offRadar = document.value("off_radar", m_Settings.offRadar);
 
             m_Settings.player.invincible = player.value("invincible", m_Settings.player.invincible);
@@ -85,6 +85,7 @@ namespace Tutones::Core::Config
             m_Settings.world.randomVehicleDensity = world.value("random_vehicle_density", m_Settings.world.randomVehicleDensity);
             m_Settings.world.parkedVehicleDensity = world.value("parked_vehicle_density", m_Settings.world.parkedVehicleDensity);
             m_Settings.world.freezeClock = world.value("freeze_clock", m_Settings.world.freezeClock);
+            m_Settings.world.forceWeather = world.value("force_weather", m_Settings.world.forceWeather);
             m_Settings.world.blackout = world.value("blackout", m_Settings.world.blackout);
             m_Settings.world.autoWaypoint = world.value("auto_waypoint", m_Settings.world.autoWaypoint);
             m_Settings.world.entityInspectorLive = world.value("entity_inspector_live", m_Settings.world.entityInspectorLive);
@@ -175,6 +176,7 @@ namespace Tutones::Core::Config
                     {"random_vehicle_density", m_Settings.world.randomVehicleDensity},
                     {"parked_vehicle_density", m_Settings.world.parkedVehicleDensity},
                     {"freeze_clock", m_Settings.world.freezeClock},
+                    {"force_weather", m_Settings.world.forceWeather},
                     {"blackout", m_Settings.world.blackout},
                     {"auto_waypoint", m_Settings.world.autoWaypoint},
                     {"entity_inspector_live", m_Settings.world.entityInspectorLive},
