@@ -4,6 +4,8 @@
 #include "native/NativeCallContext.hpp"
 #include "native/NativeRegistry.hpp"
 
+#include <Windows.h>
+
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -32,7 +34,12 @@ namespace Tutones::Game::MiscNatives
             PauseClock,
             GetClockHours,
             GetClockMinutes,
+            NetworkOverrideClockTime,
+            NetworkClearClockTimeOverride,
             SetWeatherTypeNowPersist,
+            SetWeatherTypePersist,
+            SetOverrideWeather,
+            ClearOverrideWeather,
             SetArtificialLightsState,
             GetGameplayCamFov,
             StopGameplayCamShaking,
@@ -43,6 +50,29 @@ namespace Tutones::Game::MiscNatives
         {
             static std::array<Native::NativeHandler, HandlerCount> handlers{};
             return handlers;
+        }
+
+        [[nodiscard]] inline bool IsExecutableAddress(std::uintptr_t address) noexcept
+        {
+            if (address == 0)
+                return false;
+
+            MEMORY_BASIC_INFORMATION memory{};
+            if (::VirtualQuery(reinterpret_cast<const void*>(address), &memory, sizeof(memory)) != sizeof(memory))
+                return false;
+            if (memory.State != MEM_COMMIT || (memory.Protect & PAGE_GUARD) != 0 || memory.Protect == PAGE_NOACCESS)
+                return false;
+
+            switch (memory.Protect & 0xFF)
+            {
+            case PAGE_EXECUTE:
+            case PAGE_EXECUTE_READ:
+            case PAGE_EXECUTE_READWRITE:
+            case PAGE_EXECUTE_WRITECOPY:
+                return true;
+            default:
+                return false;
+            }
         }
 
         inline bool ResolveHandlers() noexcept
@@ -61,13 +91,21 @@ namespace Tutones::Game::MiscNatives
             if (!init)
                 return false;
 
-            // Current GTA V Enhanced mappings for focused Misc controls.
+            // Current GTA V Enhanced targets verified against YimMenuV2's Enhanced
+            // crossmap. Time uses the NETWORK clock natives because local CLOCK natives
+            // are routinely overwritten in GTA Online. Weather has both one-shot persist
+            // and per-frame override/clear handlers so the runtime can own its lifecycle.
             std::array<std::uint64_t, HandlerCount> slots{
                 0xCBE10A13619B9FAAull, // SET_CLOCK_TIME
                 0xB9C1EC5EDDAAA115ull, // PAUSE_CLOCK
                 0x5295501D0862870Dull, // GET_CLOCK_HOURS
                 0x18E502A71E28968Cull, // GET_CLOCK_MINUTES
+                0xAFD3BC0F6EBB5474ull, // NETWORK_OVERRIDE_CLOCK_TIME
+                0x2B7C09622E980A72ull, // NETWORK_CLEAR_CLOCK_TIME_OVERRIDE
                 0xE38A58649E049502ull, // SET_WEATHER_TYPE_NOW_PERSIST
+                0xFD5A87843250F1B3ull, // SET_WEATHER_TYPE_PERSIST
+                0x88791F880F624022ull, // SET_OVERRIDE_WEATHER
+                0x58A3B74F26D2B532ull, // CLEAR_OVERRIDE_WEATHER
                 0x771FE86D2A331DD7ull, // SET_ARTIFICIAL_LIGHTS_STATE
                 0x9FA6E15C7A998E4Full, // GET_GAMEPLAY_CAM_FOV
                 0x9AFEC71EEA2F7754ull, // STOP_GAMEPLAY_CAM_SHAKING
@@ -79,12 +117,14 @@ namespace Tutones::Game::MiscNatives
             init(&program);
 
             for (std::size_t index = 0; index < slots.size(); ++index)
-                handlers[index] = reinterpret_cast<Native::NativeHandler>(static_cast<std::uintptr_t>(slots[index]));
-
-            for (const auto handler : handlers)
             {
-                if (!handler)
+                const auto address = static_cast<std::uintptr_t>(slots[index]);
+                if (!IsExecutableAddress(address))
+                {
+                    handlers.fill(nullptr);
                     return false;
+                }
+                handlers[index] = reinterpret_cast<Native::NativeHandler>(address);
             }
             return true;
         }
@@ -130,6 +170,26 @@ namespace Tutones::Game::MiscNatives
         return context.GetReturnValue<int>();
     }
 
+    inline bool NetworkOverrideClockTime(int hour, int minute, int second = 0) noexcept
+    {
+        if (!Detail::ResolveHandlers())
+            return false;
+        Native::CallContext context;
+        if (!context.PushArg(hour) || !context.PushArg(minute) || !context.PushArg(second))
+            return false;
+        Detail::Handlers()[Detail::NetworkOverrideClockTime](&context);
+        return true;
+    }
+
+    inline bool NetworkClearClockTimeOverride() noexcept
+    {
+        if (!Detail::ResolveHandlers())
+            return false;
+        Native::CallContext context;
+        Detail::Handlers()[Detail::NetworkClearClockTimeOverride](&context);
+        return true;
+    }
+
     inline bool SetWeatherTypeNowPersist(const char* weather) noexcept
     {
         if (!weather || !*weather || !Detail::ResolveHandlers())
@@ -138,6 +198,37 @@ namespace Tutones::Game::MiscNatives
         if (!context.PushArg(weather))
             return false;
         Detail::Handlers()[Detail::SetWeatherTypeNowPersist](&context);
+        return true;
+    }
+
+    inline bool SetWeatherTypePersist(const char* weather) noexcept
+    {
+        if (!weather || !*weather || !Detail::ResolveHandlers())
+            return false;
+        Native::CallContext context;
+        if (!context.PushArg(weather))
+            return false;
+        Detail::Handlers()[Detail::SetWeatherTypePersist](&context);
+        return true;
+    }
+
+    inline bool SetOverrideWeather(const char* weather) noexcept
+    {
+        if (!weather || !*weather || !Detail::ResolveHandlers())
+            return false;
+        Native::CallContext context;
+        if (!context.PushArg(weather))
+            return false;
+        Detail::Handlers()[Detail::SetOverrideWeather](&context);
+        return true;
+    }
+
+    inline bool ClearOverrideWeather() noexcept
+    {
+        if (!Detail::ResolveHandlers())
+            return false;
+        Native::CallContext context;
+        Detail::Handlers()[Detail::ClearOverrideWeather](&context);
         return true;
     }
 
