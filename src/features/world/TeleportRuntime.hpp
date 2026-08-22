@@ -104,6 +104,13 @@ namespace Tutones::Game::World
             std::byte pad48[0x38]{};
         };
 
+        struct TeleportTarget final
+        {
+            Entity entity{};
+            Vehicle vehicle{};
+            bool inVehicle{};
+        };
+
         static_assert(offsetof(NativeProgram, nativeCount) == 0x2C);
         static_assert(offsetof(NativeProgram, nativeEntrypoints) == 0x40);
         static_assert(sizeof(NativeProgram) == 0x80);
@@ -251,20 +258,34 @@ namespace Tutones::Game::World
             return blips;
         }
 
-        [[nodiscard]] Entity LocalTeleportEntity() const
+        [[nodiscard]] TeleportTarget ResolveLocalTeleportTarget() const noexcept
         {
+            TeleportTarget target{};
             const auto ped = Natives::PlayerPedId();
             if (!ped || *ped == 0)
-                return 0;
+                return target;
 
-            const auto inVehicle = Natives::IsPedInAnyVehicle(*ped, false);
+            // Check the vehicle state before the teleport starts. If the player is in
+            // (or entering) a vehicle, move the vehicle instead of pulling the ped out.
+            const auto inVehicle = Natives::IsPedInAnyVehicle(*ped, true);
             if (inVehicle && *inVehicle)
             {
-                const auto vehicle = Natives::GetVehiclePedIsIn(*ped, false);
+                const auto vehicle = Natives::GetVehiclePedIsIn(*ped, true);
                 if (vehicle && *vehicle != 0)
-                    return *vehicle;
+                {
+                    const auto exists = Natives::DoesEntityExist(*vehicle);
+                    if (exists && *exists)
+                    {
+                        target.entity = *vehicle;
+                        target.vehicle = *vehicle;
+                        target.inVehicle = true;
+                        return target;
+                    }
+                }
             }
-            return *ped;
+
+            target.entity = *ped;
+            return target;
         }
 
         bool MoveEntity(Entity entity, float x, float y, float z) const
@@ -356,11 +377,13 @@ namespace Tutones::Game::World
             if (!ResolveHandlers())
                 return Fail("Teleport natives are unavailable");
 
-            const Entity entity = LocalTeleportEntity();
-            if (entity == 0)
-                return Fail("Local player entity is unavailable");
+            const TeleportTarget target = ResolveLocalTeleportTarget();
+            if (target.entity == 0)
+                return Fail("Local player/vehicle entity is unavailable");
 
-            m_GroundEntity = entity;
+            m_GroundEntity = target.entity;
+            m_GroundVehicle = target.vehicle;
+            m_GroundWasVehicle = target.inVehicle;
             m_GroundX = coords.x;
             m_GroundY = coords.y;
             m_GroundFallbackZ = coords.z;
@@ -368,10 +391,10 @@ namespace Tutones::Game::World
             m_GroundAutomatic = automatic;
             m_GroundLabel = std::move(label);
 
-            // Match Yim's behavior: request destination collision and resolve Z
-            // over script ticks. Do not throw the entity to Z=1000 first.
             StreamCollision(coords.x, coords.y, coords.z);
-            SetPending(m_GroundLabel + ": resolving ground");
+            SetPending(m_GroundLabel + (m_GroundWasVehicle
+                ? ": resolving safe vehicle landing"
+                : ": resolving ground"));
             if (!Runtime::GameRuntime::Get().Enqueue([this] { GroundProbe(); }))
                 Fail("Ground-probe queue unavailable");
         }
@@ -387,7 +410,7 @@ namespace Tutones::Game::World
 
             float ground{};
             if (ProbeGround(m_GroundX, m_GroundY, ground))
-                return FinishMove(ground + 1.0f, m_GroundLabel + " complete");
+                return FinishMove(ground + 1.0f, m_GroundLabel + " complete", true);
 
             if (++m_GroundAttempt < MaxGroundAttempts)
             {
@@ -396,20 +419,40 @@ namespace Tutones::Game::World
                 return Fail("Ground-probe queue unavailable");
             }
 
-            // Yim checks water next, then PATH::GET_APPROX_HEIGHT_FOR_POINT.
             float water{};
             if (ProbeWater(m_GroundX, m_GroundY, m_GroundFallbackZ, water))
-                return FinishMove(water + 1.0f, m_GroundLabel + " complete (water height)");
+                return FinishMove(water + 1.0f, m_GroundLabel + " complete (water height)", false);
 
             const float fallback = ApproxHeight(m_GroundX, m_GroundY) + 1.0f;
-            FinishMove(fallback, m_GroundLabel + " complete (approximate height)");
+            FinishMove(fallback, m_GroundLabel + " complete (approximate height)", true);
         }
 
-        void FinishMove(float z, std::string successMessage)
+        void FinishMove(float z, std::string successMessage, bool settleVehicle)
         {
-            const bool moved = MoveEntity(m_GroundEntity, m_GroundX, m_GroundY, z);
+            // Ground probing spans multiple GTA script ticks. Re-check the target at the
+            // last possible moment so exiting/switching vehicles cannot teleport a stale
+            // car or leave the player behind.
+            const TeleportTarget current = ResolveLocalTeleportTarget();
+            if (current.entity == 0
+                || current.entity != m_GroundEntity
+                || current.inVehicle != m_GroundWasVehicle
+                || (m_GroundWasVehicle && current.vehicle != m_GroundVehicle))
+            {
+                m_Pending.store(false, std::memory_order_release);
+                SetResult(false, "Teleport canceled because the player/vehicle changed while resolving the destination");
+                return;
+            }
+
+            bool moved = MoveEntity(m_GroundEntity, m_GroundX, m_GroundY, z);
+            if (moved && m_GroundWasVehicle && settleVehicle)
+            {
+                const auto grounded = Natives::SetVehicleOnGroundProperly(m_GroundVehicle, 5.0f);
+                if (grounded && !*grounded)
+                    moved = false;
+            }
+
             m_Pending.store(false, std::memory_order_release);
-            SetResult(moved, moved ? std::move(successMessage) : "Teleport native ran, but destination verification failed");
+            SetResult(moved, moved ? std::move(successMessage) : "Teleport ran, but safe destination placement failed");
         }
 
         void TeleportGroup(std::size_t index)
@@ -518,6 +561,8 @@ namespace Tutones::Game::World
         std::array<std::size_t, TeleportData::Groups.size()> m_GroupCursor{};
 
         Entity m_GroundEntity{};
+        Vehicle m_GroundVehicle{};
+        bool m_GroundWasVehicle{};
         float m_GroundX{};
         float m_GroundY{};
         float m_GroundFallbackZ{};
