@@ -1,5 +1,6 @@
 #pragma once
 
+#include "../features/network/DirectServiceTransactionRuntime.hpp"
 #include "../features/network/EnhancedTransactionLists.hpp"
 #include "../features/network/NetworkRuntime.hpp"
 
@@ -12,20 +13,22 @@
 
 namespace Tutones::UI
 {
-    [[nodiscard]] inline const char* ServiceTransactionResultName(
-        Game::NetworkFeatures::ServiceTransactionResult result) noexcept
+    [[nodiscard]] inline const char* DirectServiceTransactionResultName(
+        Game::NetworkFeatures::DirectServiceTransactionResult result) noexcept
     {
-        using Game::NetworkFeatures::ServiceTransactionResult;
+        using Game::NetworkFeatures::DirectServiceTransactionResult;
         switch (result)
         {
-        case ServiceTransactionResult::Queued: return "queued";
-        case ServiceTransactionResult::Dispatched: return "dispatched";
-        case ServiceTransactionResult::SessionUnavailable: return "Online session unavailable";
-        case ServiceTransactionResult::ServerTransactionsUnavailable: return "server transactions unavailable";
-        case ServiceTransactionResult::CatalogItemInvalid: return "catalog item invalid";
-        case ServiceTransactionResult::PriceUnavailable: return "price unavailable";
-        case ServiceTransactionResult::ShopControllerUnavailable: return "shop_controller helper unavailable";
-        case ServiceTransactionResult::DispatchFailed: return "game-thread dispatch failed";
+        case DirectServiceTransactionResult::Queued: return "queued";
+        case DirectServiceTransactionResult::CheckoutStarted: return "checkout started";
+        case DirectServiceTransactionResult::SessionUnavailable: return "Online session unavailable";
+        case DirectServiceTransactionResult::ServerTransactionsUnavailable: return "server transactions unavailable";
+        case DirectServiceTransactionResult::CatalogItemInvalid: return "catalog item invalid";
+        case DirectServiceTransactionResult::PriceUnavailable: return "price unavailable";
+        case DirectServiceTransactionResult::ShopControllerUnavailable: return "shop_controller unavailable";
+        case DirectServiceTransactionResult::BeginServiceFailed: return "begin service failed";
+        case DirectServiceTransactionResult::CheckoutFailed: return "checkout failed";
+        case DirectServiceTransactionResult::QueueFailed: return "game-thread queue failed";
         default: return "idle";
         }
     }
@@ -37,11 +40,13 @@ namespace Tutones::UI
         ImGuiTextFilter& filter,
         bool executable) noexcept
     {
+        using Game::NetworkFeatures::DirectServiceTransactionRuntime;
         using Game::NetworkFeatures::NetworkRuntime;
         using Game::NetworkFeatures::TransactionLists::Hash;
 
-        auto& runtime = NetworkRuntime::Get();
-        const auto snapshot = runtime.Snapshot();
+        const auto network = NetworkRuntime::Get().Snapshot();
+        auto& direct = DirectServiceTransactionRuntime::Get();
+        const auto transaction = direct.Snapshot();
 
         filter.Draw(filterLabel, -1.0f);
         if (ImGui::BeginChild(childId, ImVec2(0.0f, 205.0f), true, ImGuiWindowFlags_HorizontalScrollbar))
@@ -58,20 +63,20 @@ namespace Tutones::UI
 
                 if (executable)
                 {
-                    const bool blocked = !snapshot.running
-                        || !snapshot.sessionStarted
-                        || snapshot.transactionPending;
+                    const bool blocked = !network.running
+                        || !network.sessionStarted
+                        || transaction.pending;
                     ImGui::BeginDisabled(blocked);
                     if (ImGui::SmallButton("Execute"))
-                        static_cast<void>(runtime.QueueServiceTransaction(hash));
+                        static_cast<void>(direct.Queue(hash));
                     ImGui::EndDisabled();
 
-                    if (!snapshot.sessionStarted)
+                    if (!network.sessionStarted)
                     {
                         ImGui::SameLine();
                         ImGui::TextDisabled("Join GTA Online");
                     }
-                    else if (snapshot.transactionPending)
+                    else if (transaction.pending)
                     {
                         ImGui::SameLine();
                         ImGui::TextDisabled("Transaction pending");
@@ -94,32 +99,31 @@ namespace Tutones::UI
         using namespace Game::NetworkFeatures;
         using namespace Game::NetworkFeatures::TransactionLists;
 
-        auto& runtime = NetworkRuntime::Get();
-        const auto snapshot = runtime.Snapshot();
+        const auto network = NetworkRuntime::Get().Snapshot();
+        const auto transaction = DirectServiceTransactionRuntime::Get().Snapshot();
 
         ImGui::SeparatorText("Business Transactions");
         if (executable)
         {
             ImGui::TextWrapped(
-                "Named service items execute through GTA Online's server transaction catalog. "
-                "Each request checks the active Online session, server-transaction support, catalog validity, live service price and shop_controller before dispatch.");
+                "Named service items use the same direct NETSHOP service path as YimMenuV2: validate the catalog item, read its live price, switch into shop_controller TLS, call NET_GAMESERVER_BEGIN_SERVICE, then NET_GAMESERVER_CHECKOUT_START.");
 
-            if (snapshot.lastTransactionHash != 0)
+            if (transaction.serviceHash != 0)
             {
                 ImGui::Text(
                     "Last: 0x%08X - %s",
-                    snapshot.lastTransactionHash,
-                    ServiceTransactionResultName(snapshot.lastTransactionResult));
-                if (snapshot.lastTransactionPrice >= 0)
-                    ImGui::TextDisabled("Catalog price/value: $%d", snapshot.lastTransactionPrice);
-                if (snapshot.lastTransactionIndex >= 0)
-                    ImGui::TextDisabled("Transaction index: %d", snapshot.lastTransactionIndex);
+                    transaction.serviceHash,
+                    DirectServiceTransactionResultName(transaction.result));
+                if (transaction.price >= 0)
+                    ImGui::TextDisabled("Catalog price/value: $%d", transaction.price);
+                if (transaction.transactionId >= 0)
+                    ImGui::TextDisabled("Transaction ID: %d", transaction.transactionId);
             }
-            if (snapshot.transactionPending)
-                ImGui::TextDisabled("Waiting for the queued service transaction to run on the GTA script thread...");
+            if (transaction.pending)
+                ImGui::TextDisabled("Waiting for the queued NETSHOP service transaction to run on the GTA script thread...");
 
             ImGui::TextDisabled(
-                "Dispatched means the shop_controller transaction helper ran; the Rockstar service may still accept, reject or cap the transaction asynchronously.");
+                "Checkout started means GTA accepted creation/start of the service checkout. Service/refund settlement remains server-controlled, matching YimMenuV2's fire-and-forget service path.");
         }
         else
         {
@@ -152,7 +156,7 @@ namespace Tutones::UI
             {
                 static ImGuiTextFilter filter;
                 ImGui::TextDisabled(executable
-                    ? "17 executable named refund service items."
+                    ? "17 executable refund service items using YimMenuV2-style direct service checkout."
                     : "17 named refund identifiers");
                 RenderNamedHashList("##refund_hash_list", "Filter refunds", RefundNames, filter, executable);
                 ImGui::EndTabItem();
@@ -191,5 +195,8 @@ namespace Tutones::UI
 
             ImGui::EndTabBar();
         }
+
+        if (executable && !network.sessionStarted)
+            ImGui::TextDisabled("Join GTA Online before running service transactions.");
     }
 }
