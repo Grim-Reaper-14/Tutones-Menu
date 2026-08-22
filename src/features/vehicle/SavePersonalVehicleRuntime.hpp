@@ -64,6 +64,8 @@ namespace Tutones::Game::PersonalVehicles
             if (!m_Pending.compare_exchange_strong(expected, true, std::memory_order_acq_rel))
                 return false;
 
+            m_RewardInvoked = false;
+            m_WaitingForSelectorClose = false;
             SetPending("Save Personal Vehicle queued");
             if (Runtime::GameRuntime::Get().Enqueue([this] { BeginOnGameThread(); }))
                 return true;
@@ -152,6 +154,8 @@ namespace Tutones::Game::PersonalVehicles
 
             m_Vehicle = state.vehicle;
             m_Deadline = Clock::now() + FlowTimeout;
+            m_RewardInvoked = false;
+            m_WaitingForSelectorClose = false;
             SetPending("Opening GTA personal-garage selector...");
             RunRewardStep();
         }
@@ -184,36 +188,52 @@ namespace Tutones::Game::PersonalVehicles
             if (!transactionStatus || !garage || !garageOffset || !controlStatus || !vehicleMenuData)
                 return Finish(false, "Vehicle-reward script locals are unavailable");
 
-            static Script::ScriptFunction giveVehicleReward(
-                VehicleRewardHash,
-                Script::ScriptPointer("GiveVehicleReward", "2D 0C 1E 00 00"));
+            // Critical: invoke GiveVehicleReward exactly once. Re-entering it every script tick
+            // while controlStatus == 3 resets GTA's selector and makes the garage list flash shut.
+            if (!m_RewardInvoked)
+            {
+                static Script::ScriptFunction giveVehicleReward(
+                    VehicleRewardHash,
+                    Script::ScriptPointer("GiveVehicleReward", "2D 0C 1E 00 00"));
 
-            const auto called = giveVehicleReward.TryCall<std::int32_t>(
-                m_Vehicle,
-                vehicleMenuData,
-                transactionStatus,
-                garage,
-                garageOffset,
-                controlStatus,
-                std::int32_t{0},
-                std::int32_t{1},
-                std::int32_t{1},
-                std::int32_t{0},
-                0,
-                -1);
+                const auto called = giveVehicleReward.TryCall<std::int32_t>(
+                    m_Vehicle,
+                    vehicleMenuData,
+                    transactionStatus,
+                    garage,
+                    garageOffset,
+                    controlStatus,
+                    std::int32_t{0},
+                    std::int32_t{1},
+                    std::int32_t{1},
+                    std::int32_t{0},
+                    0,
+                    -1);
 
-            if (!called)
-                return Finish(false, "GiveVehicleReward script function could not be invoked");
+                if (!called)
+                    return Finish(false, "GiveVehicleReward script function could not be invoked");
+                m_RewardInvoked = true;
+            }
 
             if (*controlStatus == 3)
             {
-                SetPending("GTA garage selector active - choose a garage slot");
-                if (!Runtime::GameRuntime::Get().Enqueue([this] { RunRewardStep(); }))
-                    Finish(false, "Lost game-thread scheduling during garage save");
-                return;
+                m_WaitingForSelectorClose = true;
+                SetPending("GTA garage selector active - click the garage/slot you want");
+                return QueueNextRewardStep();
             }
 
-            const bool accepted = *called != 0 || *transactionStatus != 0 || *garage != 0 || *garageOffset != 0;
+            // The selector may need a few ticks to transition from invocation to its active state.
+            // Do not invoke the reward function again during that transition.
+            if (!m_WaitingForSelectorClose
+                && *transactionStatus == 0
+                && *garage == 0
+                && *garageOffset == 0)
+            {
+                SetPending("Waiting for GTA garage selector...");
+                return QueueNextRewardStep();
+            }
+
+            const bool accepted = *transactionStatus != 0 || *garage != 0 || *garageOffset != 0;
             *transactionStatus = 0;
             *garage = 0;
             *garageOffset = 0;
@@ -223,10 +243,18 @@ namespace Tutones::Game::PersonalVehicles
                 : "Garage selector closed without saving the vehicle");
         }
 
+        void QueueNextRewardStep()
+        {
+            if (!Runtime::GameRuntime::Get().Enqueue([this] { RunRewardStep(); }))
+                Finish(false, "Lost game-thread scheduling during garage save");
+        }
+
         void Finish(bool success, std::string message)
         {
             m_Vehicle = 0;
             m_Deadline = {};
+            m_RewardInvoked = false;
+            m_WaitingForSelectorClose = false;
             m_Pending.store(false, std::memory_order_release);
             SetResult(success, std::move(message));
         }
@@ -254,5 +282,7 @@ namespace Tutones::Game::PersonalVehicles
         std::string m_Message{"Ready"};
         Vehicle m_Vehicle{};
         Clock::time_point m_Deadline{};
+        bool m_RewardInvoked{};
+        bool m_WaitingForSelectorClose{};
     };
 }
