@@ -68,6 +68,7 @@ namespace Tutones::Core::Config
         float randomVehicleDensity{1.0f};
         float parkedVehicleDensity{1.0f};
         bool freezeClock{};
+        bool forceWeather{};
         bool blackout{};
         bool autoWaypoint{};
         // Crosshair inspection runs synchronous world shape tests. Keep it opt-in so
@@ -95,7 +96,7 @@ namespace Tutones::Core::Config
 
     struct MenuSettingsData final
     {
-        std::uint32_t version{3};
+        std::uint32_t version{4};
         PlayerMenuSettings player{};
         bool offRadar{};
         VehicleMenuSettings vehicle{};
