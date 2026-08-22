@@ -140,6 +140,7 @@ namespace Tutones::Game::Native
         ClearPedEnvDirt,
         ResetPedVisibleDamage,
         SetPedResetFlag,
+        SetBlockingOfNonTemporaryEventsForAmbientPedsThisFrame,
         SetPlayerHasReserveParachute,
         SetMobilePhoneRadioState,
         SetMobileRadioEnabledDuringGameplay,
