@@ -1,7 +1,6 @@
 #pragma once
 
 #include "../../game/GamePointers.hpp"
-#include "../../game/GameState.hpp"
 #include "../../game/Natives.hpp"
 #include "../../game/native/NativeCallContext.hpp"
 #include "../../game/native/NativeRegistry.hpp"
@@ -94,10 +93,27 @@ namespace Tutones::Game::Mods
 
         [[nodiscard]] Vehicle CurrentVehicle() const noexcept
         {
-            const auto snapshot = GameState::Get().Snapshot();
-            if (!snapshot.nativeRuntimeReady || !snapshot.inVehicle || snapshot.vehicle == 0)
+            // Query the player's vehicle directly on the GTA script thread instead of
+            // depending on the asynchronously cached GameState snapshot. That cache can
+            // briefly report no vehicle during seat/vehicle transitions and made the
+            // persistent clean loop silently skip the current car.
+            if (!Native::NativeRegistry::Get().CanInvokeOnCurrentThread())
                 return 0;
-            return snapshot.vehicle;
+
+            const auto ped = Natives::PlayerPedId();
+            if (!ped || *ped == 0)
+                return 0;
+
+            const auto inVehicle = Natives::IsPedInAnyVehicle(*ped, false);
+            if (!inVehicle || !*inVehicle)
+                return 0;
+
+            const auto vehicle = Natives::GetVehiclePedIsIn(*ped, false);
+            if (!vehicle || *vehicle == 0)
+                return 0;
+
+            const auto exists = Natives::DoesEntityExist(*vehicle);
+            return exists && *exists ? *vehicle : 0;
         }
 
         static Native::NativeHandler& ReducedSuspensionHandler() noexcept
@@ -106,9 +122,16 @@ namespace Tutones::Game::Mods
             return handler;
         }
 
-        [[nodiscard]] static bool ResolveReducedSuspensionHandler() noexcept
+        static Native::NativeHandler& RemoveDecalsHandler() noexcept
         {
-            auto& handler = ReducedSuspensionHandler();
+            static Native::NativeHandler handler{};
+            return handler;
+        }
+
+        [[nodiscard]] static bool ResolveSingleHandler(
+            Native::NativeHandler& handler,
+            std::uint64_t enhancedHash) noexcept
+        {
             if (handler)
                 return true;
             if (!Native::NativeRegistry::Get().CanInvokeOnCurrentThread())
@@ -118,7 +141,7 @@ namespace Tutones::Game::Mods
             if (!init)
                 return false;
 
-            std::uint64_t slot = 0xCE2ADF354D3F97AEull;
+            std::uint64_t slot = enhancedHash;
             NativeProgram program{};
             program.nativeCount = 1;
             program.nativeEntrypoints = reinterpret_cast<Native::NativeHandler*>(&slot);
@@ -126,6 +149,19 @@ namespace Tutones::Game::Mods
 
             handler = reinterpret_cast<Native::NativeHandler>(static_cast<std::uintptr_t>(slot));
             return handler != nullptr;
+        }
+
+        [[nodiscard]] static bool ResolveReducedSuspensionHandler() noexcept
+        {
+            // Current Enhanced mapping for SET_REDUCED_SUSPENSION_FORCE.
+            return ResolveSingleHandler(ReducedSuspensionHandler(), 0xCE2ADF354D3F97AEull);
+        }
+
+        [[nodiscard]] static bool ResolveRemoveDecalsHandler() noexcept
+        {
+            // YimMenuV2 Enhanced crossmap:
+            // REMOVE_DECALS_FROM_VEHICLE 0xE91F1B65F2B48D57 -> 0xFEC8EAE457274AD3.
+            return ResolveSingleHandler(RemoveDecalsHandler(), 0xFEC8EAE457274AD3ull);
         }
 
         [[nodiscard]] static bool SetReducedSuspensionForce(Vehicle vehicle, bool enabled) noexcept
@@ -141,6 +177,18 @@ namespace Tutones::Game::Mods
             }
 
             ReducedSuspensionHandler()(&context);
+            return true;
+        }
+
+        [[nodiscard]] static bool RemoveVehicleDecals(Vehicle vehicle) noexcept
+        {
+            if (vehicle == 0 || !ResolveRemoveDecalsHandler())
+                return false;
+
+            Native::CallContext context;
+            if (!context.PushArg(vehicle))
+                return false;
+            RemoveDecalsHandler()(&context);
             return true;
         }
 
@@ -162,7 +210,12 @@ namespace Tutones::Game::Mods
             const Vehicle vehicle = CurrentVehicle();
 
             if (keepClean && vehicle != 0)
+            {
+                // Match the visible cleanup pieces used by Yim's vehicle repair path:
+                // zero the dirt level and remove accumulated vehicle decals/blood marks.
                 static_cast<void>(Natives::SetVehicleDirtLevel(vehicle, 0.0f));
+                static_cast<void>(RemoveVehicleDecals(vehicle));
+            }
 
             if (lowered && vehicle != 0)
             {
