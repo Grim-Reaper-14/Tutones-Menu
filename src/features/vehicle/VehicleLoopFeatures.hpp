@@ -40,8 +40,6 @@ namespace Tutones::Game::Mods
                 return;
             }
 
-            // Release the protection we applied to the last vehicle as soon as the
-            // pristine toggle is disabled, even if no other vehicle loop feature is on.
             static_cast<void>(Runtime::GameRuntime::Get().Enqueue([this] {
                 if (!m_KeepVehicleClean.load(std::memory_order_acquire))
                     RestoreLastCleanVehicle();
@@ -103,9 +101,6 @@ namespace Tutones::Game::Mods
 
         [[nodiscard]] Vehicle CurrentVehicle() const noexcept
         {
-            // Resolve the actual vehicle directly on GTA's script thread. includeEntering
-            // is true so a seat transition does not briefly make the persistent feature
-            // lose the vehicle it is supposed to protect.
             if (!Native::NativeRegistry::Get().CanInvokeOnCurrentThread())
                 return 0;
 
@@ -246,7 +241,8 @@ namespace Tutones::Game::Mods
 
             Native::CallContext context;
             if (!context.PushArg(entity)
-                || !context.PushArg(static_cast<std::int32_t>(enabled)))
+                || !context.PushArg(static_cast<std::int32_t>(enabled))
+                || !context.PushArg(std::int32_t{1}))
             {
                 return false;
             }
@@ -283,13 +279,12 @@ namespace Tutones::Game::Mods
             if (vehicle == 0)
                 return;
 
-            // "Keep Vehicle Clean" means pristine in Tutones: prevent new damage and
-            // continuously remove/repair any visible or mechanical damage that slips in.
+            // "Keep Vehicle Clean" means pristine in Tutones: block new damage and
+            // continuously remove/repair visible or mechanical damage that slips in.
             static_cast<void>(SetEntityInvincible(vehicle, true));
             static_cast<void>(Natives::SetVehicleFixed(vehicle));
             static_cast<void>(SetVehicleDeformationFixed(vehicle));
 
-            // Standard GTA wheel/tyre indices, including the two special rear-wheel slots.
             constexpr int TyreIndices[]{0, 1, 2, 3, 4, 5, 45, 47};
             for (const int tyreIndex : TyreIndices)
                 static_cast<void>(SetVehicleTyreFixed(vehicle, tyreIndex));
@@ -336,8 +331,6 @@ namespace Tutones::Game::Mods
             }
             else
             {
-                // Do not leave a vehicle permanently invincible after the player exits it
-                // or disables the pristine feature.
                 RestoreLastCleanVehicle();
             }
 
