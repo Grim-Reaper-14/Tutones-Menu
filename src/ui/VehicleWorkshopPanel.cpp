@@ -22,10 +22,10 @@ namespace Tutones::UI
     {
         enum class WorkshopPage : int
         {
-            Overview,
+            Home,
             Performance,
             Appearance,
-            Advanced,
+            Customization,
         };
 
         constexpr std::array<const char*, 5> PerformanceNames{{
@@ -62,7 +62,7 @@ namespace Tutones::UI
             "Sprunk",
         }};
 
-        WorkshopPage g_WorkshopPage{WorkshopPage::Overview};
+        WorkshopPage g_WorkshopPage{WorkshopPage::Home};
 
         [[nodiscard]] const char* WorkshopActionName(Game::Mods::VehicleWorkshopAction action) noexcept
         {
@@ -104,32 +104,6 @@ namespace Tutones::UI
                 && snapshot.modCounts[static_cast<std::size_t>(modType)] > 0;
         }
 
-        void DrawWorkshopNavigation() noexcept
-        {
-            constexpr std::array<const char*, 4> labels{{"Overview", "Performance", "Appearance", "Advanced"}};
-            if (!ImGui::BeginTable("##vehicle_workshop_navigation", 4, ImGuiTableFlags_SizingStretchSame))
-                return;
-
-            ImGui::TableNextRow();
-            for (int i = 0; i < static_cast<int>(labels.size()); ++i)
-            {
-                ImGui::TableSetColumnIndex(i);
-                const bool active = static_cast<int>(g_WorkshopPage) == i;
-                if (active)
-                {
-                    ImGui::PushStyleColor(ImGuiCol_Button, V11Theme::AccentDark);
-                    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, V11Theme::AccentHover);
-                }
-
-                if (ImGui::Button(labels[static_cast<std::size_t>(i)], ImVec2(-1.0f, 0.0f)))
-                    g_WorkshopPage = static_cast<WorkshopPage>(i);
-
-                if (active)
-                    ImGui::PopStyleColor(2);
-            }
-            ImGui::EndTable();
-        }
-
         void RenderVehicleHeader(const Game::Mods::VehicleWorkshopSnapshot& snapshot) noexcept
         {
             ImGui::TextColored(V11Theme::Accent, "%s", snapshot.displayName.c_str());
@@ -156,81 +130,60 @@ namespace Tutones::UI
             }
         }
 
-        void RenderOverview(
+        void RenderBackToHome() noexcept
+        {
+            if (ImGui::Button("< Vehicle Home", ImVec2(132.0f, 0.0f)))
+                g_WorkshopPage = WorkshopPage::Home;
+            ImGui::Separator();
+        }
+
+        void RenderHome(
             Game::Mods::VehicleModificationRuntime& modificationRuntime,
             const Game::Mods::VehicleWorkshopSnapshot& snapshot) noexcept
         {
             RenderVehicleHeader(snapshot);
+            ImGui::SeparatorText("What do you want to change?");
 
-            ImGui::SeparatorText("Workshop Capability");
-            if (!snapshot.capabilitiesReady)
-            {
-                ImGui::TextDisabled("Scanning this vehicle's supported modification slots...");
-                return;
-            }
-
-            if (ImGui::BeginTable("##vehicle_capability_summary", 2, ImGuiTableFlags_SizingStretchSame))
+            if (ImGui::BeginTable("##vehicle_editor_sections", 3, ImGuiTableFlags_SizingStretchSame))
             {
                 ImGui::TableNextRow();
-                ImGui::TableSetColumnIndex(0);
-                ImGui::TextDisabled("Supported slots");
-                ImGui::TableSetColumnIndex(1);
-                ImGui::TextDisabled("Available choices");
 
-                ImGui::TableNextRow();
                 ImGui::TableSetColumnIndex(0);
-                ImGui::Text("%d / 50", snapshot.supportedModSlots);
+                if (ImGui::Button("Performance", ImVec2(-1.0f, 42.0f)))
+                    g_WorkshopPage = WorkshopPage::Performance;
+                DescribeLastV11Item("Engine, brakes, transmission, suspension, armor and turbo.");
+
                 ImGui::TableSetColumnIndex(1);
-                ImGui::Text("%d", snapshot.availableModOptions);
+                if (ImGui::Button("Appearance", ImVec2(-1.0f, 42.0f)))
+                    g_WorkshopPage = WorkshopPage::Appearance;
+                DescribeLastV11Item("Window tint and license-plate style.");
+
+                ImGui::TableSetColumnIndex(2);
+                if (ImGui::Button("Customization", ImVec2(-1.0f, 42.0f)))
+                    g_WorkshopPage = WorkshopPage::Customization;
+                DescribeLastV11Item("Body parts, interior, wheels, lighting, tires and other supported vehicle mods.");
+
                 ImGui::EndTable();
             }
 
-            ImGui::Spacing();
-            if (ImGui::BeginTable("##vehicle_capability_flags", 3, ImGuiTableFlags_SizingStretchSame))
-            {
-                const auto capabilityCell = [&](const char* name, bool supported) {
-                    ImGui::TableNextColumn();
-                    ImGui::TextDisabled("%s", name);
-                    ImGui::SameLine();
-                    ImGui::TextColored(
-                        supported ? V11Theme::Accent : V11Theme::MutedText,
-                        "%s",
-                        supported ? "Ready" : "N/A");
-                };
+            ImGui::TextDisabled("Performance");
+            ImGui::SameLine();
+            ImGui::TextUnformatted("Engine, brakes, transmission, suspension, armor, turbo");
+            ImGui::TextDisabled("Appearance");
+            ImGui::SameLine();
+            ImGui::TextUnformatted("Window tint and plate style");
+            ImGui::TextDisabled("Customization");
+            ImGui::SameLine();
+            ImGui::TextUnformatted("Body, interior, wheels, lights, tires and detailed mod slots");
 
-                ImGui::TableNextRow();
-                capabilityCell("Performance", SupportsSlot(snapshot, 11)
-                    || SupportsSlot(snapshot, 12)
-                    || SupportsSlot(snapshot, 13)
-                    || SupportsSlot(snapshot, 15)
-                    || SupportsSlot(snapshot, 16)
-                    || SupportsSlot(snapshot, Game::Mods::VehicleWorkshopRuntime::TurboSlot));
-                capabilityCell("Body", SupportsSlot(snapshot, 0)
-                    || SupportsSlot(snapshot, 1)
-                    || SupportsSlot(snapshot, 2)
-                    || SupportsSlot(snapshot, 3)
-                    || SupportsSlot(snapshot, 7));
-                capabilityCell("Wheels", SupportsSlot(snapshot, 23) || SupportsSlot(snapshot, 24));
-
-                ImGui::TableNextRow();
-                capabilityCell("Interior", SupportsSlot(snapshot, 27)
-                    || SupportsSlot(snapshot, 28)
-                    || SupportsSlot(snapshot, 29)
-                    || SupportsSlot(snapshot, 32)
-                    || SupportsSlot(snapshot, 33));
-                capabilityCell("Livery", SupportsSlot(snapshot, 48));
-                capabilityCell("Lightbar", SupportsSlot(snapshot, 49));
-                ImGui::EndTable();
-            }
-
-            ImGui::SeparatorText("Quick Service");
+            ImGui::SeparatorText("Quick Actions");
             if (ImGui::BeginTable("##vehicle_quick_service", 3, ImGuiTableFlags_SizingStretchSame))
             {
                 ImGui::TableNextRow();
                 ImGui::TableSetColumnIndex(0);
                 if (ImGui::Button("Repair", ImVec2(-1.0f, 0.0f)))
                     static_cast<void>(modificationRuntime.QueueRepair());
-                DescribeLastV11Item("Repair the current vehicle using the managed vehicle runtime.");
+                DescribeLastV11Item("Repair the current vehicle.");
 
                 ImGui::TableSetColumnIndex(1);
                 if (ImGui::Button("Clean", ImVec2(-1.0f, 0.0f)))
@@ -244,9 +197,41 @@ namespace Tutones::UI
                 ImGui::EndTable();
             }
 
-            ImGui::TextWrapped(
-                "The capability map is read from the current vehicle when you enter it. "
-                "Unsupported workshop controls can now be hidden or disabled instead of guessing by vehicle type.");
+            if (snapshot.capabilitiesReady)
+            {
+                ImGui::SeparatorText("Vehicle Support");
+                ImGui::TextDisabled(
+                    "%d supported mod slots / %d available choices",
+                    snapshot.supportedModSlots,
+                    snapshot.availableModOptions);
+
+                if (ImGui::BeginTable("##vehicle_support_summary", 3, ImGuiTableFlags_SizingStretchSame))
+                {
+                    const auto supportCell = [&](const char* name, bool supported) {
+                        ImGui::TableNextColumn();
+                        ImGui::Text("%s: %s", name, supported ? "Ready" : "N/A");
+                    };
+
+                    ImGui::TableNextRow();
+                    supportCell("Performance", SupportsSlot(snapshot, 11)
+                        || SupportsSlot(snapshot, 12)
+                        || SupportsSlot(snapshot, 13)
+                        || SupportsSlot(snapshot, 15)
+                        || SupportsSlot(snapshot, 16)
+                        || SupportsSlot(snapshot, Game::Mods::VehicleWorkshopRuntime::TurboSlot));
+                    supportCell("Body", SupportsSlot(snapshot, 0)
+                        || SupportsSlot(snapshot, 1)
+                        || SupportsSlot(snapshot, 2)
+                        || SupportsSlot(snapshot, 3)
+                        || SupportsSlot(snapshot, 7));
+                    supportCell("Wheels", SupportsSlot(snapshot, 23) || SupportsSlot(snapshot, 24));
+                    ImGui::EndTable();
+                }
+            }
+            else
+            {
+                ImGui::TextDisabled("Reading supported modifications for this vehicle...");
+            }
         }
 
         void RenderPerformanceLevel(
@@ -303,8 +288,10 @@ namespace Tutones::UI
             Game::Mods::VehicleWorkshopRuntime& runtime,
             const Game::Mods::VehicleWorkshopSnapshot& snapshot) noexcept
         {
-            RenderVehicleHeader(snapshot);
-            ImGui::SeparatorText("Performance Package");
+            RenderBackToHome();
+            ImGui::TextColored(V11Theme::Accent, "Performance");
+            ImGui::TextDisabled("Power, handling and protection upgrades");
+            ImGui::Separator();
 
             for (std::size_t i = 0; i < Game::Mods::VehicleWorkshopRuntime::PerformanceSlots.size(); ++i)
             {
@@ -333,47 +320,46 @@ namespace Tutones::UI
                 ImGui::TableSetColumnIndex(0);
                 if (ImGui::Button("Max Performance", ImVec2(-1.0f, 0.0f)))
                     static_cast<void>(runtime.QueueMaxPerformance());
-                DescribeLastV11Item("Install the highest available engine, brake, transmission, suspension and armor levels, then enable turbo.");
+                DescribeLastV11Item("Install the highest available performance levels and enable turbo.");
 
                 ImGui::TableSetColumnIndex(1);
                 if (ImGui::Button("Restore Stock", ImVec2(-1.0f, 0.0f)))
                     static_cast<void>(runtime.QueueStockPerformance());
-                DescribeLastV11Item("Return supported performance slots and turbo to stock state.");
+                DescribeLastV11Item("Return supported performance upgrades and turbo to stock.");
                 ImGui::EndTable();
             }
 
-            ImGui::SeparatorText("Last Performance Change");
+            ImGui::SeparatorText("Last Change");
             ImGui::Text("Action: %s", WorkshopActionName(snapshot.lastAction));
             ImGui::Text("Result: %s", WorkshopResultName(snapshot.lastResult));
             if (snapshot.lastSlot >= 0)
             {
-                ImGui::Text("Slot: %d", snapshot.lastSlot);
                 ImGui::Text("Requested: %d", snapshot.lastRequested);
                 if (snapshot.lastObserved >= -1)
-                    ImGui::Text("Observed: %d", snapshot.lastObserved);
+                    ImGui::Text("Installed: %d", snapshot.lastObserved);
             }
-            ImGui::TextWrapped("Package actions verify every supported performance slot after writing it. A vehicle switch is rejected as stale instead of modifying the wrong vehicle.");
         }
 
         void RenderAppearance(Game::Vehicle vehicle) noexcept
         {
+            RenderBackToHome();
+
             auto& runtime = Game::Mods::VehicleAppearanceRuntime::Get();
             runtime.RequestRefresh(vehicle);
             const auto snapshot = runtime.Snapshot();
 
-            ImGui::TextColored(V11Theme::Accent, "Vehicle Appearance");
-            ImGui::TextWrapped("Window tint and plate style are dedicated GTA vehicle values, so they are exposed separately from normal mod slots.");
+            ImGui::TextColored(V11Theme::Accent, "Appearance");
+            ImGui::TextDisabled("Glass and license-plate styling");
             ImGui::Separator();
 
             if (!snapshot.ready || snapshot.vehicle != vehicle)
             {
-                ImGui::TextDisabled("Reading window tint and plate style from the current vehicle...");
+                ImGui::TextDisabled("Reading appearance from the current vehicle...");
                 return;
             }
 
             const int currentTint = std::clamp(snapshot.windowTint, 0, static_cast<int>(WindowTintNames.size()) - 1);
-            ImGui::SeparatorText("Window Tint");
-            ImGui::TextDisabled("Current: %s", WindowTintNames[static_cast<std::size_t>(currentTint)]);
+            ImGui::TextDisabled("Window Tint");
             ImGui::SetNextItemWidth(-1.0f);
             if (ImGui::BeginCombo("##workshop_window_tint", WindowTintNames[static_cast<std::size_t>(currentTint)]))
             {
@@ -387,10 +373,11 @@ namespace Tutones::UI
                 }
                 ImGui::EndCombo();
             }
-            DescribeLastV11Item("Set the current vehicle's window tint and verify the value by reading it back from GTA.");
+            DescribeLastV11Item("Set the current vehicle's window tint and verify it by reading the value back from GTA.");
 
             const int currentPlate = std::clamp(snapshot.plateStyle, 0, static_cast<int>(PlateStyleNames.size()) - 1);
-            ImGui::SeparatorText("Plate Style");
+            ImGui::Spacing();
+            ImGui::TextDisabled("Plate Style");
             ImGui::SetNextItemWidth(-1.0f);
             if (ImGui::BeginCombo("##workshop_plate_style", PlateStyleNames[static_cast<std::size_t>(currentPlate)]))
             {
@@ -415,7 +402,7 @@ namespace Tutones::UI
                 ImGui::TextDisabled("Ready");
         }
 
-        void RenderAdvancedReturnOverlay(const ImVec2& hostWindowPosition) noexcept
+        void RenderCustomizationReturnOverlay(const ImVec2& hostWindowPosition) noexcept
         {
             ImGui::SetNextWindowPos(
                 ImVec2(hostWindowPosition.x + 226.0f + 342.0f, hostWindowPosition.y + 20.0f),
@@ -428,10 +415,10 @@ namespace Tutones::UI
                 | ImGuiWindowFlags_NoSavedSettings
                 | ImGuiWindowFlags_NoNav
                 | ImGuiWindowFlags_NoMove;
-            if (ImGui::Begin("##vehicle_workshop_return", nullptr, flags))
+            if (ImGui::Begin("##vehicle_customization_return", nullptr, flags))
             {
-                if (ImGui::Button("Workshop", ImVec2(-1.0f, 0.0f)))
-                    g_WorkshopPage = WorkshopPage::Overview;
+                if (ImGui::Button("Vehicle Home", ImVec2(-1.0f, 0.0f)))
+                    g_WorkshopPage = WorkshopPage::Home;
             }
             ImGui::End();
             ImGui::PopStyleColor();
@@ -442,10 +429,10 @@ namespace Tutones::UI
     void RenderVehicleModificationPanel() noexcept
     {
         const ImVec2 hostWindowPosition = ImGui::GetWindowPos();
-        if (g_WorkshopPage == WorkshopPage::Advanced)
+        if (g_WorkshopPage == WorkshopPage::Customization)
         {
             RenderLegacyVehicleModificationPanel();
-            RenderAdvancedReturnOverlay(hostWindowPosition);
+            RenderCustomizationReturnOverlay(hostWindowPosition);
             return;
         }
 
@@ -465,13 +452,11 @@ namespace Tutones::UI
         ImGui::PushStyleColor(ImGuiCol_ChildBg, V11Theme::PanelBg);
         ImGui::PushStyleColor(ImGuiCol_Border, V11Theme::PanelBorder);
 
-        if (ImGui::BeginChild("##vehicle_workshop", ImVec2(490.0f, 430.0f), true))
+        if (ImGui::BeginChild("##vehicle_editor", ImVec2(490.0f, 430.0f), true))
         {
-            ImGui::TextColored(V11Theme::Accent, "Vehicle Workshop");
+            ImGui::TextColored(V11Theme::Accent, "Vehicle Editor");
             ImGui::SameLine();
-            ImGui::TextDisabled("capability-aware editor");
-            ImGui::Separator();
-            DrawWorkshopNavigation();
+            ImGui::TextDisabled("simple vehicle customization");
             ImGui::Separator();
 
             if (!modificationRuntime.IsRunning())
@@ -480,7 +465,7 @@ namespace Tutones::UI
             }
             else if (currentVehicle == 0)
             {
-                ImGui::TextDisabled("Enter a vehicle to open the workshop.");
+                ImGui::TextDisabled("Enter a vehicle to use the editor.");
             }
             else if (g_WorkshopPage == WorkshopPage::Appearance)
             {
@@ -488,11 +473,11 @@ namespace Tutones::UI
             }
             else if (!workshop.valid || workshop.vehicle != currentVehicle)
             {
-                ImGui::TextDisabled("Scanning the current vehicle and building its capability map...");
+                ImGui::TextDisabled("Reading the current vehicle...");
             }
-            else if (g_WorkshopPage == WorkshopPage::Overview)
+            else if (g_WorkshopPage == WorkshopPage::Home)
             {
-                RenderOverview(modificationRuntime, workshop);
+                RenderHome(modificationRuntime, workshop);
             }
             else
             {
