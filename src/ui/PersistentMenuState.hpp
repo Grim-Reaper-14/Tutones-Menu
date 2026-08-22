@@ -13,6 +13,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <cstddef>
 
 namespace Tutones::UI
 {
@@ -76,7 +77,13 @@ namespace Tutones::UI
             world.SetVehicleDensity(settings.world.vehicleDensity);
             world.SetRandomVehicleDensity(settings.world.randomVehicleDensity);
             world.SetParkedVehicleDensity(settings.world.parkedVehicleDensity);
-            static_cast<void>(world.QueuePersistentWorldState(settings.world.freezeClock, settings.world.blackout));
+            static_cast<void>(world.QueuePersistentWorldState(
+                settings.world.freezeClock,
+                settings.world.blackout,
+                settings.world.setHour,
+                settings.world.setMinute,
+                settings.world.weatherIndex,
+                settings.world.forceWeather));
 
             Game::World::TeleportRuntime::Get().SetAutoWaypoint(settings.world.autoWaypoint);
 
@@ -145,7 +152,18 @@ namespace Tutones::UI
             settings.world.randomVehicleDensity = world.randomVehicleDensity;
             settings.world.parkedVehicleDensity = world.parkedVehicleDensity;
             settings.world.freezeClock = world.freezeClock;
+            settings.world.forceWeather = world.weatherOverrideActive;
             settings.world.blackout = world.blackout;
+            settings.world.setHour = world.selectedHour;
+            settings.world.setMinute = world.selectedMinute;
+            for (std::size_t index = 0; index < Game::World::WeatherCodes.size(); ++index)
+            {
+                if (world.weatherCode == Game::World::WeatherCodes[index])
+                {
+                    settings.world.weatherIndex = static_cast<int>(index);
+                    break;
+                }
+            }
             settings.world.autoWaypoint = Game::World::TeleportRuntime::Get().Snapshot().autoWaypointEnabled;
 
             settings.misc.showCoordinates = MiscPanelDetail::g_ShowCoordinates.load(std::memory_order_acquire);
