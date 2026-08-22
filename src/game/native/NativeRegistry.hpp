@@ -120,6 +120,12 @@ namespace Tutones::Game::Native
 
         StatGetInt,
         StatSetInt,
+        StatGetMaskedInt,
+        StatSetMaskedInt,
+        GetPackedStatBoolCode,
+        GetPackedStatIntCode,
+        SetPackedStatBoolCode,
+        SetPackedStatIntCode,
 
         Count,
     };

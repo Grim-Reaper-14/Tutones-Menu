@@ -124,6 +124,12 @@ namespace Tutones::Game::Native
 
             {0xDF7F16323520B858ull, "STAT_GET_INT"},
             {0x1164A75E490C27B6ull, "STAT_SET_INT"},
+            {0x1F1450A1F4852E10ull, "STAT_GET_MASKED_INT"},
+            {0xCC11C02D491BBBBBull, "STAT_SET_MASKED_INT"},
+            {0xA6D3C21763E25496ull, "GET_PACKED_STAT_BOOL_CODE"},
+            {0x03CFFD51CE515454ull, "GET_PACKED_STAT_INT_CODE"},
+            {0xA595AA1819B05EA0ull, "SET_PACKED_STAT_BOOL_CODE"},
+            {0x0F575D68F532124Cull, "SET_PACKED_STAT_INT_CODE"},
         }};
 
         struct NativeProgram final

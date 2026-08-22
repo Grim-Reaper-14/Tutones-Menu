@@ -68,6 +68,17 @@ namespace Tutones::Game::Recovery
         {
             return "MPX_CONTOTALFORWHOUSE" + std::to_string(slot);
         }
+
+        [[nodiscard]] bool IsKnownPack(PackedUnlockPack pack) noexcept
+        {
+            switch (pack)
+            {
+            case PackedUnlockPack::CasinoHeistTattoos:
+            case PackedUnlockPack::LosSantosTunersTattoos:
+                return true;
+            }
+            return false;
+        }
     }
 
     RecoveryRuntime& RecoveryRuntime::Get() noexcept
@@ -203,6 +214,20 @@ namespace Tutones::Game::Recovery
         return QueueAction(RecoveryAction::SetBunkerProduct, 5, product);
     }
 
+    bool RecoveryRuntime::QueueUnlockPackedBool(std::size_t catalogIndex)
+    {
+        if (catalogIndex >= EnhancedPackedBoolUnlocks.size())
+            return false;
+        return QueueAction(RecoveryAction::UnlockPackedBool, static_cast<int>(catalogIndex), 1);
+    }
+
+    bool RecoveryRuntime::QueueUnlockPackedBoolPack(PackedUnlockPack pack)
+    {
+        if (!IsKnownPack(pack))
+            return false;
+        return QueueAction(RecoveryAction::UnlockPackedBoolPack, static_cast<int>(pack), 1);
+    }
+
     bool RecoveryRuntime::QueueAction(RecoveryAction action, int target, int value)
     {
         if (!IsRunning() || action == RecoveryAction::None)
@@ -330,6 +355,74 @@ namespace Tutones::Game::Recovery
                     }
                 }
             }
+            else if (action == RecoveryAction::UnlockPackedBool && target >= 0 && static_cast<std::size_t>(target) < EnhancedPackedBoolUnlocks.size())
+            {
+                const auto& entry = EnhancedPackedBoolUnlocks[static_cast<std::size_t>(target)];
+                const auto current = Stats::GetPackedBool(entry.code, *characterIndex);
+                if (current)
+                {
+                    if (*current)
+                    {
+                        success = true;
+                    }
+                    else if (Stats::SetPackedBool(entry.code, true, *characterIndex))
+                    {
+                        const auto confirmation = Stats::GetPackedBool(entry.code, *characterIndex);
+                        success = confirmation && *confirmation;
+                    }
+                }
+            }
+            else if (action == RecoveryAction::UnlockPackedBoolPack)
+            {
+                const auto pack = static_cast<PackedUnlockPack>(target);
+                if (IsKnownPack(pack))
+                {
+                    bool matched{};
+                    bool allReadable = true;
+                    for (const auto& entry : EnhancedPackedBoolUnlocks)
+                    {
+                        if (entry.pack != pack)
+                            continue;
+                        matched = true;
+                        if (!Stats::GetPackedBool(entry.code, *characterIndex))
+                        {
+                            allReadable = false;
+                            break;
+                        }
+                    }
+
+                    if (matched && allReadable)
+                    {
+                        bool allSucceeded = true;
+                        for (const auto& entry : EnhancedPackedBoolUnlocks)
+                        {
+                            if (entry.pack != pack)
+                                continue;
+
+                            const auto current = Stats::GetPackedBool(entry.code, *characterIndex);
+                            if (!current)
+                            {
+                                allSucceeded = false;
+                                break;
+                            }
+
+                            if (!*current && !Stats::SetPackedBool(entry.code, true, *characterIndex))
+                            {
+                                allSucceeded = false;
+                                break;
+                            }
+
+                            const auto confirmation = Stats::GetPackedBool(entry.code, *characterIndex);
+                            if (!confirmation || !*confirmation)
+                            {
+                                allSucceeded = false;
+                                break;
+                            }
+                        }
+                        success = allSucceeded;
+                    }
+                }
+            }
         }
 
         RecordAction(action, target, value, success);
@@ -367,6 +460,15 @@ namespace Tutones::Game::Recovery
             {
                 next.onlineRank = std::max(0, *rank);
                 next.unlockRankReady = true;
+            }
+
+            for (std::size_t index = 0; index < EnhancedPackedBoolUnlocks.size(); ++index)
+            {
+                const auto state = Stats::GetPackedBool(EnhancedPackedBoolUnlocks[index].code, *characterIndex);
+                if (!state)
+                    continue;
+                next.packedUnlockReadable[index] = true;
+                next.packedUnlocks[index] = *state;
             }
 
             for (int slot = 0; slot < 5; ++slot)
