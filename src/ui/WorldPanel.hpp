@@ -10,7 +10,6 @@
 #include <imgui.h>
 
 #include <algorithm>
-#include <array>
 #include <chrono>
 #include <cstddef>
 #include <string>
@@ -20,12 +19,6 @@ namespace Tutones::UI
     namespace WorldPanelDetail
     {
         inline std::chrono::steady_clock::time_point g_NextClockSample{};
-
-        inline constexpr std::array<const char*, 15> WeatherNames{{
-            "EXTRASUNNY", "CLEAR", "CLOUDS", "SMOG", "FOGGY",
-            "OVERCAST", "RAIN", "THUNDER", "CLEARING", "NEUTRAL",
-            "SNOW", "BLIZZARD", "SNOWLIGHT", "XMAS", "HALLOWEEN",
-        }};
 
         inline Core::Config::WorldMenuSettings& SavedWorld() noexcept
         {
@@ -183,7 +176,7 @@ namespace Tutones::UI
             auto& saved = SavedWorld();
             saved.setHour = std::clamp(saved.setHour, 0, 23);
             saved.setMinute = std::clamp(saved.setMinute, 0, 59);
-            saved.weatherIndex = std::clamp(saved.weatherIndex, 0, static_cast<int>(WeatherNames.size()) - 1);
+            saved.weatherIndex = std::clamp(saved.weatherIndex, 0, static_cast<int>(Game::World::WeatherCodes.size()) - 1);
 
             const auto now = std::chrono::steady_clock::now();
             if (g_NextClockSample == std::chrono::steady_clock::time_point{} || now >= g_NextClockSample)
@@ -195,20 +188,20 @@ namespace Tutones::UI
             const auto snapshot = runtime.Snapshot();
             ImGui::TextColored(V11Theme::Accent, "Time");
             if (snapshot.clockHour >= 0 && snapshot.clockMinute >= 0)
-                ImGui::Text("Current local clock: %02d:%02d", snapshot.clockHour, snapshot.clockMinute);
+                ImGui::Text("Current GTA clock: %02d:%02d", snapshot.clockHour, snapshot.clockMinute);
             else
-                ImGui::TextDisabled("Current local clock: unavailable");
+                ImGui::TextDisabled("Current GTA clock: unavailable");
 
             ImGui::SliderInt("Hour", &saved.setHour, 0, 23);
-            DescribeLastV11Item("Choose the local GTA world hour to apply.");
+            DescribeLastV11Item("Choose the GTA Online hour to apply through NETWORK_OVERRIDE_CLOCK_TIME.");
             ImGui::SliderInt("Minute", &saved.setMinute, 0, 59);
-            DescribeLastV11Item("Choose the local GTA world minute to apply.");
+            DescribeLastV11Item("Choose the GTA Online minute to apply through NETWORK_OVERRIDE_CLOCK_TIME.");
 
             ImGui::BeginDisabled(snapshot.actionPending);
             if (ImGui::Button("Apply Time", ImVec2(-1.0f, 0.0f)))
                 runtime.QueueSetTime(saved.setHour, saved.setMinute);
             ImGui::EndDisabled();
-            DescribeLastV11Item("Apply the selected local world clock time through the current Enhanced native mapping.");
+            DescribeLastV11Item("Apply the selected GTA Online clock using the verified Enhanced network-clock native. If Freeze Time is on, the selected time is reapplied every GTA script tick.");
 
             bool freezeClock = snapshot.freezeClock;
             ImGui::BeginDisabled(snapshot.actionPending);
@@ -218,18 +211,41 @@ namespace Tutones::UI
                 runtime.QueueFreezeClock(freezeClock);
             }
             ImGui::EndDisabled();
-            DescribeLastV11Item("Pause or resume the local GTA world clock. Disable before unloading if you want normal time progression immediately restored.");
+            DescribeLastV11Item("Continuously hold the selected online time while enabled. Disabling clears NETWORK_CLEAR_CLOCK_TIME_OVERRIDE so GTA resumes normal network time.");
 
             ImGui::Separator();
             ImGui::TextColored(V11Theme::Accent, "Weather & lighting");
-            ImGui::Combo("Weather", &saved.weatherIndex, WeatherNames.data(), static_cast<int>(WeatherNames.size()));
-            DescribeLastV11Item("Choose a GTA weather type for the local world.");
+            ImGui::Combo(
+                "Weather",
+                &saved.weatherIndex,
+                Game::World::WeatherCodes.data(),
+                static_cast<int>(Game::World::WeatherCodes.size()));
+            DescribeLastV11Item("Choose the local weather type to apply and force.");
 
             ImGui::BeginDisabled(snapshot.actionPending);
-            if (ImGui::Button("Apply Weather", ImVec2(-1.0f, 0.0f)))
-                runtime.QueueWeather(WeatherNames[static_cast<std::size_t>(saved.weatherIndex)]);
+            if (ImGui::Button("Apply & Force Weather", ImVec2(-1.0f, 0.0f)))
+            {
+                saved.forceWeather = true;
+                runtime.QueueWeather(Game::World::WeatherCodes[static_cast<std::size_t>(saved.weatherIndex)]);
+            }
             ImGui::EndDisabled();
-            DescribeLastV11Item("Apply and persist the selected weather type locally until GTA or another script changes it.");
+            DescribeLastV11Item("Apply the selected weather immediately, persist it, and reapply SET_OVERRIDE_WEATHER every GTA script tick so session scripts cannot immediately replace it.");
+
+            ImGui::BeginDisabled(snapshot.actionPending || !snapshot.weatherOverrideActive);
+            if (ImGui::Button("Release Weather Override", ImVec2(-1.0f, 0.0f)))
+            {
+                saved.forceWeather = false;
+                runtime.QueueClearWeatherOverride();
+            }
+            ImGui::EndDisabled();
+            DescribeLastV11Item("Clear the forced weather override and return weather control to GTA.");
+
+            ImGui::TextDisabled(
+                "Weather override: %s%s%s",
+                snapshot.weatherOverrideActive ? "active (" : "off",
+                snapshot.weatherOverrideActive ? snapshot.weatherCode.c_str() : "",
+                snapshot.weatherOverrideActive ? ")" : "");
+            ImGui::TextDisabled("Persistent world loop: %s", snapshot.worldControlLoopRunning ? "active" : "idle");
 
             bool blackout = snapshot.blackout;
             ImGui::BeginDisabled(snapshot.actionPending);
@@ -239,7 +255,7 @@ namespace Tutones::UI
                 runtime.QueueBlackout(blackout);
             }
             ImGui::EndDisabled();
-            DescribeLastV11Item("Toggle local artificial-light blackout state using the verified Enhanced mapping.");
+            DescribeLastV11Item("Toggle local artificial-light blackout state using the verified Enhanced mapping. Enabled blackout is maintained by the same persistent world loop.");
 
             RenderRuntimeStatus(snapshot);
         }
