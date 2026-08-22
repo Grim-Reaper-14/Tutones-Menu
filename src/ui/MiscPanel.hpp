@@ -4,6 +4,7 @@
 #include "V11Theme.hpp"
 #include "../features/network/NetworkRuntime.hpp"
 #include "../features/player/PlayerRuntime.hpp"
+#include "../features/world/WorldRuntime.hpp"
 #include "../game/MiscNatives.hpp"
 #include "../game/PlayerNatives.hpp"
 #include "../game/native/NativeInvoker.hpp"
@@ -53,14 +54,6 @@ namespace Tutones::UI
         inline int g_SetHour{12};
         inline int g_SetMinute{};
         inline int g_WeatherIndex{};
-        inline bool g_FreezeClock{};
-        inline bool g_Blackout{};
-
-        constexpr std::array<const char*, 15> WeatherNames{{
-            "EXTRASUNNY", "CLEAR", "CLOUDS", "SMOG", "FOGGY",
-            "OVERCAST", "RAIN", "THUNDER", "CLEARING", "NEUTRAL",
-            "SNOW", "BLIZZARD", "SNOWLIGHT", "XMAS", "HALLOWEEN",
-        }};
 
         template<typename Fn>
         bool QueueAction(const char* label, Fn&& action)
@@ -223,57 +216,69 @@ namespace Tutones::UI
         inline void RenderWorld() noexcept
         {
             QueueSample();
+            auto& runtime = Game::World::WorldRuntime::Get();
+            const auto snapshot = runtime.Snapshot();
             const int currentHour = g_ClockHours.load(std::memory_order_acquire);
             const int currentMinute = g_ClockMinutes.load(std::memory_order_acquire);
 
             ImGui::TextColored(V11Theme::Accent, "Time");
             if (currentHour >= 0 && currentMinute >= 0)
-                ImGui::Text("Current local clock: %02d:%02d", currentHour, currentMinute);
+                ImGui::Text("Current GTA clock: %02d:%02d", currentHour, currentMinute);
             else
-                ImGui::TextDisabled("Current local clock: unavailable");
+                ImGui::TextDisabled("Current GTA clock: unavailable");
 
             ImGui::SliderInt("Hour", &g_SetHour, 0, 23);
             ImGui::SliderInt("Minute", &g_SetMinute, 0, 59);
+            ImGui::BeginDisabled(snapshot.actionPending);
             if (ImGui::Button("Apply time", ImVec2(-1.0f, 0.0f)))
-            {
-                const int hour = g_SetHour;
-                const int minute = g_SetMinute;
-                static_cast<void>(QueueAction("Set clock time", [hour, minute] {
-                    return Game::MiscNatives::SetClockTime(hour, minute, 0);
-                }));
-            }
+                static_cast<void>(runtime.QueueSetTime(g_SetHour, g_SetMinute));
+            ImGui::EndDisabled();
+            DescribeLastV11Item("Apply GTA Online time through the shared verified NETWORK_OVERRIDE_CLOCK_TIME backend.");
 
-            if (ImGui::Checkbox("Freeze time", &g_FreezeClock))
-            {
-                const bool enabled = g_FreezeClock;
-                static_cast<void>(QueueAction(enabled ? "Freeze clock" : "Resume clock", [enabled] {
-                    return Game::MiscNatives::PauseClock(enabled);
-                }));
-            }
-            DescribeLastV11Item("Pause or resume the local GTA clock. Disable this before unloading the menu to restore normal clock progression.");
+            bool freezeClock = snapshot.freezeClock;
+            ImGui::BeginDisabled(snapshot.actionPending);
+            if (ImGui::Checkbox("Freeze time", &freezeClock))
+                static_cast<void>(runtime.QueueFreezeClock(freezeClock));
+            ImGui::EndDisabled();
+            DescribeLastV11Item("Continuously hold the selected network time. Turning this off clears the network clock override and resumes GTA time.");
 
             ImGui::Separator();
             ImGui::TextColored(V11Theme::Accent, "Weather");
-            ImGui::Combo("Weather type", &g_WeatherIndex, WeatherNames.data(), static_cast<int>(WeatherNames.size()));
-            if (ImGui::Button("Apply weather", ImVec2(-1.0f, 0.0f)))
-            {
-                const char* weather = WeatherNames[static_cast<std::size_t>(g_WeatherIndex)];
-                static_cast<void>(QueueAction("Set weather", [weather] {
-                    return Game::MiscNatives::SetWeatherTypeNowPersist(weather);
-                }));
-            }
+            g_WeatherIndex = std::clamp(g_WeatherIndex, 0, static_cast<int>(Game::World::WeatherCodes.size()) - 1);
+            ImGui::Combo(
+                "Weather type",
+                &g_WeatherIndex,
+                Game::World::WeatherCodes.data(),
+                static_cast<int>(Game::World::WeatherCodes.size()));
 
-            if (ImGui::Checkbox("Blackout", &g_Blackout))
+            ImGui::BeginDisabled(snapshot.actionPending);
+            if (ImGui::Button("Apply & force weather", ImVec2(-1.0f, 0.0f)))
             {
-                const bool enabled = g_Blackout;
-                static_cast<void>(QueueAction(enabled ? "Enable blackout" : "Disable blackout", [enabled] {
-                    return Game::MiscNatives::SetArtificialLightsState(enabled);
-                }));
+                static_cast<void>(runtime.QueueWeather(
+                    Game::World::WeatherCodes[static_cast<std::size_t>(g_WeatherIndex)]));
             }
-            DescribeLastV11Item("Toggle the local artificial-light blackout state using the current Enhanced native mapping.");
+            ImGui::EndDisabled();
+            DescribeLastV11Item("Apply and persist the selected weather, then reapply the Enhanced weather override every GTA script tick.");
 
-            ImGui::Spacing();
-            RenderActionStatus();
+            ImGui::BeginDisabled(snapshot.actionPending || !snapshot.weatherOverrideActive);
+            if (ImGui::Button("Release weather override", ImVec2(-1.0f, 0.0f)))
+                static_cast<void>(runtime.QueueClearWeatherOverride());
+            ImGui::EndDisabled();
+            DescribeLastV11Item("Return local weather control to GTA by clearing the forced override.");
+
+            bool blackout = snapshot.blackout;
+            ImGui::BeginDisabled(snapshot.actionPending);
+            if (ImGui::Checkbox("Blackout", &blackout))
+                static_cast<void>(runtime.QueueBlackout(blackout));
+            ImGui::EndDisabled();
+            DescribeLastV11Item("Toggle the local artificial-light blackout through the shared persistent World backend.");
+
+            ImGui::TextDisabled("Weather override: %s", snapshot.weatherOverrideActive ? snapshot.weatherCode.c_str() : "off");
+            ImGui::TextDisabled("World control loop: %s", snapshot.worldControlLoopRunning ? "active" : "idle");
+            if (snapshot.actionPending)
+                ImGui::TextDisabled("%s", snapshot.message.c_str());
+            else if (snapshot.haveResult)
+                ImGui::TextDisabled("%s: %s", snapshot.lastSucceeded ? "Success" : "Failed", snapshot.message.c_str());
         }
 
         inline void RenderCameraUtilities() noexcept
