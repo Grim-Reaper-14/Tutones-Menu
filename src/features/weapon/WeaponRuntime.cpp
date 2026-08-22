@@ -231,7 +231,7 @@ namespace Tutones::Game::WeaponFeatures
                     std::int32_t{0}) && success;
             }
             if (success)
-                TUTONES_LOG_INFO("weapon.runtime", "Give All Weapons dispatched across the Yim weapon catalog");
+                TUTONES_LOG_INFO("weapon.runtime", "Give All Weapons dispatched across the weapon catalog");
             else
                 TUTONES_LOG_WARN("weapon.runtime", "One or more Give All Weapons native calls could not be dispatched");
         });
@@ -290,6 +290,10 @@ namespace Tutones::Game::WeaponFeatures
 
         if (IsRunning() && !QueueNextTick())
         {
+            if (Native::NativeRegistry::Get().IsReady())
+                static_cast<void>(Native::NativeInvoker::InvokeVoid(
+                    Native::NativeId::EnableLaserSightRendering,
+                    std::int32_t{0}));
             m_Running.store(false, std::memory_order_release);
             Runtime::GameRuntime::Get().SetReleaseDeadTargetEnabled(false);
             RestorePatches();
@@ -337,6 +341,10 @@ namespace Tutones::Game::WeaponFeatures
 
     void WeaponRuntime::ApplyNativeState() noexcept
     {
+        static_cast<void>(Native::NativeInvoker::InvokeVoid(
+            Native::NativeId::EnableLaserSightRendering,
+            m_Aimbot.load(std::memory_order_acquire) ? std::int32_t{1} : std::int32_t{0}));
+
         const auto ped = PlayerNatives::PlayerPedId();
         if (!ped || *ped == 0)
             return;
@@ -427,6 +435,10 @@ namespace Tutones::Game::WeaponFeatures
             return;
 
         static_cast<void>(runtime.Enqueue([] {
+            static_cast<void>(Native::NativeInvoker::InvokeVoid(
+                Native::NativeId::EnableLaserSightRendering,
+                std::int32_t{0}));
+
             const auto ped = PlayerNatives::PlayerPedId();
             if (!ped || *ped == 0)
                 return;
