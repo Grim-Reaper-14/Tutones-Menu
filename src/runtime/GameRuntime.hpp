@@ -23,11 +23,6 @@ namespace Tutones::Runtime
         [[nodiscard]] std::uint32_t GameThreadId() const noexcept;
         bool Enqueue(std::function<void()> task);
 
-        // Called only from the live ScriptVM detour while GTA has an authentic
-        // script TLS context installed. Native/game-thread work must stay here
-        // rather than being synthesized after RunScriptThreads returns.
-        void TickLiveScriptContext(std::uint32_t programHash, std::uint32_t nameHash) noexcept;
-
         void SetReleaseDeadTargetEnabled(bool enabled) noexcept;
         [[nodiscard]] bool ReleaseDeadTargetEnabled() const noexcept;
         [[nodiscard]] bool ReleaseDeadTargetSupported() const noexcept;
@@ -43,7 +38,9 @@ namespace Tutones::Runtime
         static bool RunScriptThreadsDetour(int operationsToExecute) noexcept;
         static bool AssistedAimShouldReleaseEntityDetour(std::int64_t context) noexcept;
 
+        void Tick() noexcept;
         void DrainTasks() noexcept;
+        [[nodiscard]] Game::Types::ScriptThread* FindExecutionThread() const noexcept;
 
         std::atomic<bool> m_Initialized{false};
         std::atomic<bool> m_ShuttingDown{false};
@@ -61,8 +58,10 @@ namespace Tutones::Runtime
         std::deque<std::function<void()>> m_Tasks;
 
         bool m_NativeInitAttempted{};
-        bool m_NativeExecutionArmed{};
+        bool m_NativeCanaryPassed{};
+        bool m_GameStateCanaryPassed{};
         bool m_LoggedNoScriptThread{};
         bool m_LoggedNoTls{};
+        std::uint64_t m_TaskSequence{};
     };
 }
