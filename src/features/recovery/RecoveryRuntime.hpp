@@ -1,8 +1,11 @@
 #pragma once
 
+#include "UnlockCatalog.hpp"
+
 #include <array>
 #include <atomic>
 #include <chrono>
+#include <cstddef>
 #include <cstdint>
 #include <mutex>
 
@@ -15,6 +18,8 @@ namespace Tutones::Game::Recovery
         SetBunkerSupplies,
         SetBunkerProduct,
         EarnFromPickup,
+        UnlockPackedBool,
+        UnlockPackedBoolPack,
     };
 
     struct WarehouseSnapshot final
@@ -41,7 +46,10 @@ namespace Tutones::Game::Recovery
     {
         std::array<WarehouseSnapshot, 5> warehouses{};
         BunkerSnapshot bunker{};
+        std::array<bool, EnhancedPackedBoolUnlockCount> packedUnlocks{};
+        std::array<bool, EnhancedPackedBoolUnlockCount> packedUnlockReadable{};
         int characterIndex{-1};
+        int onlineRank{};
         float observedRpMultiplier{1.0f};
         float requestedRpMultiplier{1.0f};
         int lastActionTarget{-1};
@@ -51,6 +59,7 @@ namespace Tutones::Game::Recovery
         bool nativeReady{};
         bool sessionStarted{};
         bool statsReady{};
+        bool unlockRankReady{};
         bool rpMultiplierEnabled{};
         bool rpMultiplierReady{};
         bool actionPending{};
@@ -76,6 +85,8 @@ namespace Tutones::Game::Recovery
         bool QueueSetBunkerSupplies(int supplies);
         bool QueueSetBunkerProduct(int product);
         bool QueueEarnFromPickup(int amount);
+        bool QueueUnlockPackedBool(std::size_t catalogIndex);
+        bool QueueUnlockPackedBoolPack(PackedUnlockPack pack);
 
     private:
         using Clock = std::chrono::steady_clock;
