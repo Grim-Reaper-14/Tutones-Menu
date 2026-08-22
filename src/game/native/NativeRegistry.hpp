@@ -112,6 +112,7 @@ namespace Tutones::Game::Native
         SetPedRandomComponentVariation,
         SetPedDefaultComponentVariation,
 
+        EnableLaserSightRendering,
         SetPedInfiniteAmmo,
         SetPedInfiniteAmmoClip,
         IsPedArmed,
