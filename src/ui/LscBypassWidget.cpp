@@ -62,14 +62,17 @@ namespace Tutones::UI
         auto& vehicleFeatures = Game::Mods::VehicleLoopFeatures::Get();
 
         bool keepClean = vehicleFeatures.KeepVehicleClean();
-        if (ImGui::Checkbox("Keep Vehicle Clean", &keepClean))
+        if (ImGui::Checkbox("Keep Vehicle Pristine", &keepClean))
             vehicleFeatures.SetKeepVehicleClean(keepClean);
-        DescribeLastV11Item("Continuously keeps the vehicle you are driving at zero dirt level. The loop follows you when you change vehicles.");
+        DescribeLastV11Item("Continuously keeps the vehicle you are using pristine: blocks incoming damage, repairs body deformation and damage, fixes tires, removes scratches/blood/decals, and keeps dirt at zero. The protection follows you when you change vehicles and is removed from the old vehicle.");
 
         bool loweredStance = vehicleFeatures.LoweredStance();
         if (ImGui::Checkbox("Lowered Stance", &loweredStance))
             vehicleFeatures.SetLoweredStance(loweredStance);
         DescribeLastV11Item("Continuously applies the reduced-suspension stance to supported vehicles. Turning this off restores normal suspension on the last affected vehicle.");
+
+        if (keepClean)
+            ImGui::TextDisabled("Pristine mode is active: current vehicle damage and visual grime are continuously prevented/repaired.");
 
         if (loweredStance)
             ImGui::TextDisabled("Lowered stance is active; only vehicles supported by GTA's suspension native will visibly change.");
