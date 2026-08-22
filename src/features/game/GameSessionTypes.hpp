@@ -5,6 +5,14 @@
 
 namespace Tutones::Game::SessionFeatures
 {
+    enum class GameServiceAction : unsigned char
+    {
+        None,
+        AirstrikeAhead,
+        AmmoDrop,
+        MinigunDrop,
+    };
+
     enum class JoinType : int
     {
         JoinPublic = 0,

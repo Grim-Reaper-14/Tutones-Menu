@@ -1,12 +1,40 @@
 #include "PlayerRuntime.hpp"
 
+#include "../../game/native/NativeInvoker.hpp"
 #include "../../runtime/GameRuntime.hpp"
 
 #include <algorithm>
+#include <cstdint>
 #include <utility>
 
 namespace Tutones::Game::PlayerFeatures
 {
+    namespace
+    {
+        bool SetEntityBulletproof(Ped ped, bool enabled) noexcept
+        {
+            return Native::NativeInvoker::InvokeVoid(
+                Native::NativeId::SetEntityProofs,
+                ped,
+                static_cast<std::int32_t>(enabled),
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0);
+        }
+
+        bool SetPedSuffersCriticalHits(Ped ped, bool enabled) noexcept
+        {
+            return Native::NativeInvoker::InvokeVoid(
+                Native::NativeId::SetPedSuffersCriticalHits,
+                ped,
+                static_cast<std::int32_t>(enabled));
+        }
+    }
+
     bool PlayerRuntime::Refresh(Player player, Ped ped) noexcept
     {
         const auto model = PlayerNatives::GetEntityModel(ped);
@@ -57,10 +85,19 @@ namespace Tutones::Game::PlayerFeatures
         m_Snapshot.currentTexture = *currentTexture;
         m_Snapshot.currentPalette = *currentPalette;
         m_Snapshot.invincible = m_Invincible.load(std::memory_order_acquire);
+        m_Snapshot.bulletproof = m_Bulletproof.load(std::memory_order_acquire);
+        m_Snapshot.aquaLungs = m_AquaLungs.load(std::memory_order_acquire);
+        m_Snapshot.infiniteOxygen = m_InfiniteOxygen.load(std::memory_order_acquire);
         m_Snapshot.invisible = m_Invisible.load(std::memory_order_acquire);
         m_Snapshot.noRagdoll = m_NoRagdoll.load(std::memory_order_acquire);
         m_Snapshot.superJump = m_SuperJump.load(std::memory_order_acquire);
         m_Snapshot.infiniteStamina = m_InfiniteStamina.load(std::memory_order_acquire);
+        m_Snapshot.keepPlayerClean = m_KeepPlayerClean.load(std::memory_order_acquire);
+        m_Snapshot.disableCriticalHits = m_DisableCriticalHits.load(std::memory_order_acquire);
+        m_Snapshot.standOnVehicles = m_StandOnVehicles.load(std::memory_order_acquire);
+        m_Snapshot.disableActionMode = m_DisableActionMode.load(std::memory_order_acquire);
+        m_Snapshot.infiniteParachutes = m_InfiniteParachutes.load(std::memory_order_acquire);
+        m_Snapshot.mobileRadio = m_MobileRadio.load(std::memory_order_acquire);
         m_Snapshot.neverWanted = m_NeverWanted.load(std::memory_order_acquire);
         m_Snapshot.policeIgnore = m_PoliceIgnore.load(std::memory_order_acquire);
         m_Snapshot.everyoneIgnore = m_EveryoneIgnore.load(std::memory_order_acquire);
@@ -74,6 +111,14 @@ namespace Tutones::Game::PlayerFeatures
         return true;
     }
 
+    void PlayerRuntime::SetBulletproof(bool enabled)
+    {
+        m_Bulletproof.store(enabled, std::memory_order_release);
+        static_cast<void>(QueuePlayerOperation(PlayerAction::ApplyPersistent, [this](Player player, Ped ped) {
+            return ApplyPersistentState(player, ped);
+        }));
+    }
+
     bool PlayerRuntime::ApplyPersistentState(Player player, Ped ped) noexcept
     {
         const auto dead = PlayerNatives::IsEntityDead(ped, true);
@@ -82,8 +127,10 @@ namespace Tutones::Game::PlayerFeatures
 
         bool success = true;
         success = PlayerNatives::SetEntityInvincible(ped, applyInvincible, false) && success;
+        success = SetEntityBulletproof(ped, m_Bulletproof.load(std::memory_order_acquire)) && success;
         success = PlayerNatives::SetEntityVisible(ped, !m_Invisible.load(std::memory_order_acquire), false) && success;
         success = PlayerNatives::SetPedCanRagdoll(ped, !m_NoRagdoll.load(std::memory_order_acquire)) && success;
+        success = SetPedSuffersCriticalHits(ped, !m_DisableCriticalHits.load(std::memory_order_acquire)) && success;
         success = PlayerNatives::SetPoliceIgnorePlayer(player, m_PoliceIgnore.load(std::memory_order_acquire)) && success;
         success = PlayerNatives::SetEveryoneIgnorePlayer(player, m_EveryoneIgnore.load(std::memory_order_acquire)) && success;
         success = PlayerNatives::SetRunSprintMultiplierForPlayer(player, m_RunMultiplier.load(std::memory_order_acquire)) && success;
@@ -175,10 +222,19 @@ namespace Tutones::Game::PlayerFeatures
         m_Snapshot.lastAction = lastAction;
         m_Snapshot.lastActionSucceeded = lastSuccess;
         m_Snapshot.invincible = m_Invincible.load(std::memory_order_acquire);
+        m_Snapshot.bulletproof = m_Bulletproof.load(std::memory_order_acquire);
+        m_Snapshot.aquaLungs = m_AquaLungs.load(std::memory_order_acquire);
+        m_Snapshot.infiniteOxygen = m_InfiniteOxygen.load(std::memory_order_acquire);
         m_Snapshot.invisible = m_Invisible.load(std::memory_order_acquire);
         m_Snapshot.noRagdoll = m_NoRagdoll.load(std::memory_order_acquire);
         m_Snapshot.superJump = m_SuperJump.load(std::memory_order_acquire);
         m_Snapshot.infiniteStamina = m_InfiniteStamina.load(std::memory_order_acquire);
+        m_Snapshot.keepPlayerClean = m_KeepPlayerClean.load(std::memory_order_acquire);
+        m_Snapshot.disableCriticalHits = m_DisableCriticalHits.load(std::memory_order_acquire);
+        m_Snapshot.standOnVehicles = m_StandOnVehicles.load(std::memory_order_acquire);
+        m_Snapshot.disableActionMode = m_DisableActionMode.load(std::memory_order_acquire);
+        m_Snapshot.infiniteParachutes = m_InfiniteParachutes.load(std::memory_order_acquire);
+        m_Snapshot.mobileRadio = m_MobileRadio.load(std::memory_order_acquire);
         m_Snapshot.neverWanted = m_NeverWanted.load(std::memory_order_acquire);
         m_Snapshot.policeIgnore = m_PoliceIgnore.load(std::memory_order_acquire);
         m_Snapshot.everyoneIgnore = m_EveryoneIgnore.load(std::memory_order_acquire);

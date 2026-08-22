@@ -4,12 +4,15 @@
 #include "V11Theme.hpp"
 #include "../features/vehicle/VehicleModificationRuntime.hpp"
 #include "../game/GameState.hpp"
+#include "../game/VehicleNatives.hpp"
 #include "../game/vehicle/VehicleCatalogs.hpp"
 #include "../game/vehicle/VehicleModels.hpp"
+#include "../runtime/GameRuntime.hpp"
 
 #include <imgui.h>
 
 #include <algorithm>
+#include <array>
 #include <cctype>
 #include <cstdio>
 #include <string>
@@ -31,6 +34,24 @@ namespace Tutones::UI
         int g_SelectedPreset{-1};
         std::vector<std::string> g_SavedPresets{};
         const char* g_Message{"Ready"};
+
+        char g_PlateText[9]{};
+        int g_PlateStyle{};
+        constexpr std::array<const char*, 13> PlateStyles{{
+            "Blue on White 1",
+            "Yellow on Black",
+            "Yellow on Blue",
+            "Blue on White 2",
+            "Blue on White 3",
+            "Yankton",
+            "Ecola",
+            "Las Venturas",
+            "Liberty City",
+            "Los Santos Car Meet",
+            "Los Santos Panic",
+            "Los Santos Pounders",
+            "Sprunk",
+        }};
 
         const char* ActionName(Game::Mods::VehicleModAction action) noexcept
         {
@@ -56,6 +77,7 @@ namespace Tutones::UI
             case VehicleModAction::SetNeonEnabled: return "Neon side";
             case VehicleModAction::SetTyresCanBurst: return "Tire durability";
             case VehicleModAction::SetDriftTyres: return "Low grip tires";
+            case VehicleModAction::SetStealthMode: return "Vehicle stealth";
             }
             return "Unknown";
         }
@@ -87,34 +109,53 @@ namespace Tutones::UI
         void RenderSpawner(Game::Mods::VehicleModificationRuntime& runtime, const Game::Mods::VehicleModificationSnapshot& snapshot)
         {
             const auto catalog = runtime.CatalogSnapshot();
+
             ImGui::TextColored(V11Theme::Accent, "Vehicle Spawner");
-            ImGui::TextDisabled("Catalog: %zu models", Game::VehicleCatalogs::VehicleModels.size());
-            if (catalog.ready < catalog.total)
-                ImGui::TextDisabled("Classifying models on GTA thread: %zu / %zu", catalog.ready, catalog.total);
-
-            ImGui::SetNextItemWidth(230.0f);
-            ImGui::InputTextWithHint("##vehicle_search", "Search make, name, or model ID", g_Search, sizeof(g_Search));
-            DescribeLastV11Item("Filter the built-in vehicle catalog by display name, make, or model ID.");
             ImGui::SameLine();
-            const char* classPreview = g_ClassFilter < 0
-                ? "All classes"
-                : Game::VehicleCatalogs::VehicleClassNames[static_cast<std::size_t>(g_ClassFilter)];
-            ImGui::SetNextItemWidth(-1.0f);
-            if (ImGui::BeginCombo("##vehicle_class", classPreview))
-            {
-                if (ImGui::Selectable("All classes", g_ClassFilter == -1))
-                    g_ClassFilter = -1;
-                for (std::size_t i = 0; i < Game::VehicleCatalogs::VehicleClassNames.size(); ++i)
-                {
-                    const bool selected = g_ClassFilter == static_cast<int>(i);
-                    if (ImGui::Selectable(Game::VehicleCatalogs::VehicleClassNames[i], selected))
-                        g_ClassFilter = static_cast<int>(i);
-                }
-                ImGui::EndCombo();
-            }
-            DescribeLastV11Item("Limit the vehicle browser to one GTA vehicle class, or show every class.");
+            ImGui::TextDisabled("%zu vehicles", Game::VehicleCatalogs::VehicleModels.size());
+            if (catalog.ready < catalog.total)
+                ImGui::TextDisabled("Catalog loading: %zu / %zu", catalog.ready, catalog.total);
 
-            if (ImGui::BeginListBox("##vehicle_catalog", ImVec2(-1.0f, 188.0f)))
+            ImGui::SeparatorText("Browse Vehicles");
+            if (ImGui::BeginTable("##vehicle_spawn_filters", 2, ImGuiTableFlags_SizingStretchProp))
+            {
+                ImGui::TableSetupColumn("Search", ImGuiTableColumnFlags_WidthStretch, 2.0f);
+                ImGui::TableSetupColumn("Class", ImGuiTableColumnFlags_WidthStretch, 1.0f);
+
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0);
+                ImGui::TextDisabled("Search");
+                ImGui::TableSetColumnIndex(1);
+                ImGui::TextDisabled("Vehicle Class");
+
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0);
+                ImGui::SetNextItemWidth(-1.0f);
+                ImGui::InputTextWithHint("##vehicle_search", "Make, name, or model ID", g_Search, sizeof(g_Search));
+                DescribeLastV11Item("Filter the built-in vehicle catalog by display name, make, or model ID.");
+
+                ImGui::TableSetColumnIndex(1);
+                const char* classPreview = g_ClassFilter < 0
+                    ? "All classes"
+                    : Game::VehicleCatalogs::VehicleClassNames[static_cast<std::size_t>(g_ClassFilter)];
+                ImGui::SetNextItemWidth(-1.0f);
+                if (ImGui::BeginCombo("##vehicle_class", classPreview))
+                {
+                    if (ImGui::Selectable("All classes", g_ClassFilter == -1))
+                        g_ClassFilter = -1;
+                    for (std::size_t i = 0; i < Game::VehicleCatalogs::VehicleClassNames.size(); ++i)
+                    {
+                        const bool selected = g_ClassFilter == static_cast<int>(i);
+                        if (ImGui::Selectable(Game::VehicleCatalogs::VehicleClassNames[i], selected))
+                            g_ClassFilter = static_cast<int>(i);
+                    }
+                    ImGui::EndCombo();
+                }
+                DescribeLastV11Item("Limit the vehicle browser to one GTA vehicle class, or show every class.");
+                ImGui::EndTable();
+            }
+
+            if (ImGui::BeginListBox("##vehicle_catalog", ImVec2(-1.0f, 148.0f)))
             {
                 for (std::size_t i = 0; i < Game::VehicleCatalogs::VehicleModels.size(); ++i)
                 {
@@ -145,22 +186,52 @@ namespace Tutones::UI
                 ImGui::EndListBox();
             }
 
+            ImGui::SeparatorText("Vehicle to Spawn");
+            if (g_SelectedModel >= 0
+                && g_SelectedModel < static_cast<int>(Game::VehicleCatalogs::VehicleModels.size()))
+            {
+                const auto selectedIndex = static_cast<std::size_t>(g_SelectedModel);
+                const char* selectedDisplay = selectedIndex < catalog.displayNames.size()
+                    && !catalog.displayNames[selectedIndex].empty()
+                    ? catalog.displayNames[selectedIndex].c_str()
+                    : Game::VehicleCatalogs::VehicleModels[selectedIndex];
+                ImGui::Text("Selected: %s", selectedDisplay);
+            }
+            else
+            {
+                ImGui::TextDisabled("No catalog vehicle selected; enter a model name below.");
+            }
+
+            ImGui::TextDisabled("Model name / add-on");
             ImGui::SetNextItemWidth(-1.0f);
-            ImGui::InputTextWithHint("##direct_model", "Direct model / add-on fallback", g_SpawnModel, sizeof(g_SpawnModel));
+            ImGui::InputTextWithHint("##direct_model", "Vehicle model name", g_SpawnModel, sizeof(g_SpawnModel));
             DescribeLastV11Item("Enter a model name directly, including supported add-on model names not found in the built-in catalog.");
-            ImGui::Checkbox("Spawn inside", &g_SpawnInside);
-            DescribeLastV11Item("Place your player directly into the newly spawned vehicle when the spawn succeeds.");
-            ImGui::SameLine();
-            ImGui::Checkbox("Spawn maxed", &g_SpawnMaxed);
-            DescribeLastV11Item("Apply the runtime's supported maximum vehicle modifications after the vehicle is spawned.");
-            if (ImGui::Button("Spawn selected vehicle", ImVec2(-1.0f, 0.0f)))
+
+            ImGui::SeparatorText("Spawn Options");
+            if (ImGui::BeginTable("##vehicle_spawn_options", 2, ImGuiTableFlags_SizingStretchSame))
+            {
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0);
+                ImGui::Checkbox("Spawn inside", &g_SpawnInside);
+                DescribeLastV11Item("Place your player directly into the newly spawned vehicle when the spawn succeeds.");
+
+                ImGui::TableSetColumnIndex(1);
+                ImGui::Checkbox("Spawn maxed", &g_SpawnMaxed);
+                DescribeLastV11Item("Apply the runtime's supported maximum vehicle modifications after the vehicle is spawned.");
+                ImGui::EndTable();
+            }
+
+            ImGui::BeginDisabled(snapshot.spawnPending);
+            if (ImGui::Button(snapshot.spawnPending ? "Loading vehicle..." : "Spawn Vehicle", ImVec2(-1.0f, 0.0f)))
             {
                 const bool queued = runtime.QueueSpawnVehicle(g_SpawnModel, g_SpawnInside, g_SpawnMaxed);
                 g_Message = queued ? "Spawn request queued" : "Spawn request rejected";
             }
+            ImGui::EndDisabled();
             DescribeLastV11Item("Queue the selected or directly entered model for spawning on the GTA game thread.");
+
             if (snapshot.spawnPending)
-                ImGui::Text("Loading model 0x%08X...", snapshot.pendingSpawnModel);
+                ImGui::TextDisabled("Loading model 0x%08X...", snapshot.pendingSpawnModel);
         }
 
         void RenderCurrent(
@@ -180,6 +251,46 @@ namespace Tutones::UI
             if (!snapshot.valid)
                 ImGui::TextDisabled("Vehicle detected; workshop state is refreshing.");
 
+            ImGui::SeparatorText("License Plate");
+            ImGui::SetNextItemWidth(150.0f);
+            ImGui::InputTextWithHint("##plate_text", "Plate Number", g_PlateText, sizeof(g_PlateText));
+            DescribeLastV11Item("GTA license plates support up to 8 characters, matching YimMenuV2's vehicle editor.");
+            ImGui::SameLine();
+            if (ImGui::Button("Change Plate"))
+            {
+                const Game::Vehicle vehicle = gameState.vehicle;
+                const std::string plate(g_PlateText);
+                const bool queued = Runtime::GameRuntime::Get().Enqueue([vehicle, plate] {
+                    static_cast<void>(Game::VehicleNatives::SetVehicleNumberPlateText(vehicle, plate));
+                });
+                g_Message = queued ? "Plate text queued" : "Plate text rejected";
+            }
+            DescribeLastV11Item("Apply the entered license plate text to the current vehicle on the GTA game thread.");
+
+            ImGui::SetNextItemWidth(260.0f);
+            if (ImGui::BeginCombo("Plate Style", PlateStyles[static_cast<std::size_t>(g_PlateStyle)]))
+            {
+                for (std::size_t i = 0; i < PlateStyles.size(); ++i)
+                {
+                    const bool selected = g_PlateStyle == static_cast<int>(i);
+                    if (ImGui::Selectable(PlateStyles[i], selected))
+                    {
+                        g_PlateStyle = static_cast<int>(i);
+                        const Game::Vehicle vehicle = gameState.vehicle;
+                        const int style = g_PlateStyle;
+                        const bool queued = Runtime::GameRuntime::Get().Enqueue([vehicle, style] {
+                            static_cast<void>(Game::VehicleNatives::SetVehicleNumberPlateTextIndex(vehicle, style));
+                        });
+                        g_Message = queued ? "Plate style queued" : "Plate style rejected";
+                    }
+                    if (selected)
+                        ImGui::SetItemDefaultFocus();
+                }
+                ImGui::EndCombo();
+            }
+            DescribeLastV11Item("Choose one of the 13 plate styles exposed by YimMenuV2, including Yankton, Ecola, Liberty City, Car Meet, Pounders and Sprunk.");
+
+            ImGui::SeparatorText("Vehicle Actions");
             if (ImGui::Button("Repair", ImVec2(150.0f, 0.0f))) static_cast<void>(runtime.QueueRepair());
             DescribeLastV11Item("Repair the current vehicle through the verified vehicle modification runtime.");
             ImGui::SameLine();
@@ -191,6 +302,14 @@ namespace Tutones::UI
             if (ImGui::Button("Max all supported LSC mods", ImVec2(-1.0f, 0.0f)))
                 static_cast<void>(runtime.QueueMaxVehicle());
             DescribeLastV11Item("Apply the highest supported native LSC option to each modification slot exposed by this vehicle.");
+
+            if (ImGui::Button("Enable stealth", ImVec2(220.0f, 0.0f)))
+                g_Message = runtime.QueueStealthMode(true) ? "Vehicle stealth queued" : "Vehicle stealth rejected";
+            DescribeLastV11Item("Fold Akula/Annihilator2 stealth wings or close the Raiju missile bays using the Enhanced vehicle_stealth_mode behavior.");
+            ImGui::SameLine();
+            if (ImGui::Button("Disable stealth", ImVec2(-1.0f, 0.0f)))
+                g_Message = runtime.QueueStealthMode(false) ? "Vehicle stealth disable queued" : "Vehicle stealth disable rejected";
+            DescribeLastV11Item("Deploy the supported stealth vehicle's wings or missile bays again. Unsupported vehicle models are rejected.");
 
             ImGui::Separator();
             ImGui::TextDisabled("LSC restrictions: Tutones applies supported native mod slots directly; rank/purchase gates are not part of this path.");

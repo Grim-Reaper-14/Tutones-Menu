@@ -7,6 +7,7 @@
 
 #include <imgui.h>
 
+#include <algorithm>
 #include <cstddef>
 
 namespace Tutones::UI
@@ -20,7 +21,46 @@ namespace Tutones::UI
 
         const ImVec4 Accent = V11Theme::Accent;
         std::size_t g_SelectedJoinType{};
+        bool g_NoIdle{};
         const char* g_SessionMessage{"Ready"};
+
+        bool RenderToggleSwitch(const char* label, bool& value) noexcept
+        {
+            ImGui::PushID(label);
+
+            const float height = ImGui::GetFrameHeight();
+            const float width = height * 1.75f;
+            const float radius = height * 0.5f;
+            const ImVec2 position = ImGui::GetCursorScreenPos();
+
+            const bool pressed = ImGui::InvisibleButton("##switch", ImVec2(width, height));
+            if (pressed)
+                value = !value;
+
+            const bool hovered = ImGui::IsItemHovered();
+            const ImVec4 track = value
+                ? (hovered ? V11Theme::AccentHover : V11Theme::Accent)
+                : (hovered ? V11Theme::ControlHover : V11Theme::ControlBg);
+
+            ImDrawList* drawList = ImGui::GetWindowDrawList();
+            drawList->AddRectFilled(
+                position,
+                ImVec2(position.x + width, position.y + height),
+                ImGui::GetColorU32(track),
+                radius);
+
+            const float knobX = value ? position.x + width - radius : position.x + radius;
+            drawList->AddCircleFilled(
+                ImVec2(knobX, position.y + radius),
+                std::max(2.0f, radius - 2.0f),
+                ImGui::GetColorU32(ImVec4(0.94f, 0.97f, 1.0f, 1.0f)),
+                24);
+
+            ImGui::SameLine(0.0f, 8.0f);
+            ImGui::TextUnformatted(label);
+            ImGui::PopID();
+            return pressed;
+        }
 
         const char* JoinTypeLabel(JoinType type) noexcept
         {
@@ -75,6 +115,40 @@ namespace Tutones::UI
                 ImGui::TextDisabled("A session transition is queued on the GTA script thread.");
             else
                 ImGui::TextDisabled("%s", g_SessionMessage);
+
+            ImGui::Spacing();
+            ImGui::SeparatorText("Quality of Life");
+
+            if (ImGui::Button("Skip Cutscene", ImVec2(-1.0f, 0.0f)))
+                g_SessionMessage = runtime.QueueSkipCutscene()
+                    ? "Skip Cutscene queued"
+                    : "Skip Cutscene unavailable";
+            DescribeLastV11Item("Immediately stop the currently playing GTA cutscene using the verified Enhanced STOP_CUTSCENE_IMMEDIATELY native.");
+            if (ImGui::Button("Skip Conversation", ImVec2(-1.0f, 0.0f)))
+                g_SessionMessage = runtime.QueueSkipConversation()
+                    ? "Skip Conversation queued"
+                    : "Skip Conversation unavailable";
+            DescribeLastV11Item("Skip to the next scripted phone/conversation line using the same native path used by YimMenuV2.");
+
+            g_NoIdle = snapshot.noIdleEnabled;
+            if (RenderToggleSwitch("No Idle Kick", g_NoIdle))
+            {
+                runtime.SetNoIdle(g_NoIdle);
+                g_SessionMessage = g_NoIdle ? "No Idle enabled" : "No Idle disabled";
+            }
+            DescribeLastV11Item("Prevent GTA Online idle kicks by overriding the current-build idle and constrained-idle timers, restoring their captured values when disabled.");
+
+            if (snapshot.noIdleEnabled)
+            {
+                if (snapshot.noIdleReady)
+                    ImGui::TextDisabled("No Idle: active - current-build timers resolved.");
+                else
+                    ImGui::TextDisabled("No Idle: resolving verified timer sequences; no writes occur until they match uniquely.");
+            }
+            else
+            {
+                ImGui::TextDisabled("No Idle: off.");
+            }
 
             ImGui::Spacing();
             ImGui::SeparatorText("Transition backend");

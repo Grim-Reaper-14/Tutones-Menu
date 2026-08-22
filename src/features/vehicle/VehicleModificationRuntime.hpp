@@ -35,6 +35,7 @@ namespace Tutones::Game::Mods
         SetNeonEnabled,
         SetTyresCanBurst,
         SetDriftTyres,
+        SetStealthMode,
     };
 
     struct VehicleModificationSnapshot final
@@ -116,6 +117,7 @@ namespace Tutones::Game::Mods
         [[nodiscard]] bool QueueNeonEnabled(int index, bool enabled);
         [[nodiscard]] bool QueueTyresCanBurst(bool canBurst);
         [[nodiscard]] bool QueueDriftTyres(bool enabled);
+        [[nodiscard]] bool QueueStealthMode(bool enabled);
 
     private:
         struct VehiclePreset final

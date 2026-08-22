@@ -1,6 +1,7 @@
 #pragma once
 
 #include "NativeRegistry.hpp"
+#include "../WeaponLaserNatives.hpp"
 
 #include <optional>
 #include <type_traits>
@@ -44,12 +45,34 @@ namespace Tutones::Game::Native
             if (!handler)
                 return false;
 
+            bool laserEnabled = false;
+            if (id == NativeId::EnableLaserSightRendering)
+            {
+                if constexpr (sizeof...(Args) == 1)
+                {
+                    const auto captureLaserState = [&laserEnabled](auto&& value) noexcept
+                    {
+                        using Value = std::decay_t<decltype(value)>;
+                        if constexpr (std::is_arithmetic_v<Value>)
+                            laserEnabled = value != 0;
+                    };
+                    (captureLaserState(args), ...);
+                }
+            }
+
             CallContext context;
             if (!(context.PushArg(std::forward<Args>(args)) && ...))
                 return false;
 
             handler(&context);
             context.FixVectors();
+
+            // GTA's laser-sight native can resolve successfully without producing
+            // a visible beam. Use that exact aimbot call as the trigger for the
+            // Tutones muzzle-to-crosshair rendering fallback.
+            if (id == NativeId::EnableLaserSightRendering)
+                static_cast<void>(Tutones::Game::WeaponLaserNatives::RenderAimbotLaser(laserEnabled));
+
             return true;
         }
     };

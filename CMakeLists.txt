@@ -52,6 +52,8 @@ add_library(TutonesMenu SHARED
     src/core/logging/Logger.cpp
 
     src/features/game/GameSessionRuntime.cpp
+    src/features/network/EnhancedCatalog.cpp
+    src/features/network/NetworkRuntime.cpp
     src/features/player/OffRadarRuntime.cpp
     src/features/player/PlayerRuntime.cpp
     src/features/player/PlayerRuntimeActions.cpp
@@ -87,6 +89,8 @@ add_library(TutonesMenu SHARED
     src/ui/GamePanel.cpp
     src/ui/Input.cpp
     src/ui/LscBypassWidget.cpp
+    src/ui/NetworkPanel.cpp
+    src/ui/NetworkPlayersPanel.cpp
     src/ui/PersonalVehiclePanel.cpp
     src/ui/PlayerOnlinePanel.cpp
     src/ui/PlayerPanel.cpp
@@ -95,8 +99,14 @@ add_library(TutonesMenu SHARED
     src/ui/V11Resources.rc
     src/ui/VehicleGeneralPanel.cpp
     src/ui/VehicleModificationPanel.cpp
+    src/ui/VehicleWorkshopPanel.cpp
     src/ui/VehiclePaintPanel.cpp
     src/ui/WeaponPanel.cpp
+)
+
+set_source_files_properties(
+    src/ui/VehicleModificationPanel.cpp
+    PROPERTIES COMPILE_DEFINITIONS TUTONES_BUILD_LEGACY_VEHICLE_EDITOR
 )
 
 target_include_directories(TutonesMenu PRIVATE
@@ -155,6 +165,10 @@ source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR}/src PREFIX "Source" FILES
     src/features/game/GameSessionRuntime.cpp
     src/features/game/GameSessionRuntime.hpp
     src/features/game/GameSessionTypes.hpp
+    src/features/network/EnhancedCatalog.cpp
+    src/features/network/EnhancedCatalog.hpp
+    src/features/network/NetworkRuntime.cpp
+    src/features/network/NetworkRuntime.hpp
     src/features/player/OffRadarRuntime.cpp
     src/features/player/OffRadarRuntime.hpp
     src/features/player/OffRadarState.hpp
@@ -170,6 +184,7 @@ source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR}/src PREFIX "Source" FILES
     src/features/vehicle/PersonalVehicleRuntime.hpp
     src/features/vehicle/VehicleModificationRuntime.cpp
     src/features/vehicle/VehicleModificationRuntime.hpp
+    src/features/vehicle/VehicleWorkshopRuntime.hpp
     src/features/vehicle/VehiclePaintRuntime.cpp
     src/features/vehicle/VehiclePaintRuntime.hpp
     src/features/vehicle/VehiclePaintService.cpp
@@ -182,6 +197,7 @@ source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR}/src PREFIX "Source" FILES
     src/game/GameState.cpp
     src/game/GameState.hpp
     src/game/Natives.hpp
+    src/game/NetworkPlayerNatives.hpp
     src/game/PlayerNatives.hpp
     src/game/VehicleNatives.hpp
     src/game/memory/BytePatch.cpp
@@ -229,6 +245,10 @@ source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR}/src PREFIX "Source" FILES
     src/ui/Input.hpp
     src/ui/LscBypassWidget.cpp
     src/ui/LscBypassWidget.hpp
+    src/ui/NetworkPanel.cpp
+    src/ui/NetworkPanel.hpp
+    src/ui/NetworkPlayersPanel.cpp
+    src/ui/NetworkPlayersPanel.hpp
     src/ui/PersonalVehiclePanel.cpp
     src/ui/PersonalVehiclePanel.hpp
     src/ui/PlayerOnlinePanel.cpp
@@ -245,6 +265,7 @@ source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR}/src PREFIX "Source" FILES
     src/ui/VehicleGeneralPanel.hpp
     src/ui/VehicleModificationPanel.cpp
     src/ui/VehicleModificationPanel.hpp
+    src/ui/VehicleWorkshopPanel.cpp
     src/ui/VehiclePaintPanel.cpp
     src/ui/VehiclePaintPanel.hpp
     src/ui/WeaponPanel.cpp

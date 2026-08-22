@@ -33,6 +33,10 @@ namespace Tutones::Game::Script
 
     bool ScriptPatchRuntime::Start() noexcept
     {
+        const std::uint32_t previousClients = m_ClientCount.fetch_add(1, std::memory_order_acq_rel);
+        if (previousClients != 0)
+            return true;
+
         bool expected = false;
         if (!m_Running.compare_exchange_strong(expected, true, std::memory_order_acq_rel))
             return true;
@@ -76,6 +80,20 @@ namespace Tutones::Game::Script
 
     void ScriptPatchRuntime::Stop() noexcept
     {
+        std::uint32_t clients = m_ClientCount.load(std::memory_order_acquire);
+        while (clients != 0)
+        {
+            if (m_ClientCount.compare_exchange_weak(
+                    clients, clients - 1, std::memory_order_acq_rel, std::memory_order_acquire))
+            {
+                if (clients > 1)
+                    return;
+                break;
+            }
+        }
+        if (clients == 0)
+            return;
+
         if (!m_Running.exchange(false, std::memory_order_acq_rel))
             return;
 

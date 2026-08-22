@@ -39,6 +39,8 @@ namespace Tutones::Game::WeaponFeatures
         void SetExplosionType(int type) noexcept;
         void SetExplosionDamage(float damage) noexcept;
         void SetExplosionCameraShake(float shake) noexcept;
+        [[nodiscard]] bool QueueGiveAllWeapons();
+        [[nodiscard]] bool QueueGiveMaxAmmo();
 
     private:
         WeaponRuntime() = default;

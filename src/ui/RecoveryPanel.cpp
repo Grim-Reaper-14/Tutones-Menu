@@ -1,9 +1,10 @@
 #include "RecoveryPanel.hpp"
 
+#include "EnhancedHashCatalogWidget.hpp"
 #include "V11Description.hpp"
 #include "V11Theme.hpp"
+#include "../features/recovery/ClothingUnlockRuntime.hpp"
 #include "../features/recovery/RecoveryRuntime.hpp"
-#include "../features/recovery/UnlockCatalog.hpp"
 
 #include <imgui.h>
 
@@ -15,14 +16,11 @@ namespace Tutones::UI
 {
     namespace
     {
-        using Game::Recovery::EnhancedPackedBoolUnlocks;
-        using Game::Recovery::EnhancedRankUnlocks;
-        using Game::Recovery::HighestMappedRank;
-        using Game::Recovery::PackedUnlockPack;
+        using Game::Recovery::ClothingUnlockRuntime;
         using Game::Recovery::RecoveryAction;
         using Game::Recovery::RecoveryRuntime;
         using Game::Recovery::RecoverySnapshot;
-        using Game::Recovery::UnlockCategory;
+        namespace ClothingUnlockData = Game::Recovery::ClothingUnlockData;
 
         const ImVec4 Accent = V11Theme::Accent;
 
@@ -30,6 +28,7 @@ namespace Tutones::UI
         std::array<int, 5> g_WarehouseCrates{};
         int g_BunkerSupplies{};
         int g_BunkerProduct{};
+        int g_PickupAmount{1000};
         float g_RpMultiplier{1.0f};
         bool g_RpEnabled{};
         const char* g_Message{"Ready"};
@@ -42,30 +41,7 @@ namespace Tutones::UI
             case RecoveryAction::SetWarehouseCrates: return "Special Cargo crates";
             case RecoveryAction::SetBunkerSupplies: return "Bunker supplies";
             case RecoveryAction::SetBunkerProduct: return "Bunker product";
-            case RecoveryAction::UnlockPackedBool: return "Tattoo unlock";
-            case RecoveryAction::UnlockPackedBoolPack: return "Tattoo unlock pack";
-            }
-            return "Unknown";
-        }
-
-        [[nodiscard]] const char* CategoryName(UnlockCategory category) noexcept
-        {
-            switch (category)
-            {
-            case UnlockCategory::Activities: return "Activity";
-            case UnlockCategory::Weapons: return "Weapon";
-            case UnlockCategory::WeaponUpgrades: return "Weapon upgrade";
-            case UnlockCategory::VehiclePaints: return "Vehicle paint";
-            }
-            return "Unknown";
-        }
-
-        [[nodiscard]] const char* PackName(PackedUnlockPack pack) noexcept
-        {
-            switch (pack)
-            {
-            case PackedUnlockPack::CasinoHeistTattoos: return "Casino Heist";
-            case PackedUnlockPack::LosSantosTunersTattoos: return "Los Santos Tuners";
+            case RecoveryAction::EarnFromPickup: return "Pickup earnings";
             }
             return "Unknown";
         }
@@ -102,14 +78,18 @@ namespace Tutones::UI
                 return;
             }
 
-            ImGui::Text(
-                "Last action: %s - %s",
-                ActionName(snapshot.lastAction),
-                snapshot.lastActionSucceeded ? "success" : "failed");
-            ImGui::TextDisabled("Target: %d   Value: %d", snapshot.lastActionTarget, snapshot.lastActionValue);
+            const char* status = snapshot.lastAction == RecoveryAction::EarnFromPickup
+                ? (snapshot.lastActionSucceeded ? "dispatched" : "failed")
+                : (snapshot.lastActionSucceeded ? "success" : "failed");
+            ImGui::Text("Last action: %s - %s", ActionName(snapshot.lastAction), status);
+
+            if (snapshot.lastAction == RecoveryAction::EarnFromPickup)
+                ImGui::TextDisabled("Amount: %d", snapshot.lastActionValue);
+            else
+                ImGui::TextDisabled("Target: %d   Value: %d", snapshot.lastActionTarget, snapshot.lastActionValue);
         }
 
-        void RenderOverview(const RecoverySnapshot& snapshot) noexcept
+        void RenderOverview(RecoveryRuntime& runtime, const RecoverySnapshot& snapshot) noexcept
         {
             ImGui::TextUnformatted("Enhanced Recovery runtime");
             ImGui::Separator();
@@ -118,8 +98,6 @@ namespace Tutones::UI
             ImGui::Text("Character stats: %s", snapshot.statsReady ? "readable" : "waiting / partial");
             if (snapshot.characterIndex >= 0)
                 ImGui::Text("MP character slot: MP%d", snapshot.characterIndex);
-            if (snapshot.unlockRankReady)
-                ImGui::Text("Online rank: %d", snapshot.onlineRank);
 
             ImGui::Spacing();
             ImGui::Text("RP multiplier: %s", snapshot.rpMultiplierReady ? "ready" : "waiting");
@@ -131,6 +109,22 @@ namespace Tutones::UI
                 ownedWarehouses += warehouse.owned ? 1 : 0;
             ImGui::Text("Special Cargo warehouses: %d / 5", ownedWarehouses);
             ImGui::Text("Bunker: %s", snapshot.bunker.owned ? (snapshot.bunker.setup ? "owned / setup" : "owned / setup pending") : "not owned");
+
+            ImGui::Spacing();
+            ImGui::TextColored(Accent, "Money");
+            g_PickupAmount = std::max(1, g_PickupAmount);
+            ImGui::SetNextItemWidth(280.0f);
+            ImGui::InputInt("Pickup amount", &g_PickupAmount, 1000, 10000);
+            g_PickupAmount = std::max(1, g_PickupAmount);
+            DescribeLastV11Item("Choose the amount passed to GTA Online's NETWORK_EARN_FROM_PICKUP transaction native.");
+
+            ImGui::BeginDisabled(snapshot.actionPending || !snapshot.nativeReady || !snapshot.sessionStarted);
+            if (ImGui::Button("Earn from pickup", ImVec2(-1.0f, 0.0f)))
+                g_Message = runtime.QueueEarnFromPickup(g_PickupAmount) ? "Pickup earnings queued" : "Pickup earnings rejected";
+            ImGui::EndDisabled();
+            DescribeLastV11Item("Queue one NETWORK_EARN_FROM_PICKUP call on the GTA script thread using the selected amount.");
+            ImGui::TextDisabled("One-shot transaction. GTA Online may accept, reject, or cap amounts according to its current transaction rules.");
+            ImGui::TextDisabled("%s", g_Message);
 
             ImGui::Spacing();
             ImGui::TextDisabled("Business values are read from the active MP character slot.");
@@ -267,116 +261,72 @@ namespace Tutones::UI
             ImGui::Spacing();
             ImGui::TextDisabled("%s", g_Message);
             RenderLastAction(snapshot);
+            ImGui::Spacing();
+            RenderAdditionalTransactionLists(true);
         }
 
-        void RenderUnlocks(RecoveryRuntime& runtime, const RecoverySnapshot& snapshot) noexcept
+        void RenderUnlocks(const RecoverySnapshot& snapshot) noexcept
         {
-            ImGui::TextUnformatted("Enhanced Unlock Manager");
+            auto& clothing = ClothingUnlockRuntime::Get();
+            const auto state = clothing.Snapshot();
+            const auto& groups = ClothingUnlockData::Groups();
+            const bool blocked = state.pending || !snapshot.nativeReady || !snapshot.sessionStarted;
+
+            ImGui::TextColored(Accent, "Clothing by DLC");
+            ImGui::TextWrapped("Enhanced clothing-only packed-stat map with per-DLC unlocks, mixed-range filtering, and read-back verification.");
             ImGui::Separator();
 
-            if (!snapshot.sessionStarted)
-            {
-                ImGui::TextDisabled("Join GTA Online to read the active character's unlock progression.");
-                SetV11Description("The Enhanced unlock manager reads the active MP character and only exposes conditions that have been verified for the current game build.");
-                return;
-            }
-
-            if (!snapshot.unlockRankReady)
-            {
-                ImGui::TextDisabled("Waiting for MPX_CHAR_RANK_FM from the active character.");
-                SetV11Description("Tutones will not infer unlock state when the active character rank cannot be read safely.");
-                return;
-            }
-
-            std::size_t rankReadyCount{};
-            for (const auto& entry : EnhancedRankUnlocks)
-                rankReadyCount += snapshot.onlineRank >= entry.minimumRank ? 1u : 0u;
-
-            std::size_t packedReadableCount{};
-            std::size_t packedUnlockedCount{};
-            for (std::size_t index = 0; index < EnhancedPackedBoolUnlocks.size(); ++index)
-            {
-                if (!snapshot.packedUnlockReadable[index])
-                    continue;
-                ++packedReadableCount;
-                packedUnlockedCount += snapshot.packedUnlocks[index] ? 1u : 0u;
-            }
-
-            ImGui::Text("Online rank: %d", snapshot.onlineRank);
-            ImGui::Text("Rank gates: %zu / %zu   Tattoo flags: %zu / %zu", rankReadyCount, EnhancedRankUnlocks.size(), packedUnlockedCount, packedReadableCount);
-            const float progress = HighestMappedRank > 0
-                ? std::clamp(static_cast<float>(snapshot.onlineRank) / static_cast<float>(HighestMappedRank), 0.0f, 1.0f)
-                : 1.0f;
-            ImGui::ProgressBar(progress, ImVec2(-1.0f, 0.0f));
-            DescribeLastV11Item("Progress through the rank gates currently mapped from GTA V Enhanced 1.73 mp_unlocks.c.");
-
-            if (ImGui::CollapsingHeader("Verified rank gates"))
-            {
-                if (ImGui::BeginChild("##enhanced_unlock_rank_list", ImVec2(0.0f, 105.0f), true))
-                {
-                    for (const auto& entry : EnhancedRankUnlocks)
-                    {
-                        const bool unlocked = snapshot.onlineRank >= entry.minimumRank;
-                        if (unlocked)
-                            ImGui::TextColored(Accent, "READY");
-                        else
-                            ImGui::TextDisabled("LOCKED");
-                        ImGui::SameLine(72.0f);
-                        ImGui::Text("Rank %d  %s", entry.minimumRank, entry.label);
-                        ImGui::SameLine();
-                        ImGui::TextDisabled("(%s)", CategoryName(entry.category));
-                    }
-                }
-                ImGui::EndChild();
-            }
-
-            ImGui::SeparatorText("Verified tattoo flags");
-            const bool blocked = snapshot.actionPending || !snapshot.statsReady || packedReadableCount == 0;
             ImGui::BeginDisabled(blocked);
-            if (ImGui::Button("Unlock Casino Heist", ImVec2(212.0f, 0.0f)))
-                g_Message = runtime.QueueUnlockPackedBoolPack(PackedUnlockPack::CasinoHeistTattoos) ? "Casino Heist tattoo pack queued" : "Tattoo pack write rejected";
-            ImGui::SameLine();
-            if (ImGui::Button("Unlock Tuners", ImVec2(212.0f, 0.0f)))
-                g_Message = runtime.QueueUnlockPackedBoolPack(PackedUnlockPack::LosSantosTunersTattoos) ? "Tuners tattoo pack queued" : "Tattoo pack write rejected";
+            if (ImGui::Button("Unlock All Verified Clothing", ImVec2(-1.0f, 0.0f)))
+                g_Message = clothing.QueueAll() ? "All clothing unlocks queued" : "Clothing unlock queue rejected";
             ImGui::EndDisabled();
-            DescribeLastV11Item("Writes only the explicitly mapped Enhanced tattoo flags for this DLC and verifies every flag by reading it back.");
+            DescribeLastV11Item("Unlock every mapped clothing, mask, outfit and accessory flag across the verified DLC groups below.");
 
-            if (ImGui::BeginChild("##enhanced_tattoo_unlock_list", ImVec2(0.0f, 145.0f), true))
+            if (!snapshot.sessionStarted)
+                ImGui::TextDisabled("Join GTA Online before applying clothing unlocks.");
+            else if (!snapshot.nativeReady)
+                ImGui::TextDisabled("Waiting for the Enhanced native runtime.");
+
+            if (state.pending)
             {
-                for (std::size_t index = 0; index < EnhancedPackedBoolUnlocks.size(); ++index)
+                const float progress = state.total == 0
+                    ? 0.0f
+                    : static_cast<float>(state.completed) / static_cast<float>(state.total);
+                ImGui::ProgressBar(progress, ImVec2(-1.0f, 0.0f));
+                ImGui::TextDisabled("%zu / %zu packed flags checked | failures: %zu",
+                    state.completed, state.total, state.failed);
+            }
+            else if (state.haveResult)
+            {
+                ImGui::Text("Last clothing pass: %s", state.lastSucceeded ? "verified" : "completed with failures");
+                ImGui::TextDisabled("Checked: %zu | failed read-backs: %zu", state.total, state.failed);
+            }
+
+            ImGui::TextDisabled("%s", g_Message);
+            ImGui::Spacing();
+            ImGui::SeparatorText("DLC groups");
+
+            if (ImGui::BeginChild("##clothing_dlc_groups", ImVec2(0.0f, 235.0f), true))
+            {
+                for (std::size_t index = 0; index < groups.size(); ++index)
                 {
-                    const auto& entry = EnhancedPackedBoolUnlocks[index];
+                    const auto& group = groups[index];
                     ImGui::PushID(static_cast<int>(index));
-
-                    if (!snapshot.packedUnlockReadable[index])
-                        ImGui::TextDisabled("WAIT");
-                    else if (snapshot.packedUnlocks[index])
-                        ImGui::TextColored(Accent, "UNLOCKED");
-                    else
-                        ImGui::TextDisabled("LOCKED");
-
-                    ImGui::SameLine(78.0f);
-                    ImGui::TextUnformatted(entry.label);
-                    ImGui::SameLine();
-                    ImGui::TextDisabled("[%s / %d]", PackName(entry.pack), entry.code);
-
-                    if (snapshot.packedUnlockReadable[index] && !snapshot.packedUnlocks[index])
-                    {
-                        ImGui::SameLine(405.0f);
-                        ImGui::BeginDisabled(snapshot.actionPending || !snapshot.statsReady);
-                        if (ImGui::SmallButton("Unlock"))
-                            g_Message = runtime.QueueUnlockPackedBool(index) ? "Tattoo unlock queued" : "Tattoo unlock rejected";
-                        ImGui::EndDisabled();
-                    }
-
+                    ImGui::TextWrapped("%s", group.name);
+                    ImGui::TextDisabled("%s | %zu flags", group.packedFamily, ClothingUnlockData::Count(group));
+                    ImGui::BeginDisabled(blocked);
+                    if (ImGui::Button("Unlock this DLC", ImVec2(-1.0f, 0.0f)))
+                        g_Message = clothing.QueueGroup(index) ? "DLC clothing unlock queued" : "DLC clothing unlock rejected";
+                    ImGui::EndDisabled();
+                    DescribeLastV11Item("Set this DLC group's mapped clothing packed-bools on the GTA script thread and verify each one by reading it back.");
+                    ImGui::Separator();
                     ImGui::PopID();
                 }
             }
             ImGui::EndChild();
 
-            ImGui::TextDisabled("%s", g_Message);
-            ImGui::TextWrapped("Write support is limited to packed BOOL codes directly paired with tattoo items by the current Enhanced tattoo_shop script. Unmapped DLC ranges remain disabled; every write is read back before Tutones reports success.");
-            SetV11Description("Verified GTA V Enhanced tattoo unlocks. Individual and DLC-pack actions use only per-item packed BOOL mappings confirmed in tattoo_shop.c, with read-back verification after each write.");
+            ImGui::TextDisabled("Tattoo-only flags, weapon/vehicle/gameplay unlocks, and unresolved 60000+ packed ranges are intentionally excluded.");
+            SetV11Description("Unlock Enhanced clothing by DLC using mapped packed-bool IDs, batched script-thread writes, and read-back verification.");
         }
     }
 
@@ -403,13 +353,13 @@ namespace Tutones::UI
             if (!runtime.IsRunning())
                 ImGui::TextDisabled("Recovery runtime is offline.");
             else if (subtab == 0)
-                RenderOverview(snapshot);
+                RenderOverview(runtime, snapshot);
             else if (subtab == 1)
                 RenderRpMultiplier(runtime, snapshot);
             else if (subtab == 2)
                 RenderBusinesses(runtime, snapshot);
             else
-                RenderUnlocks(runtime, snapshot);
+                RenderUnlocks(snapshot);
         }
 
         ImGui::EndChild();

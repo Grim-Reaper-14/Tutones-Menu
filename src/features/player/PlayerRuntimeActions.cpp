@@ -1,6 +1,9 @@
 #include "PlayerRuntime.hpp"
 
+#include "../../game/native/NativeInvoker.hpp"
+
 #include <algorithm>
+#include <cstdint>
 
 namespace Tutones::Game::PlayerFeatures
 {
@@ -47,6 +50,49 @@ namespace Tutones::Game::PlayerFeatures
     void PlayerRuntime::SetInfiniteStamina(bool enabled) noexcept
     {
         m_InfiniteStamina.store(enabled, std::memory_order_release);
+    }
+
+    void PlayerRuntime::SetKeepPlayerClean(bool enabled) noexcept
+    {
+        m_KeepPlayerClean.store(enabled, std::memory_order_release);
+    }
+
+    void PlayerRuntime::SetDisableCriticalHits(bool enabled)
+    {
+        m_DisableCriticalHits.store(enabled, std::memory_order_release);
+        static_cast<void>(QueuePlayerOperation(PlayerAction::ApplyPersistent, [this](Player player, Ped ped) {
+            return ApplyPersistentState(player, ped);
+        }));
+    }
+
+    void PlayerRuntime::SetStandOnVehicles(bool enabled) noexcept
+    {
+        m_StandOnVehicles.store(enabled, std::memory_order_release);
+    }
+
+    void PlayerRuntime::SetDisableActionMode(bool enabled) noexcept
+    {
+        m_DisableActionMode.store(enabled, std::memory_order_release);
+    }
+
+    void PlayerRuntime::SetInfiniteParachutes(bool enabled) noexcept
+    {
+        m_InfiniteParachutes.store(enabled, std::memory_order_release);
+    }
+
+    void PlayerRuntime::SetMobileRadio(bool enabled)
+    {
+        m_MobileRadio.store(enabled, std::memory_order_release);
+        if (!enabled)
+        {
+            static_cast<void>(QueuePlayerOperation(PlayerAction::ApplyPersistent, [](Player, Ped) {
+                bool success = Native::NativeInvoker::InvokeVoid(
+                    Native::NativeId::SetMobilePhoneRadioState, std::int32_t{0});
+                success = Native::NativeInvoker::InvokeVoid(
+                    Native::NativeId::SetMobileRadioEnabledDuringGameplay, std::int32_t{0}) && success;
+                return success;
+            }));
+        }
     }
 
     void PlayerRuntime::SetNeverWanted(bool enabled)
@@ -101,6 +147,28 @@ namespace Tutones::Game::PlayerFeatures
         return QueuePlayerOperation(PlayerAction::Heal, [](Player, Ped ped) {
             const auto maxHealth = PlayerNatives::GetEntityMaxHealth(ped);
             return maxHealth && PlayerNatives::SetEntityHealth(ped, *maxHealth, 0, 0);
+        });
+    }
+
+    bool PlayerRuntime::QueueSuicide()
+    {
+        // Match Yim's death transition without erasing the user's persisted God Mode preference.
+        return QueuePlayerOperation(PlayerAction::Suicide, [](Player, Ped ped) {
+            bool success = PlayerNatives::SetEntityInvincible(ped, false, false);
+            success = PlayerNatives::SetEntityHealth(ped, 0, 0, 0) && success;
+            return success;
+        });
+    }
+
+    bool PlayerRuntime::QueueClearDamage()
+    {
+        return QueuePlayerOperation(PlayerAction::ClearDamage, [](Player, Ped ped) {
+            bool success = true;
+            success = Native::NativeInvoker::InvokeVoid(Native::NativeId::ClearPedBloodDamage, ped) && success;
+            success = Native::NativeInvoker::InvokeVoid(Native::NativeId::ClearPedWetness, ped) && success;
+            success = Native::NativeInvoker::InvokeVoid(Native::NativeId::ClearPedEnvDirt, ped) && success;
+            success = Native::NativeInvoker::InvokeVoid(Native::NativeId::ResetPedVisibleDamage, ped) && success;
+            return success;
         });
     }
 

@@ -1,233 +1,21 @@
 #include "Renderer.hpp"
 
 #include "../core/logging/Logger.hpp"
-#include "../hooking/Win32Hook.hpp"
-#include "../ui/Input.hpp"
+#include "../ui/ThemeManager.hpp"
 #include "../ui/TutonesMenu.hpp"
-#include "../ui/V11ResourceIds.h"
 
 #include <imgui.h>
 #include <imgui_impl_dx12.h>
 #include <imgui_impl_win32.h>
 
-#include <wincodec.h>
-#include <wrl/client.h>
-
 #include <algorithm>
-#include <cstring>
 #include <string>
-#include <vector>
 
 namespace Tutones::Render
 {
     namespace
     {
         constexpr std::uint32_t SrvHeapSize = 64;
-        constexpr std::uint32_t InvalidSrvIndex = 0xFFFFFFFFu;
-        int g_RendererModuleAnchor{};
-
-        void LogBannerDecodeFailure(const char* stage, HRESULT result)
-        {
-            std::string message("V11 banner decode failed at ");
-            message += stage ? stage : "unknown stage";
-            message += " (HRESULT=";
-            message += std::to_string(static_cast<long>(result));
-            message += ')';
-            TUTONES_LOG_WARN("render.banner", message);
-        }
-
-        HMODULE CurrentModule() noexcept
-        {
-            HMODULE module{};
-            if (!::GetModuleHandleExW(
-                    GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
-                    reinterpret_cast<LPCWSTR>(&g_RendererModuleAnchor),
-                    &module))
-                return nullptr;
-            return module;
-        }
-
-        bool DecodeBannerResource(
-            std::vector<std::uint8_t>& pixels,
-            std::uint32_t& width,
-            std::uint32_t& height) noexcept
-        {
-            width = 0;
-            height = 0;
-            pixels.clear();
-
-            const HMODULE module = CurrentModule();
-            if (!module)
-            {
-                TUTONES_LOG_WARN("render.banner", "Could not resolve Tutones module for V11 banner resource");
-                return false;
-            }
-
-            const HRSRC resource = ::FindResourceW(
-                module,
-                MAKEINTRESOURCEW(IDR_V11_BANNER_COMPOSITE),
-                MAKEINTRESOURCEW(10));
-            if (!resource)
-            {
-                TUTONES_LOG_WARN("render.banner", "V11 banner RCDATA resource was not found");
-                return false;
-            }
-
-            const HGLOBAL loaded = ::LoadResource(module, resource);
-            const DWORD resourceSize = ::SizeofResource(module, resource);
-            const void* resourceData = loaded ? ::LockResource(loaded) : nullptr;
-            if (!resourceData || resourceSize == 0)
-            {
-                TUTONES_LOG_WARN("render.banner", "V11 banner resource could not be loaded");
-                return false;
-            }
-
-            const HRESULT comResult = ::CoInitializeEx(nullptr, COINIT_MULTITHREADED);
-            if (FAILED(comResult) && comResult != RPC_E_CHANGED_MODE)
-            {
-                LogBannerDecodeFailure("COM initialization", comResult);
-                return false;
-            }
-            const bool uninitializeCom = SUCCEEDED(comResult);
-
-            HRESULT hr = S_OK;
-            const char* stage = "create WIC imaging factory";
-            UINT decodedWidth{};
-            UINT decodedHeight{};
-            bool decodedAsBgra = false;
-
-            // Keep every WIC/COM object inside this scope so all interfaces are released before
-            // balancing CoInitializeEx below. The previous loader called CoUninitialize first.
-            {
-                using Microsoft::WRL::ComPtr;
-                ComPtr<IWICImagingFactory> factory;
-                ComPtr<IStream> sourceStream;
-                ComPtr<IWICBitmapDecoder> decoder;
-                ComPtr<IWICBitmapFrameDecode> frame;
-                ComPtr<IWICFormatConverter> converter;
-
-                hr = ::CoCreateInstance(
-                    CLSID_WICImagingFactory,
-                    nullptr,
-                    CLSCTX_INPROC_SERVER,
-                    IID_PPV_ARGS(factory.GetAddressOf()));
-
-                if (SUCCEEDED(hr))
-                {
-                    stage = "create owned resource stream";
-                    hr = ::CreateStreamOnHGlobal(nullptr, TRUE, sourceStream.GetAddressOf());
-                }
-
-                if (SUCCEEDED(hr))
-                {
-                    stage = "copy embedded resource into stream";
-                    ULONG written{};
-                    hr = sourceStream->Write(resourceData, resourceSize, &written);
-                    if (SUCCEEDED(hr) && written != resourceSize)
-                        hr = STG_E_WRITEFAULT;
-                }
-
-                if (SUCCEEDED(hr))
-                {
-                    stage = "rewind embedded resource stream";
-                    LARGE_INTEGER start{};
-                    hr = sourceStream->Seek(start, STREAM_SEEK_SET, nullptr);
-                }
-
-                if (SUCCEEDED(hr))
-                {
-                    stage = "create WIC decoder from owned stream";
-                    hr = factory->CreateDecoderFromStream(
-                        sourceStream.Get(),
-                        nullptr,
-                        WICDecodeMetadataCacheOnLoad,
-                        decoder.GetAddressOf());
-                }
-
-                if (SUCCEEDED(hr))
-                {
-                    stage = "read WIC frame 0";
-                    hr = decoder->GetFrame(0, frame.GetAddressOf());
-                }
-
-                const auto initializeConverter = [&](REFWICPixelFormatGUID targetFormat) noexcept -> HRESULT
-                {
-                    converter.Reset();
-                    HRESULT result = factory->CreateFormatConverter(converter.GetAddressOf());
-                    if (FAILED(result))
-                        return result;
-                    return converter->Initialize(
-                        frame.Get(),
-                        targetFormat,
-                        WICBitmapDitherTypeNone,
-                        nullptr,
-                        0.0,
-                        WICBitmapPaletteTypeCustom);
-                };
-
-                if (SUCCEEDED(hr))
-                {
-                    stage = "initialize RGBA converter";
-                    hr = initializeConverter(GUID_WICPixelFormat32bppRGBA);
-                    if (FAILED(hr))
-                    {
-                        stage = "initialize BGRA converter fallback";
-                        hr = initializeConverter(GUID_WICPixelFormat32bppBGRA);
-                        decodedAsBgra = SUCCEEDED(hr);
-                    }
-                }
-
-                if (SUCCEEDED(hr))
-                {
-                    stage = "query decoded banner size";
-                    hr = converter->GetSize(&decodedWidth, &decodedHeight);
-                    if (SUCCEEDED(hr) && (decodedWidth == 0 || decodedHeight == 0))
-                        hr = E_FAIL;
-                }
-
-                if (SUCCEEDED(hr))
-                {
-                    const std::size_t stride = static_cast<std::size_t>(decodedWidth) * 4u;
-                    const std::size_t total = stride * static_cast<std::size_t>(decodedHeight);
-                    if (total > static_cast<std::size_t>(UINT32_MAX))
-                    {
-                        stage = "allocate decoded banner buffer";
-                        hr = E_OUTOFMEMORY;
-                    }
-                    else
-                    {
-                        pixels.resize(total);
-                        stage = "copy decoded banner pixels";
-                        hr = converter->CopyPixels(
-                            nullptr,
-                            static_cast<UINT>(stride),
-                            static_cast<UINT>(total),
-                            pixels.data());
-                    }
-                }
-            }
-
-            if (uninitializeCom)
-                ::CoUninitialize();
-
-            if (FAILED(hr) || pixels.empty())
-            {
-                pixels.clear();
-                LogBannerDecodeFailure(stage, FAILED(hr) ? hr : E_FAIL);
-                return false;
-            }
-
-            if (decodedAsBgra)
-            {
-                for (std::size_t i = 0; i + 3 < pixels.size(); i += 4)
-                    std::swap(pixels[i], pixels[i + 2]);
-            }
-
-            width = decodedWidth;
-            height = decodedHeight;
-            TUTONES_LOG_INFO("render.banner", "Decoded embedded V11 banner artwork successfully");
-            return true;
-        }
     }
 
     Renderer& Renderer::Get() noexcept
@@ -296,9 +84,12 @@ namespace Tutones::Render
         ShutdownImGui();
         ReleaseFrameResources();
 
-        if (m_SwapChain) m_SwapChain->Release();
-        if (m_CommandQueue) m_CommandQueue->Release();
-        if (m_Device) m_Device->Release();
+        if (m_SwapChain)
+            m_SwapChain->Release();
+        if (m_CommandQueue)
+            m_CommandQueue->Release();
+        if (m_Device)
+            m_Device->Release();
 
         m_Device = device;
         commandQueue->AddRef();
@@ -442,8 +233,6 @@ namespace Tutones::Render
 
     void Renderer::ReleaseFrameResources() noexcept
     {
-        ReleaseV11BannerTexture();
-
         if (m_CommandList)
         {
             m_CommandList->Release();
@@ -533,10 +322,8 @@ namespace Tutones::Render
         }
 
         m_ImGuiInitialized = true;
-        if (!CreateV11BannerTexture())
-            TUTONES_LOG_WARN("render.banner", "V11 banner texture unavailable; vector fallback will be used");
         UI::TutonesMenu::Get().Reset();
-        TUTONES_LOG_INFO("render.imgui", "Dear ImGui Win32 and DX12 backends initialized");
+        TUTONES_LOG_INFO("render.imgui", "Dear ImGui Win32 and DX12 backends initialized; theme manager owns UI textures");
         return true;
     }
 
@@ -546,201 +333,13 @@ namespace Tutones::Render
             return;
 
         TUTONES_LOG_INFO("render.imgui", "Shutting down Dear ImGui backends");
-        ReleaseV11BannerTexture();
+        UI::ThemeManager::Get().ReleaseImGuiResources();
         ImGui_ImplDX12_Shutdown();
         ImGui_ImplWin32_Shutdown();
         ImGui::DestroyContext();
         m_ImGuiInitialized = false;
         m_FrameBegun = false;
         TUTONES_LOG_INFO("render.imgui", "Dear ImGui shutdown complete");
-    }
-
-    bool Renderer::CreateV11BannerTexture() noexcept
-    {
-        ReleaseV11BannerTexture();
-        if (!m_Device || !m_CommandQueue || !m_SrvHeap || !m_Fence || !m_FenceEvent || m_SrvIncrement == 0)
-            return false;
-
-        std::vector<std::uint8_t> pixels;
-        std::uint32_t width{};
-        std::uint32_t height{};
-        if (!DecodeBannerResource(pixels, width, height))
-            return false;
-
-        using Microsoft::WRL::ComPtr;
-        ComPtr<ID3D12Resource> texture;
-        ComPtr<ID3D12Resource> upload;
-        ComPtr<ID3D12CommandAllocator> allocator;
-        ComPtr<ID3D12GraphicsCommandList> commandList;
-
-        D3D12_HEAP_PROPERTIES defaultHeap{};
-        defaultHeap.Type = D3D12_HEAP_TYPE_DEFAULT;
-
-        D3D12_RESOURCE_DESC textureDesc{};
-        textureDesc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
-        textureDesc.Width = width;
-        textureDesc.Height = height;
-        textureDesc.DepthOrArraySize = 1;
-        textureDesc.MipLevels = 1;
-        textureDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-        textureDesc.SampleDesc.Count = 1;
-        textureDesc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
-
-        HRESULT hr = m_Device->CreateCommittedResource(
-            &defaultHeap,
-            D3D12_HEAP_FLAG_NONE,
-            &textureDesc,
-            D3D12_RESOURCE_STATE_COPY_DEST,
-            nullptr,
-            IID_PPV_ARGS(texture.GetAddressOf()));
-        if (FAILED(hr))
-            return false;
-
-        const UINT uploadPitch = (width * 4u + D3D12_TEXTURE_DATA_PITCH_ALIGNMENT - 1u)
-            & ~(D3D12_TEXTURE_DATA_PITCH_ALIGNMENT - 1u);
-        const UINT64 uploadSize = static_cast<UINT64>(uploadPitch) * height;
-
-        D3D12_HEAP_PROPERTIES uploadHeap{};
-        uploadHeap.Type = D3D12_HEAP_TYPE_UPLOAD;
-        D3D12_RESOURCE_DESC uploadDesc{};
-        uploadDesc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
-        uploadDesc.Width = uploadSize;
-        uploadDesc.Height = 1;
-        uploadDesc.DepthOrArraySize = 1;
-        uploadDesc.MipLevels = 1;
-        uploadDesc.SampleDesc.Count = 1;
-        uploadDesc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
-
-        hr = m_Device->CreateCommittedResource(
-            &uploadHeap,
-            D3D12_HEAP_FLAG_NONE,
-            &uploadDesc,
-            D3D12_RESOURCE_STATE_GENERIC_READ,
-            nullptr,
-            IID_PPV_ARGS(upload.GetAddressOf()));
-        if (FAILED(hr))
-            return false;
-
-        void* mapped{};
-        D3D12_RANGE readRange{0, 0};
-        hr = upload->Map(0, &readRange, &mapped);
-        if (FAILED(hr) || !mapped)
-            return false;
-
-        const std::size_t sourcePitch = static_cast<std::size_t>(width) * 4u;
-        for (std::uint32_t y = 0; y < height; ++y)
-        {
-            std::memcpy(
-                static_cast<std::uint8_t*>(mapped) + static_cast<std::size_t>(y) * uploadPitch,
-                pixels.data() + static_cast<std::size_t>(y) * sourcePitch,
-                sourcePitch);
-        }
-        upload->Unmap(0, nullptr);
-
-        hr = m_Device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(allocator.GetAddressOf()));
-        if (FAILED(hr))
-            return false;
-        hr = m_Device->CreateCommandList(
-            0,
-            D3D12_COMMAND_LIST_TYPE_DIRECT,
-            allocator.Get(),
-            nullptr,
-            IID_PPV_ARGS(commandList.GetAddressOf()));
-        if (FAILED(hr))
-            return false;
-
-        D3D12_TEXTURE_COPY_LOCATION source{};
-        source.pResource = upload.Get();
-        source.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
-        source.PlacedFootprint.Footprint.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-        source.PlacedFootprint.Footprint.Width = width;
-        source.PlacedFootprint.Footprint.Height = height;
-        source.PlacedFootprint.Footprint.Depth = 1;
-        source.PlacedFootprint.Footprint.RowPitch = uploadPitch;
-
-        D3D12_TEXTURE_COPY_LOCATION destination{};
-        destination.pResource = texture.Get();
-        destination.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
-        destination.SubresourceIndex = 0;
-
-        commandList->CopyTextureRegion(&destination, 0, 0, 0, &source, nullptr);
-
-        D3D12_RESOURCE_BARRIER barrier{};
-        barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-        barrier.Transition.pResource = texture.Get();
-        barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-        barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_DEST;
-        barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
-        commandList->ResourceBarrier(1, &barrier);
-
-        hr = commandList->Close();
-        if (FAILED(hr))
-            return false;
-
-        ID3D12CommandList* lists[]{commandList.Get()};
-        m_CommandQueue->ExecuteCommandLists(1, lists);
-        const auto fenceValue = m_NextFenceValue++;
-        hr = m_CommandQueue->Signal(m_Fence, fenceValue);
-        if (FAILED(hr))
-            return false;
-        if (m_Fence->GetCompletedValue() < fenceValue)
-        {
-            hr = m_Fence->SetEventOnCompletion(fenceValue, m_FenceEvent);
-            if (FAILED(hr))
-                return false;
-            ::WaitForSingleObject(m_FenceEvent, INFINITE);
-        }
-
-        std::uint32_t descriptorIndex = InvalidSrvIndex;
-        {
-            std::scoped_lock lock(m_SrvMutex);
-            if (m_FreeSrvIndices.empty())
-            {
-                TUTONES_LOG_WARN("render.banner", "No SRV descriptor was available for V11 banner texture");
-                return false;
-            }
-            descriptorIndex = m_FreeSrvIndices.back();
-            m_FreeSrvIndices.pop_back();
-        }
-
-        D3D12_CPU_DESCRIPTOR_HANDLE cpu = m_SrvHeap->GetCPUDescriptorHandleForHeapStart();
-        D3D12_GPU_DESCRIPTOR_HANDLE gpu = m_SrvHeap->GetGPUDescriptorHandleForHeapStart();
-        cpu.ptr += static_cast<SIZE_T>(descriptorIndex) * m_SrvIncrement;
-        gpu.ptr += static_cast<UINT64>(descriptorIndex) * m_SrvIncrement;
-
-        D3D12_SHADER_RESOURCE_VIEW_DESC srv{};
-        srv.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-        srv.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-        srv.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
-        srv.Texture2D.MostDetailedMip = 0;
-        srv.Texture2D.MipLevels = 1;
-        m_Device->CreateShaderResourceView(texture.Get(), &srv, cpu);
-
-        m_V11BannerTexture = texture.Detach();
-        m_V11BannerCpu = cpu;
-        m_V11BannerGpu = gpu;
-        m_V11BannerSrvIndex = descriptorIndex;
-        TUTONES_LOG_INFO("render.banner", "Embedded V11 header/description artwork uploaded to D3D12");
-        return true;
-    }
-
-    void Renderer::ReleaseV11BannerTexture() noexcept
-    {
-        if (m_V11BannerTexture)
-        {
-            m_V11BannerTexture->Release();
-            m_V11BannerTexture = nullptr;
-        }
-
-        if (m_V11BannerSrvIndex != InvalidSrvIndex)
-        {
-            std::scoped_lock lock(m_SrvMutex);
-            if (m_SrvHeap && m_SrvIncrement != 0)
-                m_FreeSrvIndices.push_back(m_V11BannerSrvIndex);
-            m_V11BannerSrvIndex = InvalidSrvIndex;
-        }
-        m_V11BannerCpu.ptr = 0;
-        m_V11BannerGpu.ptr = 0;
     }
 
     bool Renderer::WaitForFrame(D3D12::FrameContext& frame) noexcept
@@ -865,11 +464,15 @@ namespace Tutones::Render
 
         TUTONES_LOG_INFO("render.resize", "Preparing renderer resources for ResizeBuffers");
         WaitForGpuIdle();
-        ReleaseV11BannerTexture();
+
         if (m_ImGuiInitialized)
+        {
+            UI::ThemeManager::Get().ReleaseTextureResources();
             ImGui_ImplDX12_InvalidateDeviceObjects();
+        }
+
         ReleaseFrameResources();
-        TUTONES_LOG_DEBUG("render.resize", "Released back buffers and frame resources before ResizeBuffers");
+        TUTONES_LOG_DEBUG("render.resize", "Released theme textures, back buffers, and frame resources before ResizeBuffers");
     }
 
     void Renderer::AfterResize(std::uint32_t width, std::uint32_t height) noexcept
@@ -895,10 +498,7 @@ namespace Tutones::Render
             return;
         }
 
-        if (m_ImGuiInitialized && !CreateV11BannerTexture())
-            TUTONES_LOG_WARN("render.banner", "V11 banner texture was not recreated after resize");
-
-        std::string message("Renderer resize rebuild complete; size=");
+        std::string message("Renderer resize rebuild complete; theme textures will reload on next frame; size=");
         message += std::to_string(width);
         message += 'x';
         message += std::to_string(height);
@@ -1008,8 +608,9 @@ namespace Tutones::Render
     ID3D12Device* Renderer::Device() const noexcept { return m_Device; }
     ID3D12CommandQueue* Renderer::CommandQueue() const noexcept { return m_CommandQueue; }
     IDXGISwapChain3* Renderer::SwapChain() const noexcept { return m_SwapChain; }
+
     std::uint64_t Renderer::V11BannerTextureId() const noexcept
     {
-        return m_V11BannerTexture ? m_V11BannerGpu.ptr : 0;
+        return 0;
     }
 }

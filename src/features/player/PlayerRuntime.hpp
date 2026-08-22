@@ -16,6 +16,8 @@ namespace Tutones::Game::PlayerFeatures
         None,
         SetHealth,
         Heal,
+        Suicide,
+        ClearDamage,
         SetArmor,
         SetWanted,
         ClearWanted,
@@ -44,10 +46,19 @@ namespace Tutones::Game::PlayerFeatures
         int currentTexture{};
         int currentPalette{};
         bool invincible{};
+        bool bulletproof{};
+        bool aquaLungs{};
+        bool infiniteOxygen{};
         bool invisible{};
         bool noRagdoll{};
         bool superJump{};
         bool infiniteStamina{};
+        bool keepPlayerClean{};
+        bool disableCriticalHits{};
+        bool standOnVehicles{};
+        bool disableActionMode{};
+        bool infiniteParachutes{};
+        bool mobileRadio{};
         bool neverWanted{};
         bool policeIgnore{};
         bool everyoneIgnore{};
@@ -75,10 +86,19 @@ namespace Tutones::Game::PlayerFeatures
 
         void SetObservedComponent(int componentId, int drawableId = -1) noexcept;
         void SetInvincible(bool enabled);
+        void SetBulletproof(bool enabled);
+        void SetAquaLungs(bool enabled) noexcept;
+        void SetInfiniteOxygen(bool enabled);
         void SetInvisible(bool enabled);
         void SetNoRagdoll(bool enabled);
         void SetSuperJump(bool enabled) noexcept;
         void SetInfiniteStamina(bool enabled) noexcept;
+        void SetKeepPlayerClean(bool enabled) noexcept;
+        void SetDisableCriticalHits(bool enabled);
+        void SetStandOnVehicles(bool enabled) noexcept;
+        void SetDisableActionMode(bool enabled) noexcept;
+        void SetInfiniteParachutes(bool enabled) noexcept;
+        void SetMobileRadio(bool enabled);
         void SetNeverWanted(bool enabled);
         void SetPoliceIgnore(bool enabled);
         void SetEveryoneIgnore(bool enabled);
@@ -87,6 +107,8 @@ namespace Tutones::Game::PlayerFeatures
 
         [[nodiscard]] bool QueueSetHealth(int health);
         [[nodiscard]] bool QueueHeal();
+        [[nodiscard]] bool QueueSuicide();
+        [[nodiscard]] bool QueueClearDamage();
         [[nodiscard]] bool QueueSetArmor(int armor);
         [[nodiscard]] bool QueueSetWantedLevel(int wantedLevel);
         [[nodiscard]] bool QueueClearWanted();
@@ -115,10 +137,19 @@ namespace Tutones::Game::PlayerFeatures
         std::atomic<int> m_ObservedComponent{0};
         std::atomic<int> m_ObservedDrawable{-1};
         std::atomic<bool> m_Invincible{false};
+        std::atomic<bool> m_Bulletproof{false};
+        std::atomic<bool> m_AquaLungs{false};
+        std::atomic<bool> m_InfiniteOxygen{false};
         std::atomic<bool> m_Invisible{false};
         std::atomic<bool> m_NoRagdoll{false};
         std::atomic<bool> m_SuperJump{false};
         std::atomic<bool> m_InfiniteStamina{false};
+        std::atomic<bool> m_KeepPlayerClean{false};
+        std::atomic<bool> m_DisableCriticalHits{false};
+        std::atomic<bool> m_StandOnVehicles{false};
+        std::atomic<bool> m_DisableActionMode{false};
+        std::atomic<bool> m_InfiniteParachutes{false};
+        std::atomic<bool> m_MobileRadio{false};
         std::atomic<bool> m_NeverWanted{false};
         std::atomic<bool> m_PoliceIgnore{false};
         std::atomic<bool> m_EveryoneIgnore{false};

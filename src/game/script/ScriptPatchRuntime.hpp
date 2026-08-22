@@ -88,6 +88,7 @@ namespace Tutones::Game::Script
         std::unordered_map<std::uint32_t, ProgramShadow> m_Shadows;
         ScriptPatchHandle m_NextHandle{1};
 
+        std::atomic<std::uint32_t> m_ClientCount{0};
         std::atomic<bool> m_Running{false};
         std::atomic<bool> m_ShuttingDown{false};
         std::atomic<bool> m_HookActive{false};

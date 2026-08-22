@@ -3,6 +3,7 @@
 #include "../../game/GameState.hpp"
 #include "../../game/PlayerNatives.hpp"
 #include "../../game/VehicleNatives.hpp"
+#include "../../game/native/NativeInvoker.hpp"
 #include "../../game/vehicle/VehicleModels.hpp"
 #include "../../runtime/GameRuntime.hpp"
 
@@ -362,6 +363,33 @@ namespace Tutones::Game::Mods
     {
         return QueueVehicleOperation(VehicleModAction::SetDriftTyres, [enabled](Vehicle vehicle) {
             return VehicleNatives::SetDriftTyres(vehicle, enabled);
+        });
+    }
+
+    bool VehicleModificationRuntime::QueueStealthMode(bool enabled)
+    {
+        return QueueVehicleOperation(VehicleModAction::SetStealthMode, [enabled](Vehicle vehicle) {
+            const auto model = Natives::GetEntityModel(vehicle);
+            if (!model)
+                return false;
+
+            const bool deploy = !enabled;
+            if (*model == Joaat("akula") || *model == Joaat("annihilator2"))
+            {
+                return Native::NativeInvoker::InvokeVoid(
+                    Native::NativeId::SetDeployHeliStubWings,
+                    vehicle,
+                    static_cast<std::int32_t>(deploy),
+                    std::int32_t{0});
+            }
+            if (*model == Joaat("raiju"))
+            {
+                return Native::NativeInvoker::InvokeVoid(
+                    Native::NativeId::SetDeployMissileBays,
+                    vehicle,
+                    static_cast<std::int32_t>(deploy));
+            }
+            return false;
         });
     }
 

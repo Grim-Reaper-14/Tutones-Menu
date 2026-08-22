@@ -27,17 +27,21 @@ public:
     RgbColor customSecondary{78, 90, 123};
 
     int setColourCalls{};
+    int setExtraCalls{};
     int setMod1Calls{};
     int setMod2Calls{};
     int clearPrimaryCalls{};
     int clearSecondaryCalls{};
 
     bool failSetColours{};
-    bool failSetMod1{};
-    bool failSetMod2{};
+    bool failSetExtra{};
+    bool failSetCustomPrimary{};
+    bool failSetCustomSecondary{};
     bool failClearPrimary{};
     bool failClearSecondary{};
     bool failRead{};
+    bool ignoreSetColours{};
+    bool ignoreSetExtra{};
 
     bool GetVehicleColours(VehicleHandle, int& outPrimary, int& outSecondary) noexcept override
     {
@@ -51,8 +55,11 @@ public:
     {
         ++setColourCalls;
         if (failSetColours) return false;
-        primary = inPrimary;
-        secondary = inSecondary;
+        if (!ignoreSetColours)
+        {
+            primary = inPrimary;
+            secondary = inSecondary;
+        }
         return true;
     }
 
@@ -66,8 +73,13 @@ public:
 
     bool SetVehicleExtraColours(VehicleHandle, int inPearl, int inWheel) noexcept override
     {
-        pearl = inPearl;
-        wheel = inWheel;
+        ++setExtraCalls;
+        if (failSetExtra) return false;
+        if (!ignoreSetExtra)
+        {
+            pearl = inPearl;
+            wheel = inWheel;
+        }
         return true;
     }
 
@@ -83,7 +95,6 @@ public:
     bool SetVehicleModColor1(VehicleHandle, int paintType, int color, int pearlescent) noexcept override
     {
         ++setMod1Calls;
-        if (failSetMod1) return false;
         primaryPaintType = paintType;
         primaryModColor = color;
         primaryModPearlescent = pearlescent;
@@ -101,7 +112,6 @@ public:
     bool SetVehicleModColor2(VehicleHandle, int paintType, int color) noexcept override
     {
         ++setMod2Calls;
-        if (failSetMod2) return false;
         secondaryPaintType = paintType;
         secondaryModColor = color;
         return true;
@@ -137,6 +147,7 @@ public:
 
     bool SetCustomPrimaryColour(VehicleHandle, RgbColor color) noexcept override
     {
+        if (failSetCustomPrimary) return false;
         primaryCustom = true;
         customPrimary = color;
         return true;
@@ -144,6 +155,7 @@ public:
 
     bool SetCustomSecondaryColour(VehicleHandle, RgbColor color) noexcept override
     {
+        if (failSetCustomSecondary) return false;
         secondaryCustom = true;
         customSecondary = color;
         return true;
@@ -197,15 +209,12 @@ public:
 
 int main()
 {
-    static_assert(NativePaintTypeValue(PaintPalette::Normal) == 0);
-    static_assert(NativePaintTypeValue(PaintPalette::Metallic) == 1);
-    static_assert(NativePaintTypeValue(PaintPalette::Pearl) == 2);
-    static_assert(NativePaintTypeValue(PaintPalette::Matte) == 3);
-    static_assert(NativePaintTypeValue(PaintPalette::Metals) == 4);
-    static_assert(NativePaintTypeValue(PaintPalette::Chrome) == 5);
+    static_assert(UsesIndexedVehicleColourPath(PaintPalette::Classic));
+    static_assert(UsesIndexedVehicleColourPath(PaintPalette::Matte));
+    static_assert(UsesIndexedVehicleColourPath(PaintPalette::Chrome));
     static_assert(UsesIndexedVehicleColourPath(PaintPalette::Worn));
     static_assert(UsesIndexedVehicleColourPath(PaintPalette::Chameleon));
-    static_assert(!UsesIndexedVehicleColourPath(PaintPalette::Chrome));
+    static_assert(!UsesIndexedVehicleColourPath(PaintPalette::Alloy));
 
     FakePaintBackend backend;
     FakeTaskQueue queue;
@@ -221,83 +230,92 @@ int main()
     service.TickAt(t0);
     auto snapshot = service.Snapshot();
     assert(snapshot.paint.valid);
-    assert(snapshot.paint.primaryPaintType == NativePaintType::Metallic);
-    assert(snapshot.paint.secondaryPaintType == NativePaintType::Normal);
-    assert(snapshot.paint.primaryModColor == 27);
-    assert(snapshot.paint.secondaryModColor == 64);
+    assert(snapshot.paint.primaryColor == 27);
+    assert(snapshot.paint.secondaryColor == 64);
 
-    // Native paint types 0-5 use SET_VEHICLE_MOD_COLOR_1/2, not indexed SET_VEHICLE_COLOURS.
-    const int indexedBefore = backend.setColourCalls;
+    // All named LSC paint families use GTA's indexed primary/secondary pair, as Yim does.
+    const int secondaryBeforeMatte = backend.secondary;
     assert(service.QueuePrimary({PaintPalette::Matte, 12}));
     queue.RunOne();
-    assert(backend.setMod1Calls == 1);
-    assert(backend.setColourCalls == indexedBefore);
-    assert(backend.primaryPaintType == static_cast<int>(NativePaintType::Matte));
-    assert(backend.primaryModColor == 12);
-    assert(backend.primaryModPearlescent == 111);
+    assert(service.Snapshot().lastOperationSucceeded);
+    assert(backend.primary == 12);
+    assert(backend.secondary == secondaryBeforeMatte);
+    assert(backend.setMod1Calls == 0);
 
+    const int primaryBeforeChrome = backend.primary;
     assert(service.QueueSecondary({PaintPalette::Chrome, 120}));
     queue.RunOne();
-    assert(backend.setMod2Calls == 1);
-    assert(backend.setColourCalls == indexedBefore);
-    assert(backend.secondaryPaintType == static_cast<int>(NativePaintType::Chrome));
-    assert(backend.secondaryModColor == 120);
+    assert(service.Snapshot().lastOperationSucceeded);
+    assert(backend.primary == primaryBeforeChrome);
+    assert(backend.secondary == 120);
+    assert(backend.setMod2Calls == 0);
 
-    // Classic/Utility map to native Normal rather than fake paint types 6/7.
-    assert(service.QueuePrimary({PaintPalette::Classic, 21}));
-    queue.RunOne();
-    assert(backend.primaryPaintType == static_cast<int>(NativePaintType::Normal));
-    assert(service.QueueSecondary({PaintPalette::Utility, 20}));
-    queue.RunOne();
-    assert(backend.secondaryPaintType == static_cast<int>(NativePaintType::Normal));
-
-    // Worn and Chameleon remain on indexed vehicle colours and preserve the companion value.
-    const int secondaryBeforeWorn = backend.secondary;
-    const int mod1BeforeWorn = backend.setMod1Calls;
     assert(service.QueuePrimary({PaintPalette::Worn, 21}));
     queue.RunOne();
     assert(backend.primary == 21);
-    assert(backend.secondary == secondaryBeforeWorn);
-    assert(backend.setMod1Calls == mod1BeforeWorn);
-
-    const int primaryBeforeChameleon = backend.primary;
-    const int mod2BeforeChameleon = backend.setMod2Calls;
     assert(service.QueueSecondary({PaintPalette::Chameleon, 220}));
     queue.RunOne();
-    assert(backend.primary == primaryBeforeChameleon);
     assert(backend.secondary == 220);
-    assert(backend.setMod2Calls == mod2BeforeChameleon);
 
-    // Extra colours preserve their companion.
-    assert(service.QueuePearlescent(70));
-    queue.RunOne();
-    assert(backend.pearl == 70 && backend.wheel == 156);
-    assert(service.QueueWheel(221));
-    queue.RunOne();
-    assert(backend.pearl == 70 && backend.wheel == 221);
-
-    // Custom RGB stays vehicle-stable and indexed/mod writes clear it only after success.
+    // Indexed paint clears active custom overrides so the requested base color is visible.
     constexpr RgbColor pink{255, 32, 180};
     assert(service.QueueCustomPrimary(pink));
     queue.RunOne();
     assert(backend.primaryCustom && backend.customPrimary == pink);
+    assert(service.Snapshot().lastOperationSucceeded);
 
-    backend.failSetMod1 = true;
-    const int clearsBeforeFailure = backend.clearPrimaryCalls;
-    assert(service.QueuePrimary({PaintPalette::Metallic, 28}));
-    queue.RunOne();
-    assert(backend.primaryCustom);
-    assert(backend.clearPrimaryCalls == clearsBeforeFailure);
-    assert(!service.Snapshot().lastOperationSucceeded);
-    backend.failSetMod1 = false;
-
-    assert(service.QueuePrimary({PaintPalette::Metallic, 28}));
+    assert(service.QueuePrimary({PaintPalette::Classic, 28}));
     queue.RunOne();
     assert(!backend.primaryCustom);
-    assert(backend.primaryPaintType == static_cast<int>(NativePaintType::Metallic));
-    assert(backend.primaryModColor == 28);
+    assert(backend.primary == 28);
+    assert(service.Snapshot().lastOperationSucceeded);
 
-    assert(service.QueueCustomSecondary({20, 90, 255}));
+    // Dispatch success without an actual GTA state change must fail verification.
+    backend.ignoreSetColours = true;
+    assert(service.QueuePrimary({PaintPalette::Classic, 29}));
+    queue.RunOne();
+    assert(!service.Snapshot().lastOperationSucceeded);
+    assert(backend.primary == 28);
+    backend.ignoreSetColours = false;
+
+    // Extra colors preserve their companion and are verified after the write.
+    assert(service.QueuePearlescent(70));
+    queue.RunOne();
+    assert(service.Snapshot().lastOperationSucceeded);
+    assert(backend.pearl == 70 && backend.wheel == 156);
+    assert(service.QueueWheel(221));
+    queue.RunOne();
+    assert(service.Snapshot().lastOperationSucceeded);
+    assert(backend.pearl == 70 && backend.wheel == 221);
+
+    backend.ignoreSetExtra = true;
+    assert(service.QueueWheel(222));
+    queue.RunOne();
+    assert(!service.Snapshot().lastOperationSucceeded);
+    assert(backend.wheel == 221);
+    backend.ignoreSetExtra = false;
+
+    // Custom colors are also verified by custom-enabled state and RGB read-back.
+    constexpr RgbColor blue{20, 90, 255};
+    assert(service.QueueCustomSecondary(blue));
+    queue.RunOne();
+    assert(service.Snapshot().lastOperationSucceeded);
+    assert(backend.secondaryCustom && backend.customSecondary == blue);
+
+    backend.failClearSecondary = true;
+    assert(service.QueueClearCustomSecondary());
+    queue.RunOne();
+    assert(!service.Snapshot().lastOperationSucceeded);
+    assert(backend.secondaryCustom);
+    backend.failClearSecondary = false;
+
+    assert(service.QueueClearCustomSecondary());
+    queue.RunOne();
+    assert(service.Snapshot().lastOperationSucceeded);
+    assert(!backend.secondaryCustom);
+
+    // Vehicle-stability guard still rejects queued paint if the player changes vehicles.
+    assert(service.QueueCustomSecondary(blue));
     vehicles.current = 77;
     queue.RunOne();
     assert(service.Snapshot().lastOperationRejectedAsStale);
@@ -313,9 +331,9 @@ int main()
     // No vehicle rejects writes.
     vehicles.current = 0;
     service.TickAt(t0 + std::chrono::seconds{2});
-    assert(!service.QueuePrimary({PaintPalette::Normal, 1}));
+    assert(!service.QueuePrimary({PaintPalette::Classic, 1}));
     assert(!service.QueueCustomPrimary(pink));
 
-    std::cout << "Tutones vehicle paint v10 tests passed\n";
+    std::cout << "Tutones vehicle paint verified indexed-path tests passed\n";
     return 0;
 }

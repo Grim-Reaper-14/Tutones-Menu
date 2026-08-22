@@ -3,6 +3,7 @@
 #include "../../core/logging/Logger.hpp"
 #include "../../game/GamePointers.hpp"
 #include "../../game/Stats.hpp"
+#include "../../game/native/NativeInvoker.hpp"
 #include "../../game/native/NativeRegistry.hpp"
 #include "../../game/script/ScriptGlobal.hpp"
 #include "../../runtime/GameRuntime.hpp"
@@ -67,17 +68,6 @@ namespace Tutones::Game::Recovery
         [[nodiscard]] std::string WarehouseCrateStat(int slot)
         {
             return "MPX_CONTOTALFORWHOUSE" + std::to_string(slot);
-        }
-
-        [[nodiscard]] bool IsKnownPack(PackedUnlockPack pack) noexcept
-        {
-            switch (pack)
-            {
-            case PackedUnlockPack::CasinoHeistTattoos:
-            case PackedUnlockPack::LosSantosTunersTattoos:
-                return true;
-            }
-            return false;
         }
     }
 
@@ -214,18 +204,11 @@ namespace Tutones::Game::Recovery
         return QueueAction(RecoveryAction::SetBunkerProduct, 5, product);
     }
 
-    bool RecoveryRuntime::QueueUnlockPackedBool(std::size_t catalogIndex)
+    bool RecoveryRuntime::QueueEarnFromPickup(int amount)
     {
-        if (catalogIndex >= EnhancedPackedBoolUnlocks.size())
+        if (amount <= 0)
             return false;
-        return QueueAction(RecoveryAction::UnlockPackedBool, static_cast<int>(catalogIndex), 1);
-    }
-
-    bool RecoveryRuntime::QueueUnlockPackedBoolPack(PackedUnlockPack pack)
-    {
-        if (!IsKnownPack(pack))
-            return false;
-        return QueueAction(RecoveryAction::UnlockPackedBoolPack, static_cast<int>(pack), 1);
+        return QueueAction(RecoveryAction::EarnFromPickup, -1, amount);
     }
 
     bool RecoveryRuntime::QueueAction(RecoveryAction action, int target, int value)
@@ -321,105 +304,48 @@ namespace Tutones::Game::Recovery
         }
 
         bool success = false;
-        const auto characterIndex = Stats::GetCharIndex();
         bool* sessionStarted = GamePointers::Get().IsSessionStarted();
-        if (characterIndex && sessionStarted && *sessionStarted && Native::NativeRegistry::Get().IsReady())
+        const bool nativeReady = Native::NativeRegistry::Get().IsReady();
+        if (sessionStarted && *sessionStarted && nativeReady)
         {
-            if (action == RecoveryAction::SetWarehouseCrates && target >= 0 && target < 5)
+            if (action == RecoveryAction::EarnFromPickup && value > 0)
             {
-                const auto property = Stats::GetInt(WarehousePropertyStat(target), *characterIndex);
-                const int capacity = property ? WarehouseCapacity(*property) : 0;
-                if (property && *property > 0 && capacity > 0 && value >= 0 && value <= capacity)
-                {
-                    const std::string stat = WarehouseCrateStat(target);
-                    if (Stats::SetInt(stat, value, *characterIndex))
-                    {
-                        const auto confirmation = Stats::GetInt(stat, *characterIndex);
-                        success = confirmation && *confirmation == value;
-                    }
-                }
+                success = Native::NativeInvoker::InvokeVoid(Native::NativeId::NetworkEarnFromPickup, value);
             }
-            else if (action == RecoveryAction::SetBunkerSupplies || action == RecoveryAction::SetBunkerProduct)
+            else
             {
-                const auto property = Stats::GetInt("MPX_PROP_FAC_SLOT5", *characterIndex);
-                const auto setup = Stats::GetInt("MPX_FACTORYSETUP5", *characterIndex);
-                if (property && *property > 0 && setup && *setup == 1 && value >= 0 && value <= 100)
+                const auto characterIndex = Stats::GetCharIndex();
+                if (characterIndex)
                 {
-                    const char* stat = action == RecoveryAction::SetBunkerSupplies
-                        ? "MPX_MATTOTALFORFACTORY5"
-                        : "MPX_PRODTOTALFORFACTORY5";
-                    if (Stats::SetInt(stat, value, *characterIndex))
+                    if (action == RecoveryAction::SetWarehouseCrates && target >= 0 && target < 5)
                     {
-                        const auto confirmation = Stats::GetInt(stat, *characterIndex);
-                        success = confirmation && *confirmation == value;
-                    }
-                }
-            }
-            else if (action == RecoveryAction::UnlockPackedBool && target >= 0 && static_cast<std::size_t>(target) < EnhancedPackedBoolUnlocks.size())
-            {
-                const auto& entry = EnhancedPackedBoolUnlocks[static_cast<std::size_t>(target)];
-                const auto current = Stats::GetPackedBool(entry.code, *characterIndex);
-                if (current)
-                {
-                    if (*current)
-                    {
-                        success = true;
-                    }
-                    else if (Stats::SetPackedBool(entry.code, true, *characterIndex))
-                    {
-                        const auto confirmation = Stats::GetPackedBool(entry.code, *characterIndex);
-                        success = confirmation && *confirmation;
-                    }
-                }
-            }
-            else if (action == RecoveryAction::UnlockPackedBoolPack)
-            {
-                const auto pack = static_cast<PackedUnlockPack>(target);
-                if (IsKnownPack(pack))
-                {
-                    bool matched{};
-                    bool allReadable = true;
-                    for (const auto& entry : EnhancedPackedBoolUnlocks)
-                    {
-                        if (entry.pack != pack)
-                            continue;
-                        matched = true;
-                        if (!Stats::GetPackedBool(entry.code, *characterIndex))
+                        const auto property = Stats::GetInt(WarehousePropertyStat(target), *characterIndex);
+                        const int capacity = property ? WarehouseCapacity(*property) : 0;
+                        if (property && *property > 0 && capacity > 0 && value >= 0 && value <= capacity)
                         {
-                            allReadable = false;
-                            break;
+                            const std::string stat = WarehouseCrateStat(target);
+                            if (Stats::SetInt(stat, value, *characterIndex))
+                            {
+                                const auto confirmation = Stats::GetInt(stat, *characterIndex);
+                                success = confirmation && *confirmation == value;
+                            }
                         }
                     }
-
-                    if (matched && allReadable)
+                    else if (action == RecoveryAction::SetBunkerSupplies || action == RecoveryAction::SetBunkerProduct)
                     {
-                        bool allSucceeded = true;
-                        for (const auto& entry : EnhancedPackedBoolUnlocks)
+                        const auto property = Stats::GetInt("MPX_PROP_FAC_SLOT5", *characterIndex);
+                        const auto setup = Stats::GetInt("MPX_FACTORYSETUP5", *characterIndex);
+                        if (property && *property > 0 && setup && *setup == 1 && value >= 0 && value <= 100)
                         {
-                            if (entry.pack != pack)
-                                continue;
-
-                            const auto current = Stats::GetPackedBool(entry.code, *characterIndex);
-                            if (!current)
+                            const char* stat = action == RecoveryAction::SetBunkerSupplies
+                                ? "MPX_MATTOTALFORFACTORY5"
+                                : "MPX_PRODTOTALFORFACTORY5";
+                            if (Stats::SetInt(stat, value, *characterIndex))
                             {
-                                allSucceeded = false;
-                                break;
-                            }
-
-                            if (!*current && !Stats::SetPackedBool(entry.code, true, *characterIndex))
-                            {
-                                allSucceeded = false;
-                                break;
-                            }
-
-                            const auto confirmation = Stats::GetPackedBool(entry.code, *characterIndex);
-                            if (!confirmation || !*confirmation)
-                            {
-                                allSucceeded = false;
-                                break;
+                                const auto confirmation = Stats::GetInt(stat, *characterIndex);
+                                success = confirmation && *confirmation == value;
                             }
                         }
-                        success = allSucceeded;
                     }
                 }
             }
@@ -455,22 +381,6 @@ namespace Tutones::Game::Recovery
         if (characterIndex)
         {
             next.characterIndex = *characterIndex;
-
-            if (const auto rank = Stats::GetInt("MPX_CHAR_RANK_FM", *characterIndex))
-            {
-                next.onlineRank = std::max(0, *rank);
-                next.unlockRankReady = true;
-            }
-
-            for (std::size_t index = 0; index < EnhancedPackedBoolUnlocks.size(); ++index)
-            {
-                const auto state = Stats::GetPackedBool(EnhancedPackedBoolUnlocks[index].code, *characterIndex);
-                if (!state)
-                    continue;
-                next.packedUnlockReadable[index] = true;
-                next.packedUnlocks[index] = *state;
-            }
-
             for (int slot = 0; slot < 5; ++slot)
             {
                 auto& warehouse = next.warehouses[static_cast<std::size_t>(slot)];
