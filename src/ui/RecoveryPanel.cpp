@@ -3,6 +3,7 @@
 #include "V11Description.hpp"
 #include "V11Theme.hpp"
 #include "../features/recovery/RecoveryRuntime.hpp"
+#include "../features/recovery/UnlockCatalog.hpp"
 
 #include <imgui.h>
 
@@ -14,9 +15,12 @@ namespace Tutones::UI
 {
     namespace
     {
+        using Game::Recovery::EnhancedRankUnlocks;
+        using Game::Recovery::HighestMappedRank;
         using Game::Recovery::RecoveryAction;
         using Game::Recovery::RecoveryRuntime;
         using Game::Recovery::RecoverySnapshot;
+        using Game::Recovery::UnlockCategory;
 
         const ImVec4 Accent = V11Theme::Accent;
 
@@ -36,6 +40,18 @@ namespace Tutones::UI
             case RecoveryAction::SetWarehouseCrates: return "Special Cargo crates";
             case RecoveryAction::SetBunkerSupplies: return "Bunker supplies";
             case RecoveryAction::SetBunkerProduct: return "Bunker product";
+            }
+            return "Unknown";
+        }
+
+        [[nodiscard]] const char* CategoryName(UnlockCategory category) noexcept
+        {
+            switch (category)
+            {
+            case UnlockCategory::Activities: return "Activity";
+            case UnlockCategory::Weapons: return "Weapon";
+            case UnlockCategory::WeaponUpgrades: return "Weapon upgrade";
+            case UnlockCategory::VehiclePaints: return "Vehicle paint";
             }
             return "Unknown";
         }
@@ -88,6 +104,8 @@ namespace Tutones::UI
             ImGui::Text("Character stats: %s", snapshot.statsReady ? "readable" : "waiting / partial");
             if (snapshot.characterIndex >= 0)
                 ImGui::Text("MP character slot: MP%d", snapshot.characterIndex);
+            if (snapshot.unlockRankReady)
+                ImGui::Text("Online rank: %d", snapshot.onlineRank);
 
             ImGui::Spacing();
             ImGui::Text("RP multiplier: %s", snapshot.rpMultiplierReady ? "ready" : "waiting");
@@ -237,14 +255,59 @@ namespace Tutones::UI
             RenderLastAction(snapshot);
         }
 
-        void RenderUnlocks() noexcept
+        void RenderUnlocks(const RecoverySnapshot& snapshot) noexcept
         {
-            ImGui::TextUnformatted("Unlock Menu");
+            ImGui::TextUnformatted("Enhanced Unlock Manager");
             ImGui::Separator();
-            ImGui::TextDisabled("Unlock packs are not enabled yet.");
+
+            if (!snapshot.sessionStarted)
+            {
+                ImGui::TextDisabled("Join GTA Online to read the active character's unlock progression.");
+                SetV11Description("The Enhanced unlock manager reads the active MP character and only exposes conditions that have been verified for the current game build.");
+                return;
+            }
+
+            if (!snapshot.unlockRankReady)
+            {
+                ImGui::TextDisabled("Waiting for MPX_CHAR_RANK_FM from the active character.");
+                SetV11Description("Tutones will not infer unlock state when the active character rank cannot be read safely.");
+                return;
+            }
+
+            std::size_t unlockedCount{};
+            for (const auto& entry : EnhancedRankUnlocks)
+                unlockedCount += snapshot.onlineRank >= entry.minimumRank ? 1u : 0u;
+
+            ImGui::Text("Online rank: %d", snapshot.onlineRank);
+            ImGui::Text("Verified rank gates satisfied: %zu / %zu", unlockedCount, EnhancedRankUnlocks.size());
+            const float progress = HighestMappedRank > 0
+                ? std::clamp(static_cast<float>(snapshot.onlineRank) / static_cast<float>(HighestMappedRank), 0.0f, 1.0f)
+                : 1.0f;
+            ImGui::ProgressBar(progress, ImVec2(-1.0f, 0.0f));
+            DescribeLastV11Item("Progress through the rank gates currently mapped from GTA V Enhanced 1.73 mp_unlocks.c.");
+
             ImGui::Spacing();
-            ImGui::TextWrapped("This page is reserved for Enhanced-specific unlock groups after their packed-stat and script conditions are mapped and verified. It will not fire blind legacy unlock loops.");
-            SetV11Description("Enhanced unlock groups remain pending until each packed-stat/script condition is mapped and verified.");
+            ImGui::SeparatorText("Verified rank gates");
+            if (ImGui::BeginChild("##enhanced_unlock_rank_list", ImVec2(0.0f, 230.0f), true))
+            {
+                for (const auto& entry : EnhancedRankUnlocks)
+                {
+                    const bool unlocked = snapshot.onlineRank >= entry.minimumRank;
+                    if (unlocked)
+                        ImGui::TextColored(Accent, "READY");
+                    else
+                        ImGui::TextDisabled("LOCKED");
+                    ImGui::SameLine(72.0f);
+                    ImGui::Text("Rank %d  %s", entry.minimumRank, entry.label);
+                    ImGui::SameLine();
+                    ImGui::TextDisabled("(%s)", CategoryName(entry.category));
+                }
+            }
+            ImGui::EndChild();
+
+            ImGui::Spacing();
+            ImGui::TextWrapped("Write-based unlock packs remain disabled until each Enhanced packed-stat or script condition is mapped and read-back validated. Tutones will not run blind legacy unlock loops.");
+            SetV11Description("Enhanced 1.73 unlock progression sourced from verified mp_unlocks rank gates. Packed-stat write packs remain opt-in only after per-group validation is implemented.");
         }
     }
 
@@ -277,7 +340,7 @@ namespace Tutones::UI
             else if (subtab == 2)
                 RenderBusinesses(runtime, snapshot);
             else
-                RenderUnlocks();
+                RenderUnlocks(snapshot);
         }
 
         ImGui::EndChild();

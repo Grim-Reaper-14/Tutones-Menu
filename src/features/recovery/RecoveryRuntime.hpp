@@ -41,6 +41,7 @@ namespace Tutones::Game::Recovery
         std::array<WarehouseSnapshot, 5> warehouses{};
         BunkerSnapshot bunker{};
         int characterIndex{-1};
+        int onlineRank{};
         float observedRpMultiplier{1.0f};
         float requestedRpMultiplier{1.0f};
         int lastActionTarget{-1};
@@ -50,6 +51,7 @@ namespace Tutones::Game::Recovery
         bool nativeReady{};
         bool sessionStarted{};
         bool statsReady{};
+        bool unlockRankReady{};
         bool rpMultiplierEnabled{};
         bool rpMultiplierReady{};
         bool actionPending{};

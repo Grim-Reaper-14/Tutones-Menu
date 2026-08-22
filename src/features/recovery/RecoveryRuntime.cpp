@@ -362,6 +362,13 @@ namespace Tutones::Game::Recovery
         if (characterIndex)
         {
             next.characterIndex = *characterIndex;
+
+            if (const auto rank = Stats::GetInt("MPX_CHAR_RANK_FM", *characterIndex))
+            {
+                next.onlineRank = std::max(0, *rank);
+                next.unlockRankReady = true;
+            }
+
             for (int slot = 0; slot < 5; ++slot)
             {
                 auto& warehouse = next.warehouses[static_cast<std::size_t>(slot)];
