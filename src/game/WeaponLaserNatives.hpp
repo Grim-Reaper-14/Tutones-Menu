@@ -20,28 +20,43 @@ namespace Tutones::Game
         static bool RenderAimbotLaser(bool enabled) noexcept
         {
             if (!enabled)
+            {
+                ResetTraceState();
                 return true;
+            }
 
             const auto ped = InvokeRegistered<std::int32_t>(Native::NativeId::PlayerPedId);
             const auto player = InvokeRegistered<std::int32_t>(Native::NativeId::PlayerId);
             if (!ped || *ped == 0 || !player)
+            {
+                ResetTraceState();
                 return false;
+            }
 
             const auto armed = InvokeRegistered<std::int32_t>(
                 Native::NativeId::IsPedArmed,
                 *ped,
                 std::int32_t{4});
             if (!armed || *armed == 0)
+            {
+                ResetTraceState();
                 return true;
+            }
 
             const auto freeAiming = IsPlayerFreeAiming(*player);
             const auto targeting = IsPlayerTargettingAnything(*player);
             if ((!freeAiming || !*freeAiming) && (!targeting || !*targeting))
+            {
+                ResetTraceState();
                 return true;
+            }
 
             const auto weaponEntity = GetCurrentPedWeaponEntityIndex(*ped);
             if (!weaponEntity || *weaponEntity == 0)
+            {
+                ResetTraceState();
                 return true;
+            }
 
             std::optional<Native::NativeVector3> muzzle;
             if (const auto muzzleBone = GetEntityBoneIndexByName(*weaponEntity, "gun_muzzle"); muzzleBone && *muzzleBone >= 0)
@@ -57,17 +72,42 @@ namespace Tutones::Game
                 return true;
 
             const auto direction = RotationToDirection(*rotation);
-            Native::NativeVector3 finish{
+            const Native::NativeVector3 finish{
                 camera->x + direction.x * MaxLaserDistance,
                 camera->y + direction.y * MaxLaserDistance,
                 camera->z + direction.z * MaxLaserDistance};
 
-            Native::NativeVector3 beamEnd = finish;
-            if (const auto ray = CastLosProbe(*camera, finish, -1, *ped, 7); ray && ray->status == 2 && ray->hit)
-                beamEnd = ray->endCoords;
+            // Poll the previous frame's asynchronous ray before launching the next one.
+            // This avoids the expensive synchronous LOS probe in the weapon tick.
+            if (s_PendingShapeTest != 0)
+            {
+                if (const auto ray = GetShapeTestResult(s_PendingShapeTest))
+                {
+                    if (ray->status == 2)
+                    {
+                        s_LastBeamEnd = ray->hit ? ray->endCoords : s_PendingFallbackEnd;
+                        s_PendingShapeTest = 0;
+                    }
+                    else if (ray->status == 0)
+                    {
+                        s_PendingShapeTest = 0;
+                    }
+                }
+            }
+
+            if (s_PendingShapeTest == 0)
+            {
+                if (const auto handle = StartShapeTestLosProbe(*camera, finish, -1, *ped, 7); handle && *handle != 0)
+                {
+                    s_PendingShapeTest = *handle;
+                    s_PendingFallbackEnd = finish;
+                }
+            }
+
+            const Native::NativeVector3 beamEnd = s_LastBeamEnd.value_or(finish);
 
             // Bright core plus a subtle outer glow gives the beam more presence
-            // than GTA's one-pixel debug line without introducing a particle lifecycle.
+            // than GTA's one-pixel line without introducing a particle lifecycle.
             const bool core = DrawLine(*muzzle, beamEnd, 255, 20, 20, 255);
 
             auto upperStart = *muzzle;
@@ -92,7 +132,6 @@ namespace Tutones::Game
             bool hit{};
             Native::NativeVector3 endCoords{};
             Native::NativeVector3 surfaceNormal{};
-            std::uint32_t materialHash{};
             std::int32_t entity{};
         };
 
@@ -121,8 +160,8 @@ namespace Tutones::Game
             GetWorldPositionOfEntityBoneIndex,
             GetGameplayCamCoordIndex,
             GetGameplayCamRotIndex,
-            StartExpensiveSynchronousShapeTestLosProbeIndex,
-            GetShapeTestResultIncludingMaterialIndex,
+            StartShapeTestLosProbeIndex,
+            GetShapeTestResultIndex,
             DrawLineIndex,
             HandlerCount,
         };
@@ -136,8 +175,8 @@ namespace Tutones::Game
             0x75DF72FC74EED046ull, // GET_WORLD_POSITION_OF_ENTITY_BONE
             0xCF141FCD0940B0A3ull, // GET_GAMEPLAY_CAM_COORD
             0xD84A545408A3099Aull, // GET_GAMEPLAY_CAM_ROT
-            0x14C30F326F5883DAull, // START_EXPENSIVE_SYNCHRONOUS_SHAPE_TEST_LOS_PROBE
-            0xEE92B4A78668B1CEull, // GET_SHAPE_TEST_RESULT_INCLUDING_MATERIAL
+            0x120E577522852984ull, // START_SHAPE_TEST_LOS_PROBE
+            0x0E7DD1EBCA8D2DE3ull, // GET_SHAPE_TEST_RESULT
             0xC9A38C22BE8013F2ull, // DRAW_LINE
         }};
 
@@ -150,6 +189,13 @@ namespace Tutones::Game
                 -std::sin(yaw) * horizontal,
                 std::cos(yaw) * horizontal,
                 std::sin(pitch)};
+        }
+
+        static void ResetTraceState() noexcept
+        {
+            s_PendingShapeTest = 0;
+            s_LastBeamEnd.reset();
+            s_PendingFallbackEnd = {};
         }
 
         [[nodiscard]] static std::optional<std::int32_t> GetCurrentPedWeaponEntityIndex(std::int32_t ped) noexcept
@@ -199,27 +245,23 @@ namespace Tutones::Game
             return Invoke<Native::NativeVector3>(GetGameplayCamRotIndex, rotationOrder);
         }
 
-        [[nodiscard]] static std::optional<ShapeResult> CastLosProbe(
+        [[nodiscard]] static std::optional<int> StartShapeTestLosProbe(
             const Native::NativeVector3& start,
             const Native::NativeVector3& finish,
             int flags,
             std::int32_t ignoredEntity,
             int optionFlags) noexcept
         {
-            const auto handle = Invoke<int>(
-                StartExpensiveSynchronousShapeTestLosProbeIndex,
+            return Invoke<int>(
+                StartShapeTestLosProbeIndex,
                 start.x, start.y, start.z,
                 finish.x, finish.y, finish.z,
                 flags,
                 ignoredEntity,
                 optionFlags);
-            if (!handle || *handle == 0)
-                return std::nullopt;
-
-            return GetShapeTestResultIncludingMaterial(*handle);
         }
 
-        [[nodiscard]] static std::optional<ShapeResult> GetShapeTestResultIncludingMaterial(int handle) noexcept
+        [[nodiscard]] static std::optional<ShapeResult> GetShapeTestResult(int handle) noexcept
         {
             if (handle == 0 || !ResolveHandlers())
                 return std::nullopt;
@@ -227,7 +269,6 @@ namespace Tutones::Game
             std::int32_t hit{};
             Native::NativeVector3 endCoords{};
             Native::NativeVector3 surfaceNormal{};
-            std::uint32_t materialHash{};
             std::int32_t entity{};
 
             Native::CallContext context;
@@ -235,13 +276,12 @@ namespace Tutones::Game
                 || !context.PushArg(&hit)
                 || !context.PushArg(&endCoords)
                 || !context.PushArg(&surfaceNormal)
-                || !context.PushArg(&materialHash)
                 || !context.PushArg(&entity))
             {
                 return std::nullopt;
             }
 
-            s_Handlers[GetShapeTestResultIncludingMaterialIndex](&context);
+            s_Handlers[GetShapeTestResultIndex](&context);
             context.FixVectors();
 
             ShapeResult result;
@@ -249,7 +289,6 @@ namespace Tutones::Game
             result.hit = hit != 0;
             result.endCoords = endCoords;
             result.surfaceNormal = surfaceNormal;
-            result.materialHash = materialHash;
             result.entity = entity;
             return result;
         }
@@ -359,5 +398,8 @@ namespace Tutones::Game
         inline static std::array<Native::NativeHandler, HandlerCount> s_Handlers{};
         inline static std::atomic<bool> s_Ready{false};
         inline static std::mutex s_Mutex{};
+        inline static int s_PendingShapeTest{};
+        inline static std::optional<Native::NativeVector3> s_LastBeamEnd{};
+        inline static Native::NativeVector3 s_PendingFallbackEnd{};
     };
 }
