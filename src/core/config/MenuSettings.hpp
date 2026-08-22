@@ -70,7 +70,9 @@ namespace Tutones::Core::Config
         bool freezeClock{};
         bool blackout{};
         bool autoWaypoint{};
-        bool entityInspectorLive{true};
+        // Crosshair inspection runs synchronous world shape tests. Keep it opt-in so
+        // simply opening World > Entities never starts a native scan loop.
+        bool entityInspectorLive{false};
         int setHour{12};
         int setMinute{};
         int weatherIndex{};
