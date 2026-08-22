@@ -61,7 +61,9 @@ namespace Tutones::Game::World
         bool densityLoopRunning{};
         bool worldControlLoopRunning{};
         bool freezeClock{};
+        bool clockReleasePending{};
         bool weatherOverrideActive{};
+        bool weatherReleasePending{};
         bool weatherScriptPatchSupported{};
         bool weatherScriptPatchActive{};
         bool blackout{};
@@ -96,7 +98,9 @@ namespace Tutones::Game::World
             out.densityLoopRunning = m_DensityLoopRunning.load(std::memory_order_acquire);
             out.worldControlLoopRunning = m_WorldControlLoopRunning.load(std::memory_order_acquire);
             out.freezeClock = m_FreezeClock.load(std::memory_order_acquire);
+            out.clockReleasePending = m_ClockReleasePending.load(std::memory_order_acquire);
             out.weatherOverrideActive = m_WeatherOverrideActive.load(std::memory_order_acquire);
+            out.weatherReleasePending = m_WeatherReleasePending.load(std::memory_order_acquire);
             out.blackout = m_Blackout.load(std::memory_order_acquire);
             out.selectedHour = m_SelectedHour.load(std::memory_order_acquire);
             out.selectedMinute = m_SelectedMinute.load(std::memory_order_acquire);
@@ -176,15 +180,24 @@ namespace Tutones::Game::World
                 m_SelectedHour.store(hour, std::memory_order_release);
                 m_SelectedMinute.store(minute, std::memory_order_release);
 
-                const bool clockSuccess = freezeClock
-                    ? MiscNatives::NetworkOverrideClockTime(hour, minute, 0)
-                    : MiscNatives::NetworkClearClockTimeOverride();
-                if (clockSuccess)
-                    m_FreezeClock.store(freezeClock, std::memory_order_release);
+                bool clockSuccess{};
+                if (freezeClock)
+                {
+                    m_ClockReleasePending.store(false, std::memory_order_release);
+                    clockSuccess = MiscNatives::NetworkOverrideClockTime(hour, minute, 0);
+                    if (clockSuccess)
+                        m_FreezeClock.store(true, std::memory_order_release);
+                }
+                else
+                {
+                    m_ClockReleasePending.store(true, std::memory_order_release);
+                    clockSuccess = TryReleaseClockOverride();
+                }
 
                 bool weatherSuccess{};
                 if (forceWeather)
                 {
+                    m_WeatherReleasePending.store(false, std::memory_order_release);
                     static_cast<void>(EnableWeatherScriptPatch());
                     weatherSuccess = MiscNatives::SetWeatherTypePersist(weather.c_str());
                     weatherSuccess = MiscNatives::SetWeatherTypeNowPersist(weather.c_str()) && weatherSuccess;
@@ -200,11 +213,10 @@ namespace Tutones::Game::World
                 }
                 else
                 {
-                    weatherSuccess = MiscNatives::ClearOverrideWeather();
+                    m_WeatherReleasePending.store(true, std::memory_order_release);
+                    weatherSuccess = TryReleaseWeatherOverride();
                     if (weatherSuccess)
                     {
-                        DisableWeatherScriptPatch();
-                        m_WeatherOverrideActive.store(false, std::memory_order_release);
                         std::scoped_lock lock(m_StatusMutex);
                         m_WeatherCode = weather;
                     }
@@ -226,6 +238,7 @@ namespace Tutones::Game::World
             minute = std::clamp(minute, 0, 59);
             m_SelectedHour.store(hour, std::memory_order_release);
             m_SelectedMinute.store(minute, std::memory_order_release);
+            m_ClockReleasePending.store(false, std::memory_order_release);
 
             return QueueAction("Set online clock time", [this, hour, minute] {
                 const bool success = MiscNatives::NetworkOverrideClockTime(hour, minute, 0);
@@ -237,25 +250,28 @@ namespace Tutones::Game::World
 
         bool QueueFreezeClock(bool enabled)
         {
+            if (enabled)
+                m_ClockReleasePending.store(false, std::memory_order_release);
+            else
+                m_ClockReleasePending.store(true, std::memory_order_release);
+
             return QueueAction(enabled ? "Freeze online clock" : "Resume online clock", [this, enabled] {
-                bool success{};
                 if (enabled)
                 {
                     const int hour = std::clamp(m_SelectedHour.load(std::memory_order_acquire), 0, 23);
                     const int minute = std::clamp(m_SelectedMinute.load(std::memory_order_acquire), 0, 59);
-                    success = MiscNatives::NetworkOverrideClockTime(hour, minute, 0);
+                    const bool success = MiscNatives::NetworkOverrideClockTime(hour, minute, 0);
                     if (success)
                     {
                         m_FreezeClock.store(true, std::memory_order_release);
                         EnsureWorldControlLoop();
                     }
+                    return success;
                 }
-                else
-                {
-                    success = MiscNatives::NetworkClearClockTimeOverride();
-                    if (success)
-                        m_FreezeClock.store(false, std::memory_order_release);
-                }
+
+                const bool success = TryReleaseClockOverride();
+                if (!success)
+                    EnsureWorldControlLoop();
                 return success;
             });
         }
@@ -265,6 +281,7 @@ namespace Tutones::Game::World
             if (!IsKnownWeather(weather))
                 return false;
 
+            m_WeatherReleasePending.store(false, std::memory_order_release);
             return QueueAction("Apply and force weather", [this, weather = std::move(weather)] {
                 static_cast<void>(EnableWeatherScriptPatch());
 
@@ -286,13 +303,11 @@ namespace Tutones::Game::World
 
         bool QueueClearWeatherOverride()
         {
+            m_WeatherReleasePending.store(true, std::memory_order_release);
             return QueueAction("Release weather override", [this] {
-                const bool success = MiscNatives::ClearOverrideWeather();
-                if (success)
-                {
-                    DisableWeatherScriptPatch();
-                    m_WeatherOverrideActive.store(false, std::memory_order_release);
-                }
+                const bool success = TryReleaseWeatherOverride();
+                if (!success)
+                    EnsureWorldControlLoop();
                 return success;
             });
         }
@@ -313,17 +328,13 @@ namespace Tutones::Game::World
 
         bool QueueReleasePersistentOverrides()
         {
+            m_ClockReleasePending.store(true, std::memory_order_release);
+            m_WeatherReleasePending.store(true, std::memory_order_release);
             return QueueAction("Release time/weather overrides", [this] {
-                const bool clockSuccess = MiscNatives::NetworkClearClockTimeOverride();
-                const bool weatherSuccess = MiscNatives::ClearOverrideWeather();
-
-                if (clockSuccess)
-                    m_FreezeClock.store(false, std::memory_order_release);
-                if (weatherSuccess)
-                {
-                    DisableWeatherScriptPatch();
-                    m_WeatherOverrideActive.store(false, std::memory_order_release);
-                }
+                const bool clockSuccess = TryReleaseClockOverride();
+                const bool weatherSuccess = TryReleaseWeatherOverride();
+                if (!clockSuccess || !weatherSuccess)
+                    EnsureWorldControlLoop();
                 return clockSuccess && weatherSuccess;
             });
         }
@@ -441,6 +452,33 @@ namespace Tutones::Game::World
             patches.RemovePatch(handle);
         }
 
+        [[nodiscard]] bool TryReleaseClockOverride() noexcept
+        {
+            if (!m_ClockReleasePending.load(std::memory_order_acquire))
+                return true;
+
+            if (!MiscNatives::NetworkClearClockTimeOverride())
+                return false;
+
+            m_FreezeClock.store(false, std::memory_order_release);
+            m_ClockReleasePending.store(false, std::memory_order_release);
+            return true;
+        }
+
+        [[nodiscard]] bool TryReleaseWeatherOverride() noexcept
+        {
+            if (!m_WeatherReleasePending.load(std::memory_order_acquire))
+                return true;
+
+            if (!MiscNatives::ClearOverrideWeather())
+                return false;
+
+            DisableWeatherScriptPatch();
+            m_WeatherOverrideActive.store(false, std::memory_order_release);
+            m_WeatherReleasePending.store(false, std::memory_order_release);
+            return true;
+        }
+
         [[nodiscard]] bool HasDensityOverride() const noexcept
         {
             constexpr float epsilon = 0.001f;
@@ -454,7 +492,9 @@ namespace Tutones::Game::World
         [[nodiscard]] bool HasPersistentWorldOverride() const noexcept
         {
             return m_FreezeClock.load(std::memory_order_acquire)
+                || m_ClockReleasePending.load(std::memory_order_acquire)
                 || m_WeatherOverrideActive.load(std::memory_order_acquire)
+                || m_WeatherReleasePending.load(std::memory_order_acquire)
                 || m_Blackout.load(std::memory_order_acquire);
         }
 
@@ -526,14 +566,22 @@ namespace Tutones::Game::World
 
             bool success = true;
 
-            if (m_FreezeClock.load(std::memory_order_acquire))
+            if (m_ClockReleasePending.load(std::memory_order_acquire))
+            {
+                success = TryReleaseClockOverride() && success;
+            }
+            else if (m_FreezeClock.load(std::memory_order_acquire))
             {
                 const int hour = std::clamp(m_SelectedHour.load(std::memory_order_acquire), 0, 23);
                 const int minute = std::clamp(m_SelectedMinute.load(std::memory_order_acquire), 0, 59);
                 success = MiscNatives::NetworkOverrideClockTime(hour, minute, 0) && success;
             }
 
-            if (m_WeatherOverrideActive.load(std::memory_order_acquire))
+            if (m_WeatherReleasePending.load(std::memory_order_acquire))
+            {
+                success = TryReleaseWeatherOverride() && success;
+            }
+            else if (m_WeatherOverrideActive.load(std::memory_order_acquire))
             {
                 static_cast<void>(EnableWeatherScriptPatch());
                 std::string weather;
@@ -553,7 +601,7 @@ namespace Tutones::Game::World
                 std::scoped_lock lock(m_StatusMutex);
                 m_HaveResult = true;
                 m_LastSucceeded = false;
-                m_Message = "Persistent time/weather native reapply failed; retrying";
+                m_Message = "Persistent time/weather operation failed; retrying";
             }
 
             if (HasPersistentWorldOverride()
@@ -584,7 +632,7 @@ namespace Tutones::Game::World
             if (!Runtime::GameRuntime::Get().Enqueue(
                     [this, label = std::move(label), fn = std::move(fn)]() mutable {
                         const bool success = fn && fn();
-                        SetResult(success, success ? label + " complete" : label + " failed");
+                        SetResult(success, success ? label + " complete" : label + " failed; retry loop remains active when required");
                     }))
             {
                 m_ActionPending.store(false, std::memory_order_release);
@@ -636,7 +684,9 @@ namespace Tutones::Game::World
         std::atomic<bool> m_DensityLoopRunning{false};
         std::atomic<bool> m_WorldControlLoopRunning{false};
         std::atomic<bool> m_FreezeClock{false};
+        std::atomic<bool> m_ClockReleasePending{false};
         std::atomic<bool> m_WeatherOverrideActive{false};
+        std::atomic<bool> m_WeatherReleasePending{false};
         std::atomic<bool> m_Blackout{false};
         std::atomic<int> m_SelectedHour{12};
         std::atomic<int> m_SelectedMinute{0};
