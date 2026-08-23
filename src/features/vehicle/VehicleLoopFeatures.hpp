@@ -26,6 +26,11 @@ namespace Tutones::Game::Mods
             return instance;
         }
 
+        [[nodiscard]] bool VehicleGodMode() const noexcept
+        {
+            return m_VehicleGodMode.load(std::memory_order_acquire);
+        }
+
         [[nodiscard]] bool KeepVehicleClean() const noexcept
         {
             return m_KeepVehicleClean.load(std::memory_order_acquire);
@@ -36,9 +41,9 @@ namespace Tutones::Game::Mods
             return m_LoweredStance.load(std::memory_order_acquire);
         }
 
-        void SetKeepVehicleClean(bool enabled) noexcept
+        void SetVehicleGodMode(bool enabled) noexcept
         {
-            m_KeepVehicleClean.store(enabled, std::memory_order_release);
+            m_VehicleGodMode.store(enabled, std::memory_order_release);
             if (enabled)
             {
                 EnsureTicking();
@@ -48,14 +53,21 @@ namespace Tutones::Game::Mods
             auto& runtime = Runtime::GameRuntime::Get();
             if (runtime.IsOnGameThread())
             {
-                RestoreLastCleanVehicle();
+                RestoreLastGodVehicle();
                 return;
             }
 
             static_cast<void>(runtime.Enqueue([this] {
-                if (!m_KeepVehicleClean.load(std::memory_order_acquire))
-                    RestoreLastCleanVehicle();
+                if (!m_VehicleGodMode.load(std::memory_order_acquire))
+                    RestoreLastGodVehicle();
             }));
+        }
+
+        void SetKeepVehicleClean(bool enabled) noexcept
+        {
+            m_KeepVehicleClean.store(enabled, std::memory_order_release);
+            if (enabled)
+                EnsureTicking();
         }
 
         void SetLoweredStance(bool enabled) noexcept
@@ -82,11 +94,12 @@ namespace Tutones::Game::Mods
 
         void Shutdown() noexcept
         {
+            m_VehicleGodMode.store(false, std::memory_order_release);
             m_KeepVehicleClean.store(false, std::memory_order_release);
             m_LoweredStance.store(false, std::memory_order_release);
 
             const auto cleanup = [this] {
-                RestoreLastCleanVehicle();
+                RestoreLastGodVehicle();
                 RestoreLastStance();
             };
 
@@ -136,7 +149,8 @@ namespace Tutones::Game::Mods
 
         [[nodiscard]] bool AnyEnabled() const noexcept
         {
-            return m_KeepVehicleClean.load(std::memory_order_acquire)
+            return m_VehicleGodMode.load(std::memory_order_acquire)
+                || m_KeepVehicleClean.load(std::memory_order_acquire)
                 || m_LoweredStance.load(std::memory_order_acquire);
         }
 
@@ -162,11 +176,11 @@ namespace Tutones::Game::Mods
             if (!ped || *ped == 0)
                 return 0;
 
-            const auto inVehicle = Natives::IsPedInAnyVehicle(*ped, true);
+            const auto inVehicle = Natives::IsPedInAnyVehicle(*ped, false);
             if (!inVehicle || !*inVehicle)
                 return 0;
 
-            const auto vehicle = Natives::GetVehiclePedIsIn(*ped, true);
+            const auto vehicle = Natives::GetVehiclePedIsIn(*ped, false);
             if (!vehicle || *vehicle == 0)
                 return 0;
 
@@ -187,18 +201,6 @@ namespace Tutones::Game::Mods
         }
 
         static Native::NativeHandler& EntityInvincibleHandler() noexcept
-        {
-            static Native::NativeHandler handler{};
-            return handler;
-        }
-
-        static Native::NativeHandler& DeformationFixedHandler() noexcept
-        {
-            static Native::NativeHandler handler{};
-            return handler;
-        }
-
-        static Native::NativeHandler& TyreFixedHandler() noexcept
         {
             static Native::NativeHandler handler{};
             return handler;
@@ -276,20 +278,6 @@ namespace Tutones::Game::Mods
             return ResolveSingleHandler(EntityInvincibleHandler(), 0x935364B4448CD584ull);
         }
 
-        [[nodiscard]] static bool ResolveDeformationFixedHandler() noexcept
-        {
-            // SET_VEHICLE_DEFORMATION_FIXED
-            // legacy 953DA1E1B12C0491 -> Enhanced 1D1124C855316790.
-            return ResolveSingleHandler(DeformationFixedHandler(), 0x1D1124C855316790ull);
-        }
-
-        [[nodiscard]] static bool ResolveTyreFixedHandler() noexcept
-        {
-            // SET_VEHICLE_TYRE_FIXED
-            // legacy 6E13FC662B882D1D -> Enhanced F516E954BCB89C18.
-            return ResolveSingleHandler(TyreFixedHandler(), 0xF516E954BCB89C18ull);
-        }
-
         [[nodiscard]] static bool SetReducedSuspensionForce(Vehicle vehicle, bool enabled) noexcept
         {
             if (vehicle == 0 || !ResolveReducedSuspensionHandler())
@@ -330,62 +318,35 @@ namespace Tutones::Game::Mods
             {
                 return false;
             }
+
             EntityInvincibleHandler()(&context);
             return true;
         }
 
-        [[nodiscard]] static bool SetVehicleDeformationFixed(Vehicle vehicle) noexcept
+        static void ApplyVehicleGodMode(Vehicle vehicle) noexcept
         {
-            if (vehicle == 0 || !ResolveDeformationFixedHandler())
-                return false;
-
-            Native::CallContext context;
-            if (!context.PushArg(vehicle))
-                return false;
-            DeformationFixedHandler()(&context);
-            return true;
+            if (vehicle != 0)
+                static_cast<void>(SetEntityInvincible(vehicle, true));
         }
 
-        [[nodiscard]] static bool SetVehicleTyreFixed(Vehicle vehicle, int tyreIndex) noexcept
-        {
-            if (vehicle == 0 || !ResolveTyreFixedHandler())
-                return false;
-
-            Native::CallContext context;
-            if (!context.PushArg(vehicle) || !context.PushArg(tyreIndex))
-                return false;
-            TyreFixedHandler()(&context);
-            return true;
-        }
-
-        static void ApplyPristineVehicle(Vehicle vehicle) noexcept
+        static void ApplyVehicleClean(Vehicle vehicle) noexcept
         {
             if (vehicle == 0)
                 return;
-
-            // Keep Vehicle Pristine blocks new damage and continuously removes/repairs
-            // visible or mechanical damage that slips through.
-            static_cast<void>(SetEntityInvincible(vehicle, true));
-            static_cast<void>(Natives::SetVehicleFixed(vehicle));
-            static_cast<void>(SetVehicleDeformationFixed(vehicle));
-
-            constexpr int TyreIndices[]{0, 1, 2, 3, 4, 5, 45, 47};
-            for (const int tyreIndex : TyreIndices)
-                static_cast<void>(SetVehicleTyreFixed(vehicle, tyreIndex));
 
             static_cast<void>(Natives::SetVehicleDirtLevel(vehicle, 0.0f));
             static_cast<void>(RemoveVehicleDecals(vehicle));
         }
 
-        void RestoreLastCleanVehicle() noexcept
+        void RestoreLastGodVehicle() noexcept
         {
-            if (m_LastCleanVehicle == 0)
+            if (m_LastGodVehicle == 0)
                 return;
 
-            const auto exists = Natives::DoesEntityExist(m_LastCleanVehicle);
+            const auto exists = Natives::DoesEntityExist(m_LastGodVehicle);
             if (exists && *exists)
-                static_cast<void>(SetEntityInvincible(m_LastCleanVehicle, false));
-            m_LastCleanVehicle = 0;
+                static_cast<void>(SetEntityInvincible(m_LastGodVehicle, false));
+            m_LastGodVehicle = 0;
         }
 
         void RestoreLastStance() noexcept
@@ -401,22 +362,28 @@ namespace Tutones::Game::Mods
 
         void TickOnGameThread() noexcept
         {
+            const bool godMode = m_VehicleGodMode.load(std::memory_order_acquire);
             const bool keepClean = m_KeepVehicleClean.load(std::memory_order_acquire);
             const bool lowered = m_LoweredStance.load(std::memory_order_acquire);
             const Vehicle vehicle = CurrentVehicle();
 
-            if (keepClean && vehicle != 0)
+            if (godMode && vehicle != 0)
             {
-                if (m_LastCleanVehicle != 0 && m_LastCleanVehicle != vehicle)
-                    RestoreLastCleanVehicle();
+                if (m_LastGodVehicle != 0 && m_LastGodVehicle != vehicle)
+                    RestoreLastGodVehicle();
 
-                ApplyPristineVehicle(vehicle);
-                m_LastCleanVehicle = vehicle;
+                ApplyVehicleGodMode(vehicle);
+                m_LastGodVehicle = vehicle;
             }
             else
             {
-                RestoreLastCleanVehicle();
+                // Do not leave a vehicle invincible after the player exits it,
+                // changes vehicles, or disables the toggle.
+                RestoreLastGodVehicle();
             }
+
+            if (keepClean && vehicle != 0)
+                ApplyVehicleClean(vehicle);
 
             if (lowered && vehicle != 0)
             {
@@ -428,26 +395,25 @@ namespace Tutones::Game::Mods
             }
             else
             {
-                // Also restore when the player leaves the vehicle while the toggle remains
-                // enabled; otherwise the old vehicle can stay permanently lowered.
                 RestoreLastStance();
             }
 
             if (AnyEnabled() && Runtime::GameRuntime::Get().Enqueue([this] { TickOnGameThread(); }))
                 return;
 
-            // Never leave a modified vehicle behind if scheduling disappears.
-            RestoreLastCleanVehicle();
+            // Never leave reversible state behind if scheduling disappears.
+            RestoreLastGodVehicle();
             RestoreLastStance();
             m_Ticking.store(false, std::memory_order_release);
             if (AnyEnabled())
                 EnsureTicking();
         }
 
+        std::atomic<bool> m_VehicleGodMode{false};
         std::atomic<bool> m_KeepVehicleClean{false};
         std::atomic<bool> m_LoweredStance{false};
         std::atomic<bool> m_Ticking{false};
-        Vehicle m_LastCleanVehicle{};
+        Vehicle m_LastGodVehicle{};
         Vehicle m_LastStancedVehicle{};
     };
 }
