@@ -3,6 +3,7 @@
 #include "GamePointers.hpp"
 #include "Natives.hpp"
 #include "native/NativeCallContext.hpp"
+#include "native/NativeHandlerValidation.hpp"
 #include "native/NativeRegistry.hpp"
 
 #include <array>
@@ -73,21 +74,7 @@ namespace Tutones::Game::NetshoppingNatives
             program.nativeEntrypoints = reinterpret_cast<Native::NativeHandler*>(slots.data());
             initNativeTables(&program);
 
-            for (std::size_t index = 0; index < slots.size(); ++index)
-            {
-                handlers[index] = reinterpret_cast<Native::NativeHandler>(
-                    static_cast<std::uintptr_t>(slots[index]));
-            }
-
-            for (const auto handler : handlers)
-            {
-                if (!handler)
-                {
-                    handlers.fill(nullptr);
-                    return false;
-                }
-            }
-            return true;
+            return Native::AssignValidatedHandlers(slots, handlers);
         }
     }
 
