@@ -4,6 +4,7 @@
 #include "Natives.hpp"
 #include "PlayerNatives.hpp"
 #include "native/NativeCallContext.hpp"
+#include "native/NativeHandlerValidation.hpp"
 #include "native/NativeRegistry.hpp"
 
 #include <array>
@@ -81,18 +82,7 @@ namespace Tutones::Game::NetworkPlayerNatives
             program.nativeEntrypoints = reinterpret_cast<Native::NativeHandler*>(slots.data());
             initNativeTables(&program);
 
-            for (std::size_t index = 0; index < slots.size(); ++index)
-            {
-                handlers[index] = reinterpret_cast<Native::NativeHandler>(
-                    static_cast<std::uintptr_t>(slots[index]));
-            }
-
-            for (const auto handler : handlers)
-            {
-                if (!handler)
-                    return false;
-            }
-            return true;
+            return Native::AssignValidatedHandlers(slots, handlers);
         }
     }
 
