@@ -11,6 +11,12 @@
 
 namespace Tutones::Game::NetworkFeatures
 {
+    enum class DirectServiceTransactionAction : std::uint8_t
+    {
+        Earn,
+        Spend,
+    };
+
     enum class DirectServiceTransactionResult : std::uint8_t
     {
         None,
@@ -30,6 +36,8 @@ namespace Tutones::Game::NetworkFeatures
     {
         bool pending{};
         std::uint32_t serviceHash{};
+        std::uint32_t actionHash{};
+        DirectServiceTransactionAction action{DirectServiceTransactionAction::Earn};
         int price{};
         int transactionId{-1};
         DirectServiceTransactionResult result{DirectServiceTransactionResult::None};
@@ -44,7 +52,9 @@ namespace Tutones::Game::NetworkFeatures
             return instance;
         }
 
-        [[nodiscard]] bool Queue(std::uint32_t serviceHash)
+        [[nodiscard]] bool Queue(
+            std::uint32_t serviceHash,
+            DirectServiceTransactionAction action = DirectServiceTransactionAction::Earn)
         {
             if (serviceHash == 0)
                 return false;
@@ -53,15 +63,15 @@ namespace Tutones::Game::NetworkFeatures
             if (!m_Pending.compare_exchange_strong(expected, true, std::memory_order_acq_rel))
                 return false;
 
-            Store(serviceHash, 0, -1, DirectServiceTransactionResult::Queued);
-            if (Runtime::GameRuntime::Get().Enqueue([this, serviceHash] {
-                    ExecuteOnGameThread(serviceHash);
+            Store(serviceHash, action, ActionHash(action), 0, -1, DirectServiceTransactionResult::Queued);
+            if (Runtime::GameRuntime::Get().Enqueue([this, serviceHash, action] {
+                    ExecuteOnGameThread(serviceHash, action);
                 }))
             {
                 return true;
             }
 
-            Finish(serviceHash, 0, -1, DirectServiceTransactionResult::QueueFailed);
+            Finish(serviceHash, action, 0, -1, DirectServiceTransactionResult::QueueFailed);
             return false;
         }
 
@@ -79,7 +89,14 @@ namespace Tutones::Game::NetworkFeatures
         // before the class definition is complete.
         static constexpr std::uint32_t ShopControllerHash = 0x39DA738Bu;
         static constexpr std::uint32_t ServiceThresholdCategory = 0x57DE404Eu;
-        static constexpr std::uint32_t EarnAction = 0x562592BBu;
+        static constexpr std::uint32_t EarnAction = 0x562592BBu;  // NET_SHOP_ACTION_EARN
+        static constexpr std::uint32_t SpendAction = 0x2005D9A9u; // NET_SHOP_ACTION_SPEND
+
+        [[nodiscard]] static constexpr std::uint32_t ActionHash(
+            DirectServiceTransactionAction action) noexcept
+        {
+            return action == DirectServiceTransactionAction::Spend ? SpendAction : EarnAction;
+        }
 
         class ScriptTlsScope final
         {
@@ -113,60 +130,66 @@ namespace Tutones::Game::NetworkFeatures
             bool m_Active{};
         };
 
-        void ExecuteOnGameThread(std::uint32_t serviceHash) noexcept
+        void ExecuteOnGameThread(
+            std::uint32_t serviceHash,
+            DirectServiceTransactionAction action) noexcept
         {
             bool* sessionStarted = GamePointers::Get().IsSessionStarted();
             if (!sessionStarted || !*sessionStarted)
-                return Finish(serviceHash, 0, -1, DirectServiceTransactionResult::SessionUnavailable);
+                return Finish(serviceHash, action, 0, -1, DirectServiceTransactionResult::SessionUnavailable);
 
             const auto useServerTransactions = NetshoppingNatives::UseServerTransactions();
             if (!useServerTransactions || !*useServerTransactions)
-                return Finish(serviceHash, 0, -1, DirectServiceTransactionResult::ServerTransactionsUnavailable);
+                return Finish(serviceHash, action, 0, -1, DirectServiceTransactionResult::ServerTransactionsUnavailable);
 
             const auto valid = NetshoppingNatives::CatalogItemKeyIsValid(serviceHash);
             if (!valid || !*valid)
-                return Finish(serviceHash, 0, -1, DirectServiceTransactionResult::CatalogItemInvalid);
+                return Finish(serviceHash, action, 0, -1, DirectServiceTransactionResult::CatalogItemInvalid);
 
             const auto price = NetshoppingNatives::GetPrice(serviceHash, ServiceThresholdCategory, true);
             if (!price || *price < 0)
-                return Finish(serviceHash, 0, -1, DirectServiceTransactionResult::PriceUnavailable);
+                return Finish(serviceHash, action, 0, -1, DirectServiceTransactionResult::PriceUnavailable);
 
             auto& scripts = Script::ScriptRuntime::Get();
             auto* shopController = scripts.FindThread(ShopControllerHash);
             if (!scripts.IsReady() || !shopController || !shopController->stack)
-                return Finish(serviceHash, *price, -1, DirectServiceTransactionResult::ShopControllerUnavailable);
+                return Finish(serviceHash, action, *price, -1, DirectServiceTransactionResult::ShopControllerUnavailable);
 
             auto* tls = Types::TlsContext::Get();
             ScriptTlsScope scope(tls, shopController);
             if (!scope.Active())
-                return Finish(serviceHash, *price, -1, DirectServiceTransactionResult::ShopControllerUnavailable);
+                return Finish(serviceHash, action, *price, -1, DirectServiceTransactionResult::ShopControllerUnavailable);
 
             int transactionId{-1};
             const auto began = NetshoppingNatives::BeginService(
                 &transactionId,
                 ServiceThresholdCategory,
                 serviceHash,
-                EarnAction,
+                ActionHash(action),
                 *price,
                 4);
             if (!began || !*began || transactionId < 0)
-                return Finish(serviceHash, *price, transactionId, DirectServiceTransactionResult::BeginServiceFailed);
+                return Finish(serviceHash, action, *price, transactionId, DirectServiceTransactionResult::BeginServiceFailed);
 
             const auto checkout = NetshoppingNatives::CheckoutStart(transactionId);
             if (!checkout || !*checkout)
-                return Finish(serviceHash, *price, transactionId, DirectServiceTransactionResult::CheckoutFailed);
+                return Finish(serviceHash, action, *price, transactionId, DirectServiceTransactionResult::CheckoutFailed);
 
-            Finish(serviceHash, *price, transactionId, DirectServiceTransactionResult::CheckoutStarted);
+            Finish(serviceHash, action, *price, transactionId, DirectServiceTransactionResult::CheckoutStarted);
         }
 
         void Store(
             std::uint32_t hash,
+            DirectServiceTransactionAction action,
+            std::uint32_t actionHash,
             int price,
             int transactionId,
             DirectServiceTransactionResult result) noexcept
         {
             std::scoped_lock lock(m_Mutex);
             m_Snapshot.serviceHash = hash;
+            m_Snapshot.action = action;
+            m_Snapshot.actionHash = actionHash;
             m_Snapshot.price = price;
             m_Snapshot.transactionId = transactionId;
             m_Snapshot.result = result;
@@ -175,12 +198,13 @@ namespace Tutones::Game::NetworkFeatures
 
         void Finish(
             std::uint32_t hash,
+            DirectServiceTransactionAction action,
             int price,
             int transactionId,
             DirectServiceTransactionResult result) noexcept
         {
             m_Pending.store(false, std::memory_order_release);
-            Store(hash, price, transactionId, result);
+            Store(hash, action, ActionHash(action), price, transactionId, result);
         }
 
         std::atomic<bool> m_Pending{false};
