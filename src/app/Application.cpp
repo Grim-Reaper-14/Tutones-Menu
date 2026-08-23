@@ -5,21 +5,30 @@
 #include "../core/config/MenuSettings.hpp"
 #include "../core/filesystem/FileSystem.hpp"
 #include "../core/logging/Logger.hpp"
+#include "../features/game/GameSessionRuntime.hpp"
 #include "../features/network/NetworkRuntime.hpp"
 #include "../features/player/OffRadarRuntime.hpp"
 #include "../features/player/PlayerRuntime.hpp"
 #include "../features/recovery/RecoveryRuntime.hpp"
 #include "../features/vehicle/LscBypassRuntime.hpp"
 #include "../features/vehicle/PersonalVehicleRuntime.hpp"
+#include "../features/vehicle/VehicleLoopFeatures.hpp"
 #include "../features/vehicle/VehicleModificationRuntime.hpp"
 #include "../features/vehicle/VehiclePaintRuntime.hpp"
 #include "../features/weapon/WeaponRuntime.hpp"
+#include "../features/world/TeleportRuntime.hpp"
+#include "../features/world/WorldRuntime.hpp"
+#include "../game/MiscNatives.hpp"
 #include "../hooking/HookManager.hpp"
 #include "../render/Renderer.hpp"
 #include "../runtime/GameRuntime.hpp"
 #include "../ui/Input.hpp"
 
+#include <atomic>
+#include <chrono>
+#include <memory>
 #include <string>
+#include <thread>
 
 namespace Tutones::App
 {
@@ -31,10 +40,19 @@ namespace Tutones::App
 
             auto& player = Game::PlayerFeatures::PlayerRuntime::Get();
             player.SetInvincible(settings.player.invincible);
+            player.SetBulletproof(settings.player.bulletproof);
+            player.SetAquaLungs(settings.player.aquaLungs);
+            player.SetInfiniteOxygen(settings.player.infiniteOxygen);
             player.SetInvisible(settings.player.invisible);
             player.SetNoRagdoll(settings.player.noRagdoll);
             player.SetSuperJump(settings.player.superJump);
             player.SetInfiniteStamina(settings.player.infiniteStamina);
+            player.SetKeepPlayerClean(settings.player.keepPlayerClean);
+            player.SetDisableCriticalHits(settings.player.disableCriticalHits);
+            player.SetStandOnVehicles(settings.player.standOnVehicles);
+            player.SetDisableActionMode(settings.player.disableActionMode);
+            player.SetInfiniteParachutes(settings.player.infiniteParachutes);
+            player.SetMobileRadio(settings.player.mobileRadio);
             player.SetNeverWanted(settings.player.neverWanted);
             player.SetPoliceIgnore(settings.player.policeIgnore);
             player.SetEveryoneIgnore(settings.player.everyoneIgnore);
@@ -66,10 +84,19 @@ namespace Tutones::App
 
             const auto player = Game::PlayerFeatures::PlayerRuntime::Get().Snapshot();
             settings.player.invincible = player.invincible;
+            settings.player.bulletproof = player.bulletproof;
+            settings.player.aquaLungs = player.aquaLungs;
+            settings.player.infiniteOxygen = player.infiniteOxygen;
             settings.player.invisible = player.invisible;
             settings.player.noRagdoll = player.noRagdoll;
             settings.player.superJump = player.superJump;
             settings.player.infiniteStamina = player.infiniteStamina;
+            settings.player.keepPlayerClean = player.keepPlayerClean;
+            settings.player.disableCriticalHits = player.disableCriticalHits;
+            settings.player.standOnVehicles = player.standOnVehicles;
+            settings.player.disableActionMode = player.disableActionMode;
+            settings.player.infiniteParachutes = player.infiniteParachutes;
+            settings.player.mobileRadio = player.mobileRadio;
             settings.player.neverWanted = player.neverWanted;
             settings.player.policeIgnore = player.policeIgnore;
             settings.player.everyoneIgnore = player.everyoneIgnore;
@@ -91,11 +118,84 @@ namespace Tutones::App
             settings.weapons.explosionDamage = weapons.explosionDamage;
             settings.weapons.explosionCameraShake = weapons.explosionCameraShake;
 
+            const auto network = Game::NetworkFeatures::NetworkRuntime::Get().Snapshot();
+            settings.network.silencePhoneCalls = network.silencePhoneCalls;
+            settings.network.disableDeathBarriers = network.disableDeathBarriers;
+
+            const auto recovery = Game::Recovery::RecoveryRuntime::Get().Snapshot();
+            settings.recovery.rpMultiplierEnabled = recovery.rpMultiplierEnabled;
+            settings.recovery.rpMultiplier = recovery.requestedRpMultiplier;
+
+            const auto world = Game::World::WorldRuntime::Get().Snapshot();
+            settings.world.pedDensity = world.pedDensity;
+            settings.world.scenarioPedDensity = world.scenarioPedDensity;
+            settings.world.vehicleDensity = world.vehicleDensity;
+            settings.world.randomVehicleDensity = world.randomVehicleDensity;
+            settings.world.parkedVehicleDensity = world.parkedVehicleDensity;
+            settings.world.freezeClock = world.freezeClock;
+            settings.world.forceWeather = world.weatherOverrideActive;
+            settings.world.blackout = world.blackout;
+            settings.world.setHour = world.selectedHour;
+            settings.world.setMinute = world.selectedMinute;
+            for (std::size_t index = 0; index < Game::World::WeatherCodes.size(); ++index)
+            {
+                if (world.weatherCode == Game::World::WeatherCodes[index])
+                {
+                    settings.world.weatherIndex = static_cast<int>(index);
+                    break;
+                }
+            }
+            settings.world.autoWaypoint = Game::World::TeleportRuntime::Get().Snapshot().autoWaypointEnabled;
+
             const auto path = Core::FileSystem::Service::Get().UserRoot() / "menu_settings.json";
             if (service.Save(path))
                 TUTONES_LOG_INFO("config", "Saved V11 stateful settings to menu_settings.json");
             else
                 TUTONES_LOG_WARN("config", "Failed to save menu_settings.json");
+        }
+
+        void ReleaseWorldStateBeforeRuntimeShutdown() noexcept
+        {
+            auto& world = Game::World::WorldRuntime::Get();
+            // This flips the clock/weather release state immediately, even if another
+            // World action currently owns the one-shot action slot. The persistent World
+            // loop therefore stops reapplying those overrides on subsequent ticks.
+            static_cast<void>(world.QueueReleasePersistentOverrides());
+
+            auto& runtime = Runtime::GameRuntime::Get();
+            if (!runtime.IsInitialized())
+                return;
+
+            const auto cleanup = [] {
+                bool success = true;
+                success = Game::MiscNatives::NetworkClearClockTimeOverride() && success;
+                success = Game::MiscNatives::ClearOverrideWeather() && success;
+                success = Game::MiscNatives::SetArtificialLightsState(false) && success;
+                if (!success)
+                    TUTONES_LOG_WARN("world.runtime", "One or more world overrides could not be cleared during shutdown");
+            };
+
+            if (runtime.IsOnGameThread())
+            {
+                cleanup();
+                return;
+            }
+
+            const auto cleaned = std::make_shared<std::atomic<bool>>(false);
+            if (!runtime.Enqueue([cleanup, cleaned] {
+                    cleanup();
+                    cleaned->store(true, std::memory_order_release);
+                }))
+            {
+                return;
+            }
+
+            const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(250);
+            while (!cleaned->load(std::memory_order_acquire)
+                && std::chrono::steady_clock::now() < deadline)
+            {
+                std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            }
         }
     }
 
@@ -350,9 +450,15 @@ namespace Tutones::App
 
         TUTONES_LOG_INFO("app", "Tutones Menu application shutting down");
 
-        // Capture only stateful settings while every feature snapshot is still live.
-        // One-shot actions are not represented by MenuSettingsData and therefore cannot persist.
+        // Capture state while every feature snapshot still reflects the user's requested
+        // settings. Individual Stop() calls can safely reset their live atomics afterward.
         SavePersistedMenuSettings();
+
+        TUTONES_LOG_DEBUG("app", "Restoring session utility state before runtime teardown");
+        Game::SessionFeatures::GameSessionRuntime::Get().Shutdown();
+
+        TUTONES_LOG_DEBUG("app", "Stopping vehicle loop features and restoring the last affected vehicle");
+        Game::Mods::VehicleLoopFeatures::Get().Shutdown();
 
         TUTONES_LOG_DEBUG("app", "Stopping Enhanced Network/QoL runtime while GTA script scheduling is still active");
         Game::NetworkFeatures::NetworkRuntime::Get().Stop();
@@ -371,6 +477,11 @@ namespace Tutones::App
         Game::Mods::VehicleModificationRuntime::Get().Stop();
         Game::Paint::VehiclePaintRuntime::Get().Stop();
         Game::Mods::LscBypassRuntime::Get().Stop();
+
+        // Clear external clock/weather/blackout state as the final GTA-native operation.
+        // World release flags were set above so its queued loop cannot reapply clock or
+        // weather; once this task completes GameRuntime is shut down immediately.
+        ReleaseWorldStateBeforeRuntimeShutdown();
 
         TUTONES_LOG_DEBUG("app", "Stopping GTA script/native runtime before MinHook teardown");
         Runtime::GameRuntime::Get().Shutdown();
