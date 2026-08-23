@@ -88,6 +88,7 @@ namespace Tutones::Game::PersonalVehicles
         void ProcessActionsOnGameThread(Clock::time_point now) noexcept;
         bool BeginRequestOnGameThread(int vehicleId, Clock::time_point now) noexcept;
         void ContinueRequestOnGameThread(Clock::time_point now) noexcept;
+        void AbortRequestOnGameThread() noexcept;
         bool RepairVehicleOnGameThread(int vehicleId, bool requireRepairable) noexcept;
         void RecordAction(PersonalVehicleAction action, int vehicleId, bool success) noexcept;
         void RefreshOnGameThread() noexcept;
@@ -101,6 +102,9 @@ namespace Tutones::Game::PersonalVehicles
         bool m_ActionBusy{};
         RequestStage m_RequestStage{RequestStage::Idle};
         int m_RequestVehicleId{-1};
+        int m_DespawnVehicleId{-1};
+        bool m_DespawnToggleWasSet{};
+        bool m_DespawnToggleModified{};
         Clock::time_point m_RequestDeadline{};
         Clock::time_point m_RequestStageReady{};
         Clock::time_point m_NextRefresh{};
