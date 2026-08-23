@@ -1,6 +1,5 @@
 #include "MiscPanel.hpp"
 #include "NativeToolsPanel.hpp"
-#include "NightclubPanel.hpp"
 #include "PersistentMenuState.hpp"
 #include "ProtectionPanel.hpp"
 
@@ -29,9 +28,9 @@ namespace Tutones::UI
                 {{"Live Enhanced packet-hook status, counters and last blocked event.", "Yim-style PackedEvents filters for malformed traffic, sound, explosion, fire, weapon damage, ragdoll, clear-task and PTFX events.", "Malformed CScriptedGameEvent validation plus an optional full scripted-event block mode.", nullptr}}, 3, true},
             BaseCategories[8],
             {"M", "MISC",
-                {{"General", "HUD", "Nightclub", "Camera & Utilities"}},
-                {{"M", "H", "N", "C"}},
-                {{"Gameplay convenience actions and shared quality-of-life controls.", "Always-on coordinates, heading, FPS and Online session overlays.", "Enhanced 1.73 Nightclub warehouse values, cooldowns, capacity, production tuning and popularity income globals.", "Gameplay camera telemetry/shake suppression plus player cleanup, parachute and underwater utilities."}}, 4, true},
+                {{"General", "HUD", "Camera & Utilities", nullptr}},
+                {{"M", "H", "C", nullptr}},
+                {{"Gameplay convenience actions and shared quality-of-life controls.", "Always-on coordinates, heading, FPS and Online session overlays.", "Gameplay camera telemetry/shake suppression plus player cleanup, parachute and underwater utilities.", nullptr}}, 3, true},
             {"T", "NATIVE TOOLS",
                 {{"Workshop", "Vehicle & Camera", "World Tools", "Diagnostics"}},
                 {{"W", "C", "O", "K"}},
@@ -49,8 +48,6 @@ namespace Tutones::UI
 #include "TutonesMenu.part01.inc"
 #define DrawPanel(...) RenderProtectionPanel(m_Item)
 #define RenderMiscOverlay(...) RenderTutonesRuntimeOverlays()
-#define RenderMiscPanel(index) ((m_Item == 2) ? RenderNightclubPanel() : ::Tutones::UI::RenderMiscPanel(index))
 #include "TutonesMenu.part03.inc"
-#undef RenderMiscPanel
 #undef RenderMiscOverlay
 #undef DrawPanel
