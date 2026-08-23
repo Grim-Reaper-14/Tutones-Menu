@@ -1,5 +1,6 @@
 #include "PersonalVehiclePanel.hpp"
 
+#include "Input.hpp"
 #include "V11Description.hpp"
 #include "V11Theme.hpp"
 #include "../features/vehicle/PersonalVehicleRuntime.hpp"
@@ -87,9 +88,22 @@ namespace Tutones::UI
             const bool saveEnabled = snapshot.sessionStarted && snapshot.nativeReady && !saveSnapshot.pending;
             ImGui::BeginDisabled(!saveEnabled);
             if (ImGui::Button("Save Current to Personal Garage", ImVec2(-1.0f, 0.0f)))
-                saveRuntime.QueueSaveCurrent();
+            {
+                if (saveRuntime.QueueSaveCurrent())
+                {
+                    // Tutones normally consumes keyboard, mouse and raw input while open.
+                    // GTA's AM_MP_VEHICLE_REWARD selector needs those controls, so hand
+                    // input back to the game immediately after the save flow is accepted.
+                    g_Message = "GTA garage selector owns input - press F4 after it closes";
+                    Input::Get().SetMenuOpen(false);
+                }
+                else
+                {
+                    g_Message = "Personal-garage save request was rejected";
+                }
+            }
             ImGui::EndDisabled();
-            DescribeLastV11Item("Open GTA Online's AM_MP_VEHICLE_REWARD garage selector and save the vehicle you are currently driving as a Rockstar personal vehicle. This is separate from Tutones local Saved Garage presets.");
+            DescribeLastV11Item("Open GTA Online's AM_MP_VEHICLE_REWARD garage selector for the current vehicle. Tutones closes automatically after the request is queued so GTA receives the selector's navigation and confirm controls.");
 
             if (saveSnapshot.pending)
                 ImGui::TextDisabled("%s", saveSnapshot.message.c_str());
@@ -98,7 +112,7 @@ namespace Tutones::UI
             else if (!snapshot.sessionStarted)
                 ImGui::TextDisabled("Save Personal Vehicle requires an active GTA Online session.");
             else
-                ImGui::TextDisabled("Stay in the vehicle while GTA's garage selector is open.");
+                ImGui::TextDisabled("Tutones releases input while GTA's garage selector is active; reopen with F4 after choosing or backing out.");
 
             ImGui::Separator();
 
