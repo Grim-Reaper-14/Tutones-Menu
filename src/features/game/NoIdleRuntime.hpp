@@ -15,6 +15,7 @@
 #include <mutex>
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace Tutones::Game::SessionFeatures
@@ -97,7 +98,6 @@ namespace Tutones::Game::SessionFeatures
         static constexpr std::uint32_t TunablesRegistrationHash = Joaat("tunables_registration");
         static constexpr std::size_t TunableBase = 0x40001;
 
-        // Same eight tunables and defaults used by YimMenuV2 NoIdleKick.
         static constexpr std::array<int, 4> IdleDefaults{
             120000, 300000, 600000, 900000,
         };
@@ -109,8 +109,6 @@ namespace Tutones::Game::SessionFeatures
             30000, 60000, 90000, 120000,
         };
 
-        // Historical offsets are used only as a tie-breaker if the exact timer
-        // sequence appears more than once in the current live tunable table.
         static constexpr std::size_t HistoricalIdleOffset = 87;
         static constexpr std::size_t HistoricalConstrainedOffset = 8420;
 
@@ -161,7 +159,6 @@ namespace Tutones::Game::SessionFeatures
                 }
             }
 
-            // Do not claim success unless every live global actually contains INT_MAX.
             if (success)
             {
                 for (const std::size_t global : m_Globals)
@@ -290,8 +287,7 @@ namespace Tutones::Game::SessionFeatures
 
             if (!pair)
             {
-                SetMessage(
-                    "Live idle timer signatures not found - waiting for current session tunables");
+                SetMessage("Live idle timer signatures not found - waiting for current session tunables");
                 return false;
             }
 
