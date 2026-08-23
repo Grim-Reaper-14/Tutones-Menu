@@ -2,10 +2,8 @@
 
 #include "GameSessionTypes.hpp"
 
-#include <array>
 #include <atomic>
 #include <chrono>
-#include <cstddef>
 #include <cstdint>
 #include <mutex>
 
@@ -18,8 +16,6 @@ namespace Tutones::Game::SessionFeatures
         bool shopControllerReady{};
         bool actionPending{};
         bool hasLastAction{};
-        bool noIdleEnabled{};
-        bool noIdleReady{};
         bool servicePending{};
         GameServiceAction lastServiceAction{GameServiceAction::None};
         bool lastServiceSucceeded{};
@@ -39,7 +35,6 @@ namespace Tutones::Game::SessionFeatures
         [[nodiscard]] bool QueueAirstrikeAhead(int damage);
         [[nodiscard]] bool QueueAmmoDrop();
         [[nodiscard]] bool QueueMinigunDrop();
-        void SetNoIdle(bool enabled);
         void Shutdown() noexcept;
         [[nodiscard]] GameSessionSnapshot Snapshot() const noexcept;
         [[nodiscard]] bool CreatorSupported() const noexcept { return false; }
@@ -61,18 +56,10 @@ namespace Tutones::Game::SessionFeatures
         [[nodiscard]] bool ExecuteAirstrikeOnGameThread(int damage) noexcept;
         [[nodiscard]] bool EnsureUtilityTick();
         void UtilityTickOnGameThread() noexcept;
-        [[nodiscard]] bool ResolveNoIdleTunablesOnGameThread() noexcept;
-        [[nodiscard]] bool ApplyNoIdleOnGameThread() noexcept;
-        [[nodiscard]] bool RestoreNoIdleOnGameThread() noexcept;
 
         std::atomic<bool> m_Pending{false};
-        std::atomic<bool> m_NoIdle{false};
         std::atomic<bool> m_ServicePending{false};
         std::atomic<bool> m_UtilityTickQueued{false};
-        std::atomic<bool> m_NoIdleResolved{false};
-        std::array<std::size_t, 8> m_NoIdleGlobals{};
-        std::array<int, 8> m_NoIdleOriginals{};
-        Clock::time_point m_NextNoIdleResolve{};
         GameServiceAction m_PendingServiceAction{GameServiceAction::None};
         std::uint32_t m_PendingPickupModel{};
         Clock::time_point m_ServiceDeadline{};
