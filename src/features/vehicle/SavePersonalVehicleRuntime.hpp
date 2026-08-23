@@ -64,8 +64,7 @@ namespace Tutones::Game::PersonalVehicles
             if (!m_Pending.compare_exchange_strong(expected, true, std::memory_order_acq_rel))
                 return false;
 
-            m_RewardInvoked = false;
-            m_WaitingForSelectorClose = false;
+            m_SelectorObserved = false;
             SetPending("Save Personal Vehicle queued");
             if (Runtime::GameRuntime::Get().Enqueue([this] { BeginOnGameThread(); }))
                 return true;
@@ -154,8 +153,7 @@ namespace Tutones::Game::PersonalVehicles
 
             m_Vehicle = state.vehicle;
             m_Deadline = Clock::now() + FlowTimeout;
-            m_RewardInvoked = false;
-            m_WaitingForSelectorClose = false;
+            m_SelectorObserved = false;
             SetPending("Opening GTA personal-garage selector...");
             RunRewardStep();
         }
@@ -188,43 +186,41 @@ namespace Tutones::Game::PersonalVehicles
             if (!transactionStatus || !garage || !garageOffset || !controlStatus || !vehicleMenuData)
                 return Finish(false, "Vehicle-reward script locals are unavailable");
 
-            // Critical: invoke GiveVehicleReward exactly once. Re-entering it every script tick
-            // while controlStatus == 3 resets GTA's selector and makes the garage list flash shut.
-            if (!m_RewardInvoked)
-            {
-                static Script::ScriptFunction giveVehicleReward(
-                    VehicleRewardHash,
-                    Script::ScriptPointer("GiveVehicleReward", "2D 0C 1E 00 00"));
+            static Script::ScriptFunction giveVehicleReward(
+                VehicleRewardHash,
+                Script::ScriptPointer("GiveVehicleReward", "2D 0C 1E 00 00"));
 
-                const auto called = giveVehicleReward.TryCall<std::int32_t>(
-                    m_Vehicle,
-                    vehicleMenuData,
-                    transactionStatus,
-                    garage,
-                    garageOffset,
-                    controlStatus,
-                    std::int32_t{0},
-                    std::int32_t{1},
-                    std::int32_t{1},
-                    std::int32_t{0},
-                    0,
-                    -1);
+            // Match YimMenuV2's current Enhanced flow: GiveVehicleReward is invoked
+            // again on every script tick while controlStatus == 3. GTA's reward script
+            // owns the selector lifecycle; repeatedly servicing it keeps the garage
+            // selector alive instead of letting it flash for one frame and disappear.
+            const auto called = giveVehicleReward.TryCall<std::int32_t>(
+                m_Vehicle,
+                vehicleMenuData,
+                transactionStatus,
+                garage,
+                garageOffset,
+                controlStatus,
+                std::int32_t{0},
+                std::int32_t{1},
+                std::int32_t{1},
+                std::int32_t{0},
+                0,
+                -1);
 
-                if (!called)
-                    return Finish(false, "GiveVehicleReward script function could not be invoked");
-                m_RewardInvoked = true;
-            }
+            if (!called)
+                return Finish(false, "GiveVehicleReward script function could not be invoked");
 
             if (*controlStatus == 3)
             {
-                m_WaitingForSelectorClose = true;
-                SetPending("GTA garage selector active - click the garage/slot you want");
+                m_SelectorObserved = true;
+                SetPending("GTA garage selector active - choose a garage and slot");
                 return QueueNextRewardStep();
             }
 
-            // The selector may need a few ticks to transition from invocation to its active state.
-            // Do not invoke the reward function again during that transition.
-            if (!m_WaitingForSelectorClose
+            // Before the selector reaches status 3, keep servicing the reward function
+            // for a few ticks just as Yim's fiber loop does.
+            if (!m_SelectorObserved
                 && *transactionStatus == 0
                 && *garage == 0
                 && *garageOffset == 0)
@@ -253,8 +249,7 @@ namespace Tutones::Game::PersonalVehicles
         {
             m_Vehicle = 0;
             m_Deadline = {};
-            m_RewardInvoked = false;
-            m_WaitingForSelectorClose = false;
+            m_SelectorObserved = false;
             m_Pending.store(false, std::memory_order_release);
             SetResult(success, std::move(message));
         }
@@ -282,7 +277,6 @@ namespace Tutones::Game::PersonalVehicles
         std::string m_Message{"Ready"};
         Vehicle m_Vehicle{};
         Clock::time_point m_Deadline{};
-        bool m_RewardInvoked{};
-        bool m_WaitingForSelectorClose{};
+        bool m_SelectorObserved{};
     };
 }

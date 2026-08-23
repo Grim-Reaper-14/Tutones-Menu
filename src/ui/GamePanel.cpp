@@ -4,6 +4,7 @@
 #include "V11Theme.hpp"
 #include "../features/game/GameSessionRuntime.hpp"
 #include "../features/game/GameSessionTypes.hpp"
+#include "../features/game/NoIdleRuntime.hpp"
 
 #include <imgui.h>
 
@@ -130,25 +131,20 @@ namespace Tutones::UI
                     : "Skip Conversation unavailable";
             DescribeLastV11Item("Skip to the next scripted phone/conversation line using the same native path used by YimMenuV2.");
 
-            g_NoIdle = snapshot.noIdleEnabled;
+            auto& noIdle = Game::SessionFeatures::NoIdleRuntime::Get();
+            const auto idle = noIdle.Snapshot();
+            g_NoIdle = idle.enabled;
             if (RenderToggleSwitch("No Idle Kick", g_NoIdle))
             {
-                runtime.SetNoIdle(g_NoIdle);
+                noIdle.SetEnabled(g_NoIdle);
                 g_SessionMessage = g_NoIdle ? "No Idle enabled" : "No Idle disabled";
             }
-            DescribeLastV11Item("Prevent GTA Online idle kicks by overriding the current-build idle and constrained-idle timers, restoring their captured values when disabled.");
+            DescribeLastV11Item("Yim-style No Idle: directly services IDLEKICK_WARNING1-3, IDLEKICK_KICK and ConstrainedKick Warning/Kick tunables while enabled, restoring original values when disabled.");
 
-            if (snapshot.noIdleEnabled)
-            {
-                if (snapshot.noIdleReady)
-                    ImGui::TextDisabled("No Idle: active - current-build timers resolved.");
-                else
-                    ImGui::TextDisabled("No Idle: resolving verified timer sequences; no writes occur until they match uniquely.");
-            }
+            if (idle.enabled)
+                ImGui::TextDisabled("No Idle: %s", idle.message.c_str());
             else
-            {
                 ImGui::TextDisabled("No Idle: off.");
-            }
 
             ImGui::Spacing();
             ImGui::SeparatorText("Transition backend");
