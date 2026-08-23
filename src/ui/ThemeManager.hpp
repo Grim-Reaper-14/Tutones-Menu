@@ -7,6 +7,7 @@
 
 #include <imgui.h>
 
+#include <filesystem>
 #include <string>
 #include <unordered_map>
 
@@ -86,35 +87,7 @@ namespace Tutones::UI
             }
 
             if (m_FontDirty && m_FallbackFont)
-            {
-                if (m_Current.fontFile.empty())
-                {
-                    m_ActiveFont = nullptr;
-                    ImGui::GetIO().FontDefault = m_FallbackFont;
-                }
-                else
-                {
-                    const auto path = m_Storage.FontPath(m_Current.fontFile);
-                    const std::string key = path.string() + "#" + std::to_string(m_Current.fontSize);
-                    auto it = m_FontCache.find(key);
-                    if (it == m_FontCache.end())
-                    {
-                        ImFontConfig config{};
-                        config.OversampleH = 2;
-                        config.OversampleV = 1;
-                        ImFont* font = ImGui::GetIO().Fonts->AddFontFromFileTTF(
-                            path.string().c_str(),
-                            m_Current.fontSize,
-                            &config);
-                        it = m_FontCache.emplace(key, font).first;
-                    }
-
-                    m_ActiveFont = it->second;
-                    ImGui::GetIO().FontDefault = m_ActiveFont ? m_ActiveFont : m_FallbackFont;
-                }
-
-                m_FontDirty = false;
-            }
+                ApplyFont();
         }
 
         void ApplyColors() noexcept
@@ -201,16 +174,12 @@ namespace Tutones::UI
             m_FontDirty = true;
         }
 
-        // Called while the current ImGui context and DX12 backend are still alive.
-        // This unregisters all theme images before device objects/descriptors are invalidated.
         void ReleaseTextureResources() noexcept
         {
             ResetTextures();
             m_ResourcesDirty = true;
         }
 
-        // Called immediately before the ImGui context is destroyed. Theme definitions and
-        // storage remain initialized, but all context-owned pointers/resources are discarded.
         void ReleaseImGuiResources() noexcept
         {
             ReleaseTextureResources();
@@ -238,6 +207,74 @@ namespace Tutones::UI
 
     private:
         ThemeManager() = default;
+
+        void ApplyFont() noexcept
+        {
+            auto& io = ImGui::GetIO();
+
+            if (m_Current.fontFile.empty())
+            {
+                m_ActiveFont = nullptr;
+                io.FontDefault = m_FallbackFont;
+                ImGui::GetStyle().FontSizeBase = m_FallbackFont ? m_FallbackFont->LegacySize : 15.0f;
+                m_FontDirty = false;
+                TUTONES_LOG_DEBUG("ui.fonts", "Restored embedded Tutones font");
+                return;
+            }
+
+            const auto path = m_Storage.FontPath(m_Current.fontFile);
+            std::error_code error;
+            if (path.empty() || !std::filesystem::is_regular_file(path, error) || error)
+            {
+                m_ActiveFont = nullptr;
+                io.FontDefault = m_FallbackFont;
+                m_FontDirty = false;
+                std::string message("Selected Windows font is unavailable: ");
+                message += path.empty() ? m_Current.fontFile : path.string();
+                TUTONES_LOG_WARN("ui.fonts", message);
+                return;
+            }
+
+            const float size = std::clamp(m_Current.fontSize, 9.0f, 40.0f);
+            const std::string key = path.string() + "#" + std::to_string(size);
+            ImFont* font{};
+            if (const auto it = m_FontCache.find(key); it != m_FontCache.end())
+            {
+                font = it->second;
+            }
+            else
+            {
+                ImFontConfig config{};
+                config.OversampleH = 2;
+                config.OversampleV = 1;
+                font = io.Fonts->AddFontFromFileTTF(path.string().c_str(), size, &config);
+                if (font)
+                    m_FontCache.emplace(key, font);
+            }
+
+            if (!font)
+            {
+                m_ActiveFont = nullptr;
+                io.FontDefault = m_FallbackFont;
+                m_FontDirty = false;
+                std::string message("Failed to load selected Windows font; using embedded fallback: ");
+                message += path.string();
+                TUTONES_LOG_WARN("ui.fonts", message);
+                return;
+            }
+
+            m_ActiveFont = font;
+            io.FontDefault = font;
+            ImGui::GetStyle().FontSizeBase = size;
+            m_FontDirty = false;
+
+            std::string message("Applied Windows font: ");
+            message += path.filename().string();
+            message += " @ ";
+            message += std::to_string(size);
+            message += "px";
+            TUTONES_LOG_INFO("ui.fonts", message);
+        }
 
         void LoadSlot(ThemeTexture& slot, const std::string& name, const char* slotName) noexcept
         {
