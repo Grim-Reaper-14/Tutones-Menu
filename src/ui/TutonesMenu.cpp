@@ -1,4 +1,5 @@
 #include "MiscPanel.hpp"
+#include "NativeToolsPanel.hpp"
 #include "PersistentMenuState.hpp"
 
 #define Categories BaseCategories
@@ -9,7 +10,7 @@ namespace Tutones::UI
 {
     namespace
     {
-        constexpr std::array<CategoryEntry, 10> Categories{{
+        constexpr std::array<CategoryEntry, 11> Categories{{
             BaseCategories[0],
             BaseCategories[1],
             BaseCategories[2],
@@ -26,6 +27,10 @@ namespace Tutones::UI
                 {{"General", "HUD", "Camera & Utilities", nullptr}},
                 {{"M", "H", "C", nullptr}},
                 {{"Gameplay convenience actions and shared quality-of-life controls.", "Always-on coordinates, heading, FPS and Online session overlays.", "Gameplay camera telemetry/shake suppression plus player cleanup, parachute and underwater utilities.", nullptr}}, 3, true},
+            {"T", "NATIVE TOOLS",
+                {{"Workshop", "Vehicle & Camera", "World Tools", "Diagnostics"}},
+                {{"W", "C", "O", "K"}},
+                {{"Enhanced weapon components/tints, player props, full outfit presets and animation playback.", "Scripted freecam plus native vehicle doors, windows, engine, lights, top-speed, torque and grip controls.", "Custom blips, particle effects, bodyguards, IPL streaming and interior entity-set controls.", "Resolve current Enhanced native hashes to executable handler addresses without invoking them."}}, 4, true},
         }};
     }
 }

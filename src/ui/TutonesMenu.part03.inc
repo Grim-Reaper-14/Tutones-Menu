@@ -62,6 +62,10 @@ namespace Tutones::UI
             RenderMiscPanel(m_Item == 2 ? 3 : m_Item);
             break;
 
+        case 10:
+            RenderNativeToolsPanel(m_Item);
+            break;
+
         default:
             break;
         }
