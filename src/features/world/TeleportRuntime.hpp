@@ -108,6 +108,13 @@ namespace Tutones::Game::World
             std::byte pad48[0x38]{};
         };
 
+        struct TeleportTarget final
+        {
+            Entity entity{};
+            Vehicle vehicle{};
+            bool inVehicle{};
+        };
+
         static_assert(offsetof(NativeProgram, nativeCount) == 0x2C);
         static_assert(offsetof(NativeProgram, nativeEntrypoints) == 0x40);
         static_assert(sizeof(NativeProgram) == 0x80);
@@ -127,10 +134,13 @@ namespace Tutones::Game::World
             SetWaypointOff,
             GetWaterHeight,
             GetApproxHeight,
+            FreezeEntity,
+            SetEntityVelocity,
+            HasCollisionLoadedAroundEntity,
             HandlerCount,
         };
 
-        // Current GTA V Enhanced mappings cross-checked against YimMenuV2 enhanced.
+        // GTA V Enhanced mappings verified against YimMenuV2 enhanced crossmap.
         static constexpr std::array<std::uint64_t, HandlerCount> HandlerHashes{
             0xD56419CB9E15983Full, // GET_FIRST_BLIP_INFO_ID
             0xA3F6143A8F610118ull, // GET_NEXT_BLIP_INFO_ID
@@ -145,10 +155,15 @@ namespace Tutones::Game::World
             0xA4C1E1845880C098ull, // SET_WAYPOINT_OFF
             0xF85C2BE613AD7903ull, // GET_WATER_HEIGHT
             0x54D01A0F98391D5Bull, // GET_APPROX_HEIGHT_FOR_POINT
+            0x5D7CD709B34C90F0ull, // FREEZE_ENTITY_POSITION
+            0x1AB7223AC0702871ull, // SET_ENTITY_VELOCITY
+            0x5E22EA3310AF52EAull, // HAS_COLLISION_LOADED_AROUND_ENTITY
         };
 
         static constexpr std::size_t MaxBlips = 64;
         static constexpr int MaxGroundAttempts = 20;
+        static constexpr int MaxSettleAttempts = 120;
+        static constexpr int StableCollisionTicks = 2;
         static constexpr float MaxGroundCheck = 1000.0f;
 
         TeleportRuntime() = default;
@@ -258,6 +273,12 @@ namespace Tutones::Game::World
             return true;
         }
 
+        [[nodiscard]] bool EntityExists(Entity entity) const noexcept
+        {
+            const auto exists = Natives::DoesEntityExist(entity);
+            return entity != 0 && exists && *exists;
+        }
+
         [[nodiscard]] int BlipIterator(std::size_t handlerIndex, int sprite) const
         {
             int result{};
@@ -274,7 +295,6 @@ namespace Tutones::Game::World
         {
             if (!BlipExists(blip) || !Call(GetBlipCoords, out, blip))
                 return false;
-
             return std::isfinite(out.x) && std::isfinite(out.y) && std::isfinite(out.z);
         }
 
@@ -310,60 +330,66 @@ namespace Tutones::Game::World
             return blips;
         }
 
-        [[nodiscard]] bool MoveEntity(Entity entity, const Native::NativeVector3& coords) const
+        [[nodiscard]] TeleportTarget ResolveTargetLikeYim() const noexcept
         {
-            if (entity == 0)
-                return false;
-
-            const auto exists = Natives::DoesEntityExist(entity);
-            if (!exists || !*exists)
-                return false;
-
-            // Exact YimMenuV2 Entity::SetPosition behavior.
-            return CallVoid(
-                SetEntityCoords,
-                entity,
-                coords.x,
-                coords.y,
-                coords.z,
-                std::int32_t{1},
-                std::int32_t{1},
-                std::int32_t{1});
-        }
-
-        [[nodiscard]] bool TeleportLocalPedLikeYim(
-            const Native::NativeVector3& coords,
-            bool& movedVehicle) const
-        {
-            movedVehicle = false;
-
+            TeleportTarget target{};
             const auto ped = Natives::PlayerPedId();
-            if (!ped || *ped == 0)
-                return false;
+            if (!ped || *ped == 0 || !EntityExists(*ped))
+                return target;
 
-            const auto pedExists = Natives::DoesEntityExist(*ped);
-            if (!pedExists || !*pedExists)
-                return false;
-
-            // Mirror YimMenuV2 Ped::GetVehicle() exactly:
-            // IS_PED_IN_ANY_VEHICLE(ped, false) -> GET_VEHICLE_PED_IS_USING(ped).
+            // YimMenuV2 Ped::GetVehicle(): active vehicle only, not last vehicle.
             const auto inVehicle = Natives::IsPedInAnyVehicle(*ped, false);
             if (inVehicle && *inVehicle)
             {
                 const auto vehicle = VehicleNatives::GetVehiclePedIsUsing(*ped);
-                if (vehicle && *vehicle != 0)
+                if (vehicle && *vehicle != 0 && EntityExists(*vehicle))
                 {
-                    const auto vehicleExists = Natives::DoesEntityExist(*vehicle);
-                    if (vehicleExists && *vehicleExists)
-                    {
-                        movedVehicle = true;
-                        return MoveEntity(*vehicle, coords);
-                    }
+                    target.entity = *vehicle;
+                    target.vehicle = *vehicle;
+                    target.inVehicle = true;
+                    return target;
                 }
             }
 
-            // No actively used vehicle: YimMenuV2 Ped::TeleportTo falls back to the ped.
-            return MoveEntity(*ped, coords);
+            target.entity = *ped;
+            return target;
+        }
+
+        [[nodiscard]] bool MoveEntity(Entity entity, const Native::NativeVector3& coords) const
+        {
+            return EntityExists(entity)
+                && std::isfinite(coords.x)
+                && std::isfinite(coords.y)
+                && std::isfinite(coords.z)
+                && CallVoid(
+                    SetEntityCoords,
+                    entity,
+                    coords.x,
+                    coords.y,
+                    coords.z,
+                    std::int32_t{1},
+                    std::int32_t{1},
+                    std::int32_t{1});
+        }
+
+        [[nodiscard]] bool SetFrozen(Entity entity, bool frozen) const
+        {
+            return EntityExists(entity)
+                && CallVoid(FreezeEntity, entity, std::int32_t{frozen ? 1 : 0});
+        }
+
+        void ZeroVelocity(Entity entity) const
+        {
+            if (EntityExists(entity))
+                static_cast<void>(CallVoid(SetEntityVelocity, entity, 0.0f, 0.0f, 0.0f));
+        }
+
+        [[nodiscard]] bool CollisionLoaded(Entity entity) const
+        {
+            std::int32_t loaded{};
+            return EntityExists(entity)
+                && Call(HasCollisionLoadedAroundEntity, loaded, entity)
+                && loaded != 0;
         }
 
         void StreamCollision(const Native::NativeVector3& coords) const
@@ -381,9 +407,7 @@ namespace Tutones::Game::World
                 || !context.PushArg(&out)
                 || !context.PushArg(std::int32_t{0})
                 || !context.PushArg(std::int32_t{0}))
-            {
                 return false;
-            }
 
             m_Handlers[GetGroundZ](&context);
             context.FixVectors();
@@ -398,9 +422,7 @@ namespace Tutones::Game::World
                 || !context.PushArg(coords.y)
                 || !context.PushArg(coords.z)
                 || !context.PushArg(&out))
-            {
                 return false;
-            }
 
             m_Handlers[GetWaterHeight](&context);
             context.FixVectors();
@@ -435,9 +457,7 @@ namespace Tutones::Game::World
             if (!ResolveHandlers())
                 return Fail("Teleport natives are unavailable");
 
-            // Mirror YimMenuV2 ResolveZCoordinate state exactly. We cannot call
-            // ScriptMgr::Yield directly, so every re-queued ResolveZStep is one GTA
-            // script scheduler tick later because GameRuntime drains one task per tick.
+            // Keep YimMenuV2's ResolveZCoordinate structure first.
             m_ResolveCoords = coords;
             m_GroundZ = coords.z;
             m_GroundAttempt = 0;
@@ -455,7 +475,6 @@ namespace Tutones::Game::World
             if (!Native::NativeRegistry::Get().CanInvokeOnCurrentThread() || !ResolveHandlers())
                 return Fail("Teleport natives became unavailable");
 
-            // YimMenuV2 requests collision at the destination before each ground test.
             StreamCollision(m_ResolveCoords);
 
             float ground = m_GroundZ;
@@ -483,35 +502,174 @@ namespace Tutones::Game::World
 
         void FinishResolvedZ()
         {
-            // Exact YimMenuV2 order:
-            // 1) ground + 1.0 if found
-            // 2) water height wins whether ground was found or not
-            // 3) approximate path height only when ground was never found
+            // YimMenuV2 order: ground first, water overrides it, approximate path height
+            // is only a fallback when no ground was found.
             float waterHeight{};
+            bool onWater = false;
             if (ProbeWater(m_ResolveCoords, waterHeight))
             {
                 m_ResolveCoords.z = waterHeight;
+                onWater = true;
             }
             else if (!m_FoundGround)
             {
                 m_ResolveCoords.z = ApproxHeight(m_ResolveCoords.x, m_ResolveCoords.y);
             }
 
-            bool movedVehicle = false;
-            const bool moved = TeleportLocalPedLikeYim(m_ResolveCoords, movedVehicle);
+            BeginSafeSettle(onWater);
+        }
 
-            m_Pending.store(false, std::memory_order_release);
-            if (!moved)
+        void BeginSafeSettle(bool onWater)
+        {
+            m_SettleTarget = ResolveTargetLikeYim();
+            if (m_SettleTarget.entity == 0)
+                return Fail("Local player/vehicle entity is unavailable");
+
+            const auto original = VehicleNatives::GetEntityCoords(m_SettleTarget.entity, false);
+            if (!original)
+                return Fail("Could not capture the original player/vehicle position");
+
+            m_OriginalCoords = *original;
+            m_SafeCoords = m_ResolveCoords;
+            m_SettleAttempt = 0;
+            m_StableCollisionTicks = 0;
+            m_SurfaceResolved = m_FoundGround || onWater;
+            m_SurfaceIsWater = onWater;
+
+            // The important difference from the old code: never release physics at the
+            // remote destination until GTA says collision around the moved entity is loaded.
+            if (!SetFrozen(m_SettleTarget.entity, true))
+                return Fail("Could not freeze the teleport target for safe placement");
+
+            ZeroVelocity(m_SettleTarget.entity);
+            StreamCollision(m_SafeCoords);
+            if (!MoveEntity(m_SettleTarget.entity, m_SafeCoords))
             {
-                SetResult(false, "Teleport destination placement failed");
-                return;
+                static_cast<void>(SetFrozen(m_SettleTarget.entity, false));
+                return Fail("Initial safe teleport placement failed");
             }
 
+            SetPending(m_ResolveLabel + ": waiting for destination collision");
+            if (!Runtime::GameRuntime::Get().Enqueue([this] { SafeSettleTick(); }))
+                RestoreUnsafeTeleport("Destination-settle queue unavailable");
+        }
+
+        void SafeSettleTick()
+        {
+            if (!m_Pending.load(std::memory_order_acquire))
+                return;
+            if (!Native::NativeRegistry::Get().CanInvokeOnCurrentThread() || !ResolveHandlers())
+                return RestoreUnsafeTeleport("Teleport natives became unavailable while settling");
+            if (!EntityExists(m_SettleTarget.entity))
+                return RestoreUnsafeTeleport("Teleport target disappeared while settling");
+
+            StreamCollision(m_SafeCoords);
+            ZeroVelocity(m_SettleTarget.entity);
+
+            // Re-probe after the entity has been moved but remains frozen. This lets remote
+            // terrain stream in without the player falling while collision is incomplete.
+            float ground{};
+            bool surfaceNow = false;
+            bool waterNow = false;
+            if (ProbeGround(m_SafeCoords.x, m_SafeCoords.y, ground))
+            {
+                m_SafeCoords.z = ground + 1.0f;
+                surfaceNow = true;
+            }
+
+            float waterHeight{};
+            if (ProbeWater(m_SafeCoords, waterHeight))
+            {
+                m_SafeCoords.z = waterHeight;
+                surfaceNow = true;
+                waterNow = true;
+            }
+
+            if (surfaceNow)
+            {
+                m_SurfaceResolved = true;
+                m_SurfaceIsWater = waterNow;
+                static_cast<void>(MoveEntity(m_SettleTarget.entity, m_SafeCoords));
+                ZeroVelocity(m_SettleTarget.entity);
+            }
+
+            if (CollisionLoaded(m_SettleTarget.entity) && m_SurfaceResolved)
+                ++m_StableCollisionTicks;
+            else
+                m_StableCollisionTicks = 0;
+
+            if (m_StableCollisionTicks >= StableCollisionTicks)
+                return FinishSafeTeleport();
+
+            ++m_SettleAttempt;
+            if (m_SettleAttempt >= MaxSettleAttempts)
+                return RestoreUnsafeTeleport("Destination collision never became safe; original position restored");
+
+            if (!Runtime::GameRuntime::Get().Enqueue([this] { SafeSettleTick(); }))
+                RestoreUnsafeTeleport("Destination-settle queue unavailable; original position restored");
+        }
+
+        void FinishSafeTeleport()
+        {
+            if (!EntityExists(m_SettleTarget.entity))
+                return RestoreUnsafeTeleport("Teleport target disappeared before final placement");
+
+            static_cast<void>(MoveEntity(m_SettleTarget.entity, m_SafeCoords));
+            ZeroVelocity(m_SettleTarget.entity);
+
+            if (m_SettleTarget.inVehicle && !m_SurfaceIsWater)
+            {
+                const auto grounded = Natives::SetVehicleOnGroundProperly(m_SettleTarget.vehicle, 5.0f);
+                if (grounded && !*grounded)
+                {
+                    m_StableCollisionTicks = 0;
+                    if (++m_SettleAttempt < MaxSettleAttempts
+                        && Runtime::GameRuntime::Get().Enqueue([this] { SafeSettleTick(); }))
+                        return;
+                    return RestoreUnsafeTeleport("Vehicle could not be grounded safely; original position restored");
+                }
+            }
+
+            static_cast<void>(SetFrozen(m_SettleTarget.entity, false));
+            ZeroVelocity(m_SettleTarget.entity);
+
+            if (m_SettleTarget.inVehicle && !m_SurfaceIsWater)
+                static_cast<void>(Natives::SetVehicleOnGroundProperly(m_SettleTarget.vehicle, 5.0f));
+
+            m_Pending.store(false, std::memory_order_release);
             SetResult(
                 true,
-                m_ResolveLabel + (movedVehicle
-                    ? " complete - moved current vehicle"
-                    : " complete - moved player on foot"));
+                m_ResolveLabel + (m_SettleTarget.inVehicle
+                    ? " complete - vehicle settled on loaded collision"
+                    : " complete - player released on loaded collision"));
+            ResetSettleState();
+        }
+
+        void RestoreUnsafeTeleport(std::string message)
+        {
+            if (m_SettleTarget.entity != 0 && EntityExists(m_SettleTarget.entity))
+            {
+                StreamCollision(m_OriginalCoords);
+                static_cast<void>(MoveEntity(m_SettleTarget.entity, m_OriginalCoords));
+                ZeroVelocity(m_SettleTarget.entity);
+                static_cast<void>(SetFrozen(m_SettleTarget.entity, false));
+                ZeroVelocity(m_SettleTarget.entity);
+            }
+
+            m_Pending.store(false, std::memory_order_release);
+            SetResult(false, std::move(message));
+            ResetSettleState();
+        }
+
+        void ResetSettleState() noexcept
+        {
+            m_SettleTarget = {};
+            m_OriginalCoords = {};
+            m_SafeCoords = {};
+            m_SettleAttempt = 0;
+            m_StableCollisionTicks = 0;
+            m_SurfaceResolved = false;
+            m_SurfaceIsWater = false;
         }
 
         void TeleportGroup(std::size_t index)
@@ -519,9 +677,7 @@ namespace Tutones::Game::World
             if (!Native::NativeRegistry::Get().CanInvokeOnCurrentThread()
                 || !ResolveHandlers()
                 || index >= TeleportData::Groups.size())
-            {
                 return Fail("Teleport natives are unavailable");
-            }
 
             const auto& group = TeleportData::Groups[index];
             const auto blips = CollectBlips(group.sprite);
@@ -572,8 +728,6 @@ namespace Tutones::Game::World
                 if (WaypointCoords(coords)
                     && !m_Pending.exchange(true, std::memory_order_acq_rel))
                 {
-                    // YimMenuV2 captures the marker, queues the teleport work, then
-                    // consumes the waypoint so the loop cannot retrigger on the same marker.
                     static_cast<void>(CallVoid(SetWaypointOff));
                     SetPending("Auto waypoint detected");
                     BeginResolvedTeleport(coords, "Auto waypoint teleport");
@@ -582,9 +736,7 @@ namespace Tutones::Game::World
 
             if (m_AutoWaypoint.load(std::memory_order_acquire)
                 && Runtime::GameRuntime::Get().Enqueue([this] { AutoTick(); }))
-            {
                 return;
-            }
 
             m_AutoLoopScheduled.store(false, std::memory_order_release);
         }
@@ -623,6 +775,14 @@ namespace Tutones::Game::World
         int m_GroundAttempt{};
         bool m_FoundGround{};
         std::string m_ResolveLabel{};
+
+        TeleportTarget m_SettleTarget{};
+        Native::NativeVector3 m_OriginalCoords{};
+        Native::NativeVector3 m_SafeCoords{};
+        int m_SettleAttempt{};
+        int m_StableCollisionTicks{};
+        bool m_SurfaceResolved{};
+        bool m_SurfaceIsWater{};
 
         mutable std::mutex m_Mutex;
         bool m_HaveResult{};
