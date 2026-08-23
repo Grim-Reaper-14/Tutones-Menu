@@ -40,6 +40,7 @@ namespace Tutones::Game::SessionFeatures
         [[nodiscard]] bool QueueAmmoDrop();
         [[nodiscard]] bool QueueMinigunDrop();
         void SetNoIdle(bool enabled);
+        void Shutdown() noexcept;
         [[nodiscard]] GameSessionSnapshot Snapshot() const noexcept;
         [[nodiscard]] bool CreatorSupported() const noexcept { return false; }
 
