@@ -16,7 +16,9 @@
 #include <climits>
 #include <cmath>
 #include <cstdint>
+#include <memory>
 #include <optional>
+#include <thread>
 
 namespace Tutones::Game::SessionFeatures
 {
@@ -228,6 +230,51 @@ namespace Tutones::Game::SessionFeatures
         static_cast<void>(Runtime::GameRuntime::Get().Enqueue([this] {
             static_cast<void>(RestoreNoIdleOnGameThread());
         }));
+    }
+
+    void GameSessionRuntime::Shutdown() noexcept
+    {
+        m_NoIdle.store(false, std::memory_order_release);
+        m_Pending.store(false, std::memory_order_release);
+        m_ServicePending.store(false, std::memory_order_release);
+        m_UtilityTickQueued.store(false, std::memory_order_release);
+
+        const auto cleanup = [this] {
+            static_cast<void>(RestoreNoIdleOnGameThread());
+
+            if (m_PendingPickupModel != 0)
+            {
+                static_cast<void>(PlayerNatives::SetModelAsNoLongerNeeded(m_PendingPickupModel));
+                m_PendingPickupModel = 0;
+            }
+            m_PendingServiceAction = GameServiceAction::None;
+            m_ServiceDeadline = {};
+        };
+
+        auto& runtime = Runtime::GameRuntime::Get();
+        if (runtime.IsOnGameThread())
+        {
+            cleanup();
+        }
+        else if (runtime.IsInitialized())
+        {
+            const auto cleaned = std::make_shared<std::atomic<bool>>(false);
+            if (runtime.Enqueue([cleanup, cleaned] {
+                    cleanup();
+                    cleaned->store(true, std::memory_order_release);
+                }))
+            {
+                const auto deadline = Clock::now() + std::chrono::milliseconds(250);
+                while (!cleaned->load(std::memory_order_acquire) && Clock::now() < deadline)
+                    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            }
+        }
+
+        std::scoped_lock lock(m_Mutex);
+        m_State.actionPending = false;
+        m_State.noIdleEnabled = false;
+        m_State.noIdleReady = false;
+        m_State.servicePending = false;
     }
 
     GameSessionSnapshot GameSessionRuntime::Snapshot() const noexcept
