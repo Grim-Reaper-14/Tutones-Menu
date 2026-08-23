@@ -5,6 +5,8 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <memory>
+#include <thread>
 
 namespace Tutones::Game::PlayerFeatures
 {
@@ -106,40 +108,94 @@ namespace Tutones::Game::PlayerFeatures
         if (!m_Running.exchange(false, std::memory_order_acq_rel))
             return;
 
-        const bool restoreCriticalHits = m_DisableCriticalHits.exchange(false, std::memory_order_acq_rel);
-        const bool disableMobileRadio = m_MobileRadio.exchange(false, std::memory_order_acq_rel);
-        const bool restorePoliceIgnore = m_PoliceIgnore.exchange(false, std::memory_order_acq_rel);
-        const bool restoreEveryoneIgnore = m_EveryoneIgnore.exchange(false, std::memory_order_acq_rel);
-        if (!restoreCriticalHits && !disableMobileRadio && !restorePoliceIgnore && !restoreEveryoneIgnore)
-            return;
+        // Stop owns every reversible player state. Preferences are saved by Application
+        // before Stop() is called, so resetting these atomics prevents stale state from
+        // leaking into a later runtime while preserving the user's persisted settings.
+        m_Invincible.store(false, std::memory_order_release);
+        m_Bulletproof.store(false, std::memory_order_release);
+        m_AquaLungs.store(false, std::memory_order_release);
+        m_InfiniteOxygen.store(false, std::memory_order_release);
+        m_Invisible.store(false, std::memory_order_release);
+        m_NoRagdoll.store(false, std::memory_order_release);
+        m_SuperJump.store(false, std::memory_order_release);
+        m_InfiniteStamina.store(false, std::memory_order_release);
+        m_KeepPlayerClean.store(false, std::memory_order_release);
+        m_DisableCriticalHits.store(false, std::memory_order_release);
+        m_StandOnVehicles.store(false, std::memory_order_release);
+        m_DisableActionMode.store(false, std::memory_order_release);
+        m_InfiniteParachutes.store(false, std::memory_order_release);
+        m_MobileRadio.store(false, std::memory_order_release);
+        m_NeverWanted.store(false, std::memory_order_release);
+        m_PoliceIgnore.store(false, std::memory_order_release);
+        m_EveryoneIgnore.store(false, std::memory_order_release);
+        m_RunMultiplier.store(1.0f, std::memory_order_release);
+        m_SwimMultiplier.store(1.0f, std::memory_order_release);
 
-        static_cast<void>(Runtime::GameRuntime::Get().Enqueue([
-            restoreCriticalHits,
-            disableMobileRadio,
-            restorePoliceIgnore,
-            restoreEveryoneIgnore] {
+        const auto cleanup = [this] {
             const auto player = PlayerNatives::PlayerId();
             const auto ped = PlayerNatives::PlayerPedId();
-            if (restoreCriticalHits && ped && *ped != 0)
+
+            if (ped && *ped != 0)
             {
+                static_cast<void>(PlayerNatives::SetEntityInvincible(*ped, false, false));
+                static_cast<void>(Native::NativeInvoker::InvokeVoid(
+                    Native::NativeId::SetEntityProofs,
+                    *ped,
+                    std::int32_t{0},
+                    std::int32_t{0},
+                    std::int32_t{0},
+                    std::int32_t{0},
+                    std::int32_t{0},
+                    std::int32_t{0},
+                    std::int32_t{0},
+                    std::int32_t{0}));
+                static_cast<void>(PlayerNatives::SetEntityVisible(*ped, true, false));
+                static_cast<void>(PlayerNatives::SetPedCanRagdoll(*ped, true));
                 static_cast<void>(Native::NativeInvoker::InvokeVoid(
                     Native::NativeId::SetPedSuffersCriticalHits, *ped, std::int32_t{1}));
+                static_cast<void>(SetPedMaxTimeUnderwater(*ped, -1.0f));
             }
-            if (disableMobileRadio)
-            {
-                static_cast<void>(Native::NativeInvoker::InvokeVoid(
-                    Native::NativeId::SetMobilePhoneRadioState, std::int32_t{0}));
-                static_cast<void>(Native::NativeInvoker::InvokeVoid(
-                    Native::NativeId::SetMobileRadioEnabledDuringGameplay, std::int32_t{0}));
-            }
+
+            static_cast<void>(SetMobileRadioState(false));
+
             if (player)
             {
-                if (restorePoliceIgnore)
-                    static_cast<void>(PlayerNatives::SetPoliceIgnorePlayer(*player, false));
-                if (restoreEveryoneIgnore)
-                    static_cast<void>(PlayerNatives::SetEveryoneIgnorePlayer(*player, false));
+                static_cast<void>(PlayerNatives::SetPoliceIgnorePlayer(*player, false));
+                static_cast<void>(PlayerNatives::SetEveryoneIgnorePlayer(*player, false));
+                static_cast<void>(PlayerNatives::SetRunSprintMultiplierForPlayer(*player, 1.0f));
+                static_cast<void>(PlayerNatives::SetSwimMultiplierForPlayer(*player, 1.0f));
             }
-        }));
+
+            if (m_PendingModel != 0)
+            {
+                static_cast<void>(PlayerNatives::SetModelAsNoLongerNeeded(m_PendingModel));
+                m_PendingModel = 0;
+                m_ModelDeadline = {};
+            }
+        };
+
+        auto& runtime = Runtime::GameRuntime::Get();
+        if (runtime.IsOnGameThread())
+        {
+            cleanup();
+        }
+        else if (runtime.IsInitialized())
+        {
+            const auto cleaned = std::make_shared<std::atomic<bool>>(false);
+            if (runtime.Enqueue([cleanup, cleaned] {
+                    cleanup();
+                    cleaned->store(true, std::memory_order_release);
+                }))
+            {
+                const auto deadline = Clock::now() + std::chrono::milliseconds(250);
+                while (!cleaned->load(std::memory_order_acquire) && Clock::now() < deadline)
+                    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            }
+        }
+
+        m_LastPed = 0;
+        m_NextRefresh = {};
+        ClearSnapshot();
     }
 
     bool PlayerRuntime::IsRunning() const noexcept
@@ -302,6 +358,6 @@ namespace Tutones::Game::PlayerFeatures
         }
 
         if (IsRunning() && !QueueNextTick())
-            m_Running.store(false, std::memory_order_release);
+            Stop();
     }
 }
