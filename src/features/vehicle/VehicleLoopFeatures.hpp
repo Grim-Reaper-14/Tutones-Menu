@@ -6,9 +6,14 @@
 #include "../../game/native/NativeRegistry.hpp"
 #include "../../runtime/GameRuntime.hpp"
 
+#include <Windows.h>
+
 #include <atomic>
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <memory>
+#include <thread>
 
 namespace Tutones::Game::Mods
 {
@@ -40,7 +45,14 @@ namespace Tutones::Game::Mods
                 return;
             }
 
-            static_cast<void>(Runtime::GameRuntime::Get().Enqueue([this] {
+            auto& runtime = Runtime::GameRuntime::Get();
+            if (runtime.IsOnGameThread())
+            {
+                RestoreLastCleanVehicle();
+                return;
+            }
+
+            static_cast<void>(runtime.Enqueue([this] {
                 if (!m_KeepVehicleClean.load(std::memory_order_acquire))
                     RestoreLastCleanVehicle();
             }));
@@ -55,10 +67,52 @@ namespace Tutones::Game::Mods
                 return;
             }
 
-            static_cast<void>(Runtime::GameRuntime::Get().Enqueue([this] {
+            auto& runtime = Runtime::GameRuntime::Get();
+            if (runtime.IsOnGameThread())
+            {
+                RestoreLastStance();
+                return;
+            }
+
+            static_cast<void>(runtime.Enqueue([this] {
                 if (!m_LoweredStance.load(std::memory_order_acquire))
                     RestoreLastStance();
             }));
+        }
+
+        void Shutdown() noexcept
+        {
+            m_KeepVehicleClean.store(false, std::memory_order_release);
+            m_LoweredStance.store(false, std::memory_order_release);
+
+            const auto cleanup = [this] {
+                RestoreLastCleanVehicle();
+                RestoreLastStance();
+            };
+
+            auto& runtime = Runtime::GameRuntime::Get();
+            if (runtime.IsOnGameThread())
+            {
+                cleanup();
+            }
+            else if (runtime.IsInitialized())
+            {
+                const auto cleaned = std::make_shared<std::atomic<bool>>(false);
+                if (runtime.Enqueue([cleanup, cleaned] {
+                        cleanup();
+                        cleaned->store(true, std::memory_order_release);
+                    }))
+                {
+                    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(250);
+                    while (!cleaned->load(std::memory_order_acquire)
+                        && std::chrono::steady_clock::now() < deadline)
+                    {
+                        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+                    }
+                }
+            }
+
+            m_Ticking.store(false, std::memory_order_release);
         }
 
     private:
@@ -150,6 +204,29 @@ namespace Tutones::Game::Mods
             return handler;
         }
 
+        [[nodiscard]] static bool IsExecutableAddress(std::uintptr_t address) noexcept
+        {
+            if (address == 0)
+                return false;
+
+            MEMORY_BASIC_INFORMATION memory{};
+            if (::VirtualQuery(reinterpret_cast<const void*>(address), &memory, sizeof(memory)) != sizeof(memory))
+                return false;
+            if (memory.State != MEM_COMMIT || (memory.Protect & PAGE_GUARD) != 0 || memory.Protect == PAGE_NOACCESS)
+                return false;
+
+            switch (memory.Protect & 0xFF)
+            {
+            case PAGE_EXECUTE:
+            case PAGE_EXECUTE_READ:
+            case PAGE_EXECUTE_READWRITE:
+            case PAGE_EXECUTE_WRITECOPY:
+                return true;
+            default:
+                return false;
+            }
+        }
+
         [[nodiscard]] static bool ResolveSingleHandler(
             Native::NativeHandler& handler,
             std::uint64_t enhancedHash) noexcept
@@ -169,8 +246,15 @@ namespace Tutones::Game::Mods
             program.nativeEntrypoints = reinterpret_cast<Native::NativeHandler*>(&slot);
             init(&program);
 
-            handler = reinterpret_cast<Native::NativeHandler>(static_cast<std::uintptr_t>(slot));
-            return handler != nullptr;
+            const auto address = static_cast<std::uintptr_t>(slot);
+            if (!IsExecutableAddress(address))
+            {
+                handler = nullptr;
+                return false;
+            }
+
+            handler = reinterpret_cast<Native::NativeHandler>(address);
+            return true;
         }
 
         [[nodiscard]] static bool ResolveReducedSuspensionHandler() noexcept
@@ -279,8 +363,8 @@ namespace Tutones::Game::Mods
             if (vehicle == 0)
                 return;
 
-            // "Keep Vehicle Clean" means pristine in Tutones: block new damage and
-            // continuously remove/repair visible or mechanical damage that slips in.
+            // Keep Vehicle Pristine blocks new damage and continuously removes/repairs
+            // visible or mechanical damage that slips through.
             static_cast<void>(SetEntityInvincible(vehicle, true));
             static_cast<void>(Natives::SetVehicleFixed(vehicle));
             static_cast<void>(SetVehicleDeformationFixed(vehicle));
@@ -342,14 +426,19 @@ namespace Tutones::Game::Mods
                 if (SetReducedSuspensionForce(vehicle, true))
                     m_LastStancedVehicle = vehicle;
             }
-            else if (!lowered)
+            else
             {
+                // Also restore when the player leaves the vehicle while the toggle remains
+                // enabled; otherwise the old vehicle can stay permanently lowered.
                 RestoreLastStance();
             }
 
             if (AnyEnabled() && Runtime::GameRuntime::Get().Enqueue([this] { TickOnGameThread(); }))
                 return;
 
+            // Never leave a modified vehicle behind if scheduling disappears.
+            RestoreLastCleanVehicle();
+            RestoreLastStance();
             m_Ticking.store(false, std::memory_order_release);
             if (AnyEnabled())
                 EnsureTicking();
