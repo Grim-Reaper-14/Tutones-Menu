@@ -15,6 +15,7 @@
 #include <cstdint>
 #include <mutex>
 #include <string>
+#include <utility>
 
 namespace Tutones::Game::Mods
 {
@@ -23,6 +24,9 @@ namespace Tutones::Game::Mods
         Vehicle vehicle{};
         int windowTint{};
         int plateStyle{};
+        std::string plateText{};
+        int interiorColor{};
+        int dashboardColor{};
         bool ready{};
         bool pending{};
         bool haveResult{};
@@ -43,6 +47,7 @@ namespace Tutones::Game::Mods
         {
             if (vehicle == 0)
             {
+                m_LastRequestedVehicle.store(0, std::memory_order_release);
                 std::scoped_lock lock(m_Mutex);
                 m_Snapshot = {};
                 return;
@@ -128,6 +133,68 @@ namespace Tutones::Game::Mods
             return true;
         }
 
+        [[nodiscard]] bool QueuePlateText(Vehicle vehicle, std::string plateText)
+        {
+            if (vehicle == 0 || !CanQueue())
+                return false;
+
+            if (plateText.size() > 8)
+                plateText.resize(8);
+
+            SetPending("Plate text queued");
+            if (Runtime::GameRuntime::Get().Enqueue([this, vehicle, plateText = std::move(plateText)] {
+                    if (!ValidateVehicle(vehicle) || !ResolveHandlers())
+                        return Finish(false, "Vehicle changed or plate text natives are unavailable");
+
+                    const bool dispatched = CallVoid(SetPlateText, vehicle, plateText.c_str());
+                    const char* currentRaw{};
+                    const bool readBack = Call(GetPlateText, currentRaw, vehicle);
+                    const std::string current = NormalizePlateText(currentRaw ? currentRaw : "");
+                    const bool success = dispatched
+                        && readBack
+                        && PlateCompareKey(current) == PlateCompareKey(plateText);
+                    if (success)
+                    {
+                        std::scoped_lock lock(m_Mutex);
+                        m_Snapshot.vehicle = vehicle;
+                        m_Snapshot.plateText = current;
+                        m_Snapshot.ready = true;
+                    }
+                    Finish(success, success ? "Plate text verified" : "Plate text failed read-back verification");
+                }))
+            {
+                Finish(false, "Game-thread queue unavailable");
+                return false;
+            }
+            return true;
+        }
+
+        [[nodiscard]] bool QueueInteriorColor(Vehicle vehicle, int color)
+        {
+            return QueueIndexedColor(
+                vehicle,
+                color,
+                SetInteriorColor,
+                GetInteriorColor,
+                "Interior color queued",
+                "Interior color verified",
+                "Interior color failed read-back verification",
+                [](VehicleAppearanceSnapshot& snapshot, int value) { snapshot.interiorColor = value; });
+        }
+
+        [[nodiscard]] bool QueueDashboardColor(Vehicle vehicle, int color)
+        {
+            return QueueIndexedColor(
+                vehicle,
+                color,
+                SetDashboardColor,
+                GetDashboardColor,
+                "Dashboard color queued",
+                "Dashboard color verified",
+                "Dashboard color failed read-back verification",
+                [](VehicleAppearanceSnapshot& snapshot, int value) { snapshot.dashboardColor = value; });
+        }
+
         [[nodiscard]] VehicleAppearanceSnapshot Snapshot() const
         {
             std::scoped_lock lock(m_Mutex);
@@ -143,15 +210,31 @@ namespace Tutones::Game::Mods
             SetWindowTint,
             GetPlateStyle,
             SetPlateStyle,
+            GetPlateText,
+            SetPlateText,
+            GetInteriorColor,
+            SetInteriorColor,
+            GetDashboardColor,
+            SetDashboardColor,
             HandlerCount,
         };
 
-        // Current Enhanced-side hashes from the YimMenuV2 crossmap.
+        static constexpr int MinIndexedColor = 0;
+        static constexpr int MaxIndexedColor = 160;
+
+        // Legacy native names are retained in comments for readability. The values
+        // below are the current GTA V Enhanced handlers from YimMenuV2's crossmap.
         static constexpr std::array<std::uint64_t, HandlerCount> HandlerHashes{
             0xDA63CE76F9AAB439ull, // GET_VEHICLE_WINDOW_TINT
             0xFE620ED8E0A3C209ull, // SET_VEHICLE_WINDOW_TINT
             0x4F06416A18248EA0ull, // GET_VEHICLE_NUMBER_PLATE_TEXT_INDEX
             0x05D3F682DDA06C20ull, // SET_VEHICLE_NUMBER_PLATE_TEXT_INDEX
+            0xCA7159F2C5FF745Aull, // GET_VEHICLE_NUMBER_PLATE_TEXT
+            0x3FEAE59CDE6D3946ull, // SET_VEHICLE_NUMBER_PLATE_TEXT
+            0xE10BD9712D7B0CBFull, // GET_VEHICLE_EXTRA_COLOUR_5 / interior color
+            0xC0C8E6AAA00F1A58ull, // SET_VEHICLE_EXTRA_COLOUR_5 / interior color
+            0x4C5611B5008205EBull, // GET_VEHICLE_EXTRA_COLOUR_6 / dashboard color
+            0x77B012A683295B6Eull, // SET_VEHICLE_EXTRA_COLOUR_6 / dashboard color
         };
 
         struct NativeProgram final
@@ -204,8 +287,12 @@ namespace Tutones::Game::Mods
 
         bool ResolveHandlers() noexcept
         {
-            if (m_Handlers[0])
+            bool allResolved = true;
+            for (const auto handler : m_Handlers)
+                allResolved = allResolved && handler != nullptr;
+            if (allResolved)
                 return true;
+
             if (!Native::NativeRegistry::Get().CanInvokeOnCurrentThread())
                 return false;
 
@@ -232,7 +319,7 @@ namespace Tutones::Game::Mods
                 m_Handlers[i] = reinterpret_cast<Native::NativeHandler>(address);
             }
 
-            TUTONES_LOG_INFO("vehicle.appearance", "Enhanced window tint and plate style natives resolved");
+            TUTONES_LOG_INFO("vehicle.appearance", "Enhanced tint, plate, interior and dashboard natives resolved");
             Core::Logging::Logger::Get().Flush();
             return true;
         }
@@ -264,20 +351,92 @@ namespace Tutones::Game::Mods
             return true;
         }
 
+        template <typename Assign>
+        [[nodiscard]] bool QueueIndexedColor(
+            Vehicle vehicle,
+            int color,
+            std::size_t setHandler,
+            std::size_t getHandler,
+            const char* queuedMessage,
+            const char* successMessage,
+            const char* failureMessage,
+            Assign assign)
+        {
+            if (vehicle == 0 || color < MinIndexedColor || color > MaxIndexedColor || !CanQueue())
+                return false;
+
+            SetPending(queuedMessage);
+            if (Runtime::GameRuntime::Get().Enqueue(
+                    [this, vehicle, color, setHandler, getHandler, successMessage, failureMessage, assign] {
+                        if (!ValidateVehicle(vehicle) || !ResolveHandlers())
+                            return Finish(false, "Vehicle changed or cabin color natives are unavailable");
+
+                        std::int32_t current{};
+                        const bool dispatched = CallVoid(setHandler, vehicle, color);
+                        const bool readBack = CallVoid(getHandler, vehicle, &current);
+                        const bool success = dispatched && readBack && current == color;
+                        if (success)
+                        {
+                            std::scoped_lock lock(m_Mutex);
+                            m_Snapshot.vehicle = vehicle;
+                            assign(m_Snapshot, current);
+                            m_Snapshot.ready = true;
+                        }
+                        Finish(success, success ? successMessage : failureMessage);
+                    }))
+            {
+                Finish(false, "Game-thread queue unavailable");
+                return false;
+            }
+            return true;
+        }
+
+        [[nodiscard]] static std::string NormalizePlateText(std::string value)
+        {
+            if (value.size() > 8)
+                value.resize(8);
+            return value;
+        }
+
+        [[nodiscard]] static std::string PlateCompareKey(std::string value)
+        {
+            value = NormalizePlateText(std::move(value));
+            while (!value.empty() && value.back() == ' ')
+                value.pop_back();
+            for (char& ch : value)
+            {
+                if (ch >= 'a' && ch <= 'z')
+                    ch = static_cast<char>(ch - 'a' + 'A');
+            }
+            return value;
+        }
+
         void RefreshOnGameThread(Vehicle vehicle) noexcept
         {
             if (!ValidateVehicle(vehicle) || !ResolveHandlers())
                 return;
 
             std::int32_t tint{};
-            std::int32_t plate{};
-            if (!Call(GetWindowTint, tint, vehicle) || !Call(GetPlateStyle, plate, vehicle))
+            std::int32_t plateStyle{};
+            std::int32_t interiorColor{};
+            std::int32_t dashboardColor{};
+            const char* plateTextRaw{};
+
+            const bool ready = Call(GetWindowTint, tint, vehicle)
+                && Call(GetPlateStyle, plateStyle, vehicle)
+                && Call(GetPlateText, plateTextRaw, vehicle)
+                && CallVoid(GetInteriorColor, vehicle, &interiorColor)
+                && CallVoid(GetDashboardColor, vehicle, &dashboardColor);
+            if (!ready)
                 return;
 
             std::scoped_lock lock(m_Mutex);
             m_Snapshot.vehicle = vehicle;
             m_Snapshot.windowTint = tint;
-            m_Snapshot.plateStyle = plate;
+            m_Snapshot.plateStyle = plateStyle;
+            m_Snapshot.plateText = NormalizePlateText(plateTextRaw ? plateTextRaw : "");
+            m_Snapshot.interiorColor = interiorColor;
+            m_Snapshot.dashboardColor = dashboardColor;
             m_Snapshot.ready = true;
         }
 

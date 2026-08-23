@@ -11,12 +11,18 @@
 #include <algorithm>
 #include <array>
 #include <cstddef>
+#include <cstdio>
+#include <string>
 
 namespace Tutones::UI
 {
     namespace VehicleEditorPanelDetail
     {
         inline bool g_ShowAppearance{};
+        inline Game::Vehicle g_AppearanceEditVehicle{};
+        inline char g_PlateText[9]{};
+        inline int g_InteriorColor{};
+        inline int g_DashboardColor{};
 
         inline constexpr std::array<const char*, 13> PlateStyles{{
             "Blue on White 1",
@@ -51,6 +57,21 @@ namespace Tutones::UI
                 g_ShowAppearance = appearanceValue;
         }
 
+        inline void SyncAppearanceInputs(
+            Game::Vehicle vehicle,
+            const Game::Mods::VehicleAppearanceSnapshot& snapshot) noexcept
+        {
+            if (vehicle == 0 || !snapshot.ready || snapshot.vehicle != vehicle)
+                return;
+            if (g_AppearanceEditVehicle == vehicle)
+                return;
+
+            g_AppearanceEditVehicle = vehicle;
+            std::snprintf(g_PlateText, sizeof(g_PlateText), "%s", snapshot.plateText.c_str());
+            g_InteriorColor = std::clamp(snapshot.interiorColor, 0, 160);
+            g_DashboardColor = std::clamp(snapshot.dashboardColor, 0, 160);
+        }
+
         inline void RenderAppearancePanel() noexcept
         {
             const auto gameState = Game::GameState::Get().Snapshot();
@@ -61,6 +82,10 @@ namespace Tutones::UI
             auto& runtime = Game::Mods::VehicleAppearanceRuntime::Get();
             runtime.RequestRefresh(vehicle);
             const auto snapshot = runtime.Snapshot();
+            SyncAppearanceInputs(vehicle, snapshot);
+
+            if (vehicle == 0)
+                g_AppearanceEditVehicle = 0;
 
             ImGui::SetCursorPos(ImVec2(226.0f, 16.0f));
             ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(14.0f, 12.0f));
@@ -72,12 +97,12 @@ namespace Tutones::UI
             {
                 ImGui::TextColored(V11Theme::Accent, "Vehicle Appearance");
                 ImGui::SameLine();
-                ImGui::TextDisabled("YimMenuV2-style custom slots");
+                ImGui::TextDisabled("Enhanced native controls");
                 ImGui::Separator();
 
                 if (vehicle == 0)
                 {
-                    ImGui::TextDisabled("Enter a vehicle to edit plate style and window tint.");
+                    ImGui::TextDisabled("Enter a vehicle to edit its appearance.");
                 }
                 else if (!snapshot.ready || snapshot.vehicle != vehicle)
                 {
@@ -88,9 +113,20 @@ namespace Tutones::UI
                     int plateStyle = std::clamp(snapshot.plateStyle, 0, static_cast<int>(PlateStyles.size()) - 1);
                     int windowTint = std::clamp(snapshot.windowTint, 0, static_cast<int>(WindowTints.size()) - 1);
 
-                    ImGui::SeparatorText("Plate Style");
+                    ImGui::BeginDisabled(snapshot.pending);
+
+                    ImGui::SeparatorText("License Plate");
+                    ImGui::SetNextItemWidth(190.0f);
+                    ImGui::InputTextWithHint("##appearance_plate_text", "Plate Number", g_PlateText, sizeof(g_PlateText));
+                    DescribeLastV11Item("Set up to eight license-plate characters through the Enhanced plate-text native path.");
+                    ImGui::SameLine();
+                    if (ImGui::Button("Apply Plate", ImVec2(-1.0f, 0.0f)))
+                        static_cast<void>(runtime.QueuePlateText(vehicle, std::string(g_PlateText)));
+                    DescribeLastV11Item("Queue the plate text on GTA's game thread and verify it with GET_VEHICLE_NUMBER_PLATE_TEXT.");
+                    ImGui::TextDisabled("Current: %s", snapshot.plateText.empty() ? "(blank)" : snapshot.plateText.c_str());
+
                     ImGui::SetNextItemWidth(-1.0f);
-                    if (ImGui::BeginCombo("##plate_style", PlateStyles[static_cast<std::size_t>(plateStyle)]))
+                    if (ImGui::BeginCombo("Plate Style", PlateStyles[static_cast<std::size_t>(plateStyle)]))
                     {
                         for (std::size_t i = 0; i < PlateStyles.size(); ++i)
                         {
@@ -102,8 +138,25 @@ namespace Tutones::UI
                         }
                         ImGui::EndCombo();
                     }
-                    DescribeLastV11Item("Change the vehicle plate background/style using GTA's dedicated plate-style native and verify the value by reading it back.");
-                    ImGui::TextDisabled("Current index: %d", snapshot.plateStyle);
+                    DescribeLastV11Item("Change the vehicle plate background/style and verify the selected index by read-back.");
+                    ImGui::TextDisabled("Current style index: %d", snapshot.plateStyle);
+
+                    ImGui::SeparatorText("Cabin Colors");
+                    ImGui::SetNextItemWidth(300.0f);
+                    ImGui::SliderInt("Interior Color", &g_InteriorColor, 0, 160);
+                    DescribeLastV11Item("Choose the indexed interior trim color used by Enhanced SET_VEHICLE_EXTRA_COLOUR_5.");
+                    ImGui::SameLine();
+                    if (ImGui::Button("Apply##interior"))
+                        static_cast<void>(runtime.QueueInteriorColor(vehicle, g_InteriorColor));
+                    ImGui::TextDisabled("Current interior index: %d", snapshot.interiorColor);
+
+                    ImGui::SetNextItemWidth(300.0f);
+                    ImGui::SliderInt("Dashboard Color", &g_DashboardColor, 0, 160);
+                    DescribeLastV11Item("Choose the indexed dashboard color used by Enhanced SET_VEHICLE_EXTRA_COLOUR_6.");
+                    ImGui::SameLine();
+                    if (ImGui::Button("Apply##dashboard"))
+                        static_cast<void>(runtime.QueueDashboardColor(vehicle, g_DashboardColor));
+                    ImGui::TextDisabled("Current dashboard index: %d", snapshot.dashboardColor);
 
                     ImGui::SeparatorText("Window Tint");
                     ImGui::SetNextItemWidth(-1.0f);
@@ -119,8 +172,10 @@ namespace Tutones::UI
                         }
                         ImGui::EndCombo();
                     }
-                    DescribeLastV11Item("Change the current vehicle's window tint using GTA's dedicated tint native and verify the selected tint by read-back.");
-                    ImGui::TextDisabled("Current index: %d", snapshot.windowTint);
+                    DescribeLastV11Item("Change the current vehicle's window tint and verify the selected tint by read-back.");
+                    ImGui::TextDisabled("Current tint index: %d", snapshot.windowTint);
+
+                    ImGui::EndDisabled();
 
                     ImGui::SeparatorText("Status");
                     if (snapshot.pending)
@@ -130,10 +185,17 @@ namespace Tutones::UI
                     else
                         ImGui::TextDisabled("%s", snapshot.message.c_str());
 
+                    if (ImGui::Button("Reload values from vehicle", ImVec2(-1.0f, 0.0f)))
+                    {
+                        g_AppearanceEditVehicle = 0;
+                        runtime.RequestRefresh(vehicle);
+                    }
+                    DescribeLastV11Item("Discard local appearance edits and reload the current plate and cabin color values from GTA.");
+
                     ImGui::Spacing();
                     ImGui::TextWrapped(
-                        "Plate Style and Window Tint are dedicated GTA customization values, not normal mod slots 0-49. "
-                        "They are exposed here separately just like YimMenuV2 does in its Vehicle Editor.");
+                        "Plate text/style, interior color, dashboard color and window tint use dedicated Enhanced native handlers. "
+                        "Writes stay on the GTA game thread and every appearance change is checked with a read-back before it is reported as successful.");
                 }
             }
 
