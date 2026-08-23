@@ -7,14 +7,16 @@
 
 #include <array>
 #include <atomic>
+#include <chrono>
 #include <climits>
-#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <limits>
+#include <memory>
 #include <mutex>
 #include <optional>
 #include <string>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -61,6 +63,52 @@ namespace Tutones::Game::SessionFeatures
                     RestoreOnGameThread();
                 }));
             }
+        }
+
+        void Shutdown() noexcept
+        {
+            m_Enabled.store(false, std::memory_order_release);
+            m_TickQueued.store(false, std::memory_order_release);
+
+            const auto cleanup = [this] {
+                RestoreOnGameThread();
+            };
+
+            auto& runtime = Runtime::GameRuntime::Get();
+            if (runtime.IsOnGameThread())
+            {
+                cleanup();
+                return;
+            }
+
+            if (!runtime.IsInitialized())
+            {
+                m_Resolved.store(false, std::memory_order_release);
+                m_Globals = {};
+                m_Originals = {};
+                SetMessage("Off");
+                return;
+            }
+
+            const auto cleaned = std::make_shared<std::atomic<bool>>(false);
+            if (!runtime.Enqueue([cleanup, cleaned] {
+                    cleanup();
+                    cleaned->store(true, std::memory_order_release);
+                }))
+            {
+                SetMessage("Off - restore could not be queued");
+                return;
+            }
+
+            const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(250);
+            while (!cleaned->load(std::memory_order_acquire)
+                && std::chrono::steady_clock::now() < deadline)
+            {
+                std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            }
+
+            if (!cleaned->load(std::memory_order_acquire))
+                TUTONES_LOG_WARN("game.noidle", "Timed out restoring idle-kick tunables during shutdown");
         }
 
         [[nodiscard]] NoIdleSnapshot Snapshot() const
