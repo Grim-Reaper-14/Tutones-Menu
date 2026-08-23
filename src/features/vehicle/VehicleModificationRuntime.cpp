@@ -13,9 +13,11 @@
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
+#include <memory>
 #include <optional>
 #include <sstream>
 #include <system_error>
+#include <thread>
 #include <utility>
 
 namespace Tutones::Game::Mods
@@ -97,6 +99,43 @@ namespace Tutones::Game::Mods
     void VehicleModificationRuntime::Stop() noexcept
     {
         m_Running.store(false, std::memory_order_release);
+
+        const auto cleanup = [this] {
+            if (m_PendingSpawnModel != 0)
+                static_cast<void>(PlayerNatives::SetModelAsNoLongerNeeded(m_PendingSpawnModel));
+
+            m_PendingSpawnModel = 0;
+            m_PendingSpawnInside = false;
+            m_PendingSpawnMaxed = false;
+            m_PendingSpawnPreset.reset();
+            m_PendingSpawnAction = VehicleModAction::SpawnVehicle;
+            m_SpawnDeadline = {};
+            SetSpawnPending(0, false);
+        };
+
+        auto& runtime = Runtime::GameRuntime::Get();
+        if (runtime.IsOnGameThread())
+        {
+            cleanup();
+        }
+        else if (runtime.IsInitialized())
+        {
+            const auto cleaned = std::make_shared<std::atomic<bool>>(false);
+            if (runtime.Enqueue([cleanup, cleaned] {
+                    cleanup();
+                    cleaned->store(true, std::memory_order_release);
+                }))
+            {
+                const auto deadline = Clock::now() + std::chrono::milliseconds(250);
+                while (!cleaned->load(std::memory_order_acquire) && Clock::now() < deadline)
+                    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            }
+        }
+
+        m_LastVehicle = 0;
+        m_LastObservedModType = -1;
+        m_NextRefresh = {};
+        ClearSnapshot();
     }
 
     bool VehicleModificationRuntime::IsRunning() const noexcept
@@ -442,7 +481,7 @@ namespace Tutones::Game::Mods
         }
 
         if (IsRunning() && !QueueNextTick())
-            m_Running.store(false, std::memory_order_release);
+            Stop();
     }
 
     void VehicleModificationRuntime::ProcessCatalogBatch() noexcept
