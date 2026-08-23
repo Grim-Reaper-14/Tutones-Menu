@@ -1,4 +1,5 @@
 #include "GameSessionRuntime.hpp"
+#include "NoIdleRuntime.hpp"
 
 #include "../../core/logging/Logger.hpp"
 #include "../../game/PlayerNatives.hpp"
@@ -170,6 +171,10 @@ namespace Tutones::Game::SessionFeatures
 
     void GameSessionRuntime::Shutdown() noexcept
     {
+        // NoIdleRuntime owns the idle tunables. Let that owner synchronously restore
+        // any live values before the shared GTA script runtime is torn down.
+        NoIdleRuntime::Get().Shutdown();
+
         m_Pending.store(false, std::memory_order_release);
         m_ServicePending.store(false, std::memory_order_release);
         m_UtilityTickQueued.store(false, std::memory_order_release);
