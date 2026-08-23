@@ -190,11 +190,10 @@ namespace Tutones::Game::PersonalVehicles
                 VehicleRewardHash,
                 Script::ScriptPointer("GiveVehicleReward", "2D 0C 1E 00 00"));
 
-            // Match YimMenuV2's current Enhanced flow: GiveVehicleReward is invoked
-            // again on every script tick while controlStatus == 3. GTA's reward script
-            // owns the selector lifecycle; repeatedly servicing it keeps the garage
-            // selector alive instead of letting it flash for one frame and disappear.
-            const auto called = giveVehicleReward.TryCall<std::int32_t>(
+            // YimMenuV2 only interprets ControlStatus after GiveVehicleReward itself
+            // returns true. A false return means GTA is still servicing/waiting on the
+            // selector, so its locals must be left untouched and retried next script tick.
+            const auto callResult = giveVehicleReward.TryCall<std::int32_t>(
                 m_Vehicle,
                 vehicleMenuData,
                 transactionStatus,
@@ -208,8 +207,16 @@ namespace Tutones::Game::PersonalVehicles
                 0,
                 -1);
 
-            if (!called)
+            if (!callResult)
                 return Finish(false, "GiveVehicleReward script function could not be invoked");
+
+            if (*callResult == 0)
+            {
+                SetPending(m_SelectorObserved
+                    ? "GTA garage selector active - choose a garage and slot"
+                    : "Waiting for GTA garage selector...");
+                return QueueNextRewardStep();
+            }
 
             if (*controlStatus == 3)
             {
@@ -218,17 +225,8 @@ namespace Tutones::Game::PersonalVehicles
                 return QueueNextRewardStep();
             }
 
-            // Before the selector reaches status 3, keep servicing the reward function
-            // for a few ticks just as Yim's fiber loop does.
-            if (!m_SelectorObserved
-                && *transactionStatus == 0
-                && *garage == 0
-                && *garageOffset == 0)
-            {
-                SetPending("Waiting for GTA garage selector...");
-                return QueueNextRewardStep();
-            }
-
+            // A true return with ControlStatus != 3 matches Yim's completion path:
+            // the player either saved the vehicle or backed out of the selector.
             const bool accepted = *transactionStatus != 0 || *garage != 0 || *garageOffset != 0;
             *transactionStatus = 0;
             *garage = 0;
