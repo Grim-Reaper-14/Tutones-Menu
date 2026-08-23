@@ -9,6 +9,9 @@ namespace Tutones::UI
     public:
         static TutonesMenu& Get() noexcept;
 
+        // Font atlas and theme texture mutations must happen before ImGui::NewFrame().
+        // Renderer calls this once per frame before backend NewFrame processing.
+        bool PrepareFrameResources() noexcept;
         void Render() noexcept;
         void Reset() noexcept;
 
