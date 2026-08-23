@@ -8,6 +8,7 @@
 #include "../../game/script/ScriptLocal.hpp"
 #include "../../game/script/ScriptPointer.hpp"
 #include "../../game/script/ScriptRuntime.hpp"
+#include "../../game/types/VehicleRewardData.hpp"
 #include "../../runtime/GameRuntime.hpp"
 
 #include <array>
@@ -64,6 +65,7 @@ namespace Tutones::Game::PersonalVehicles
             if (!m_Pending.compare_exchange_strong(expected, true, std::memory_order_acq_rel))
                 return false;
 
+            m_Thread = nullptr;
             m_SelectorObserved = false;
             SetPending("Save Personal Vehicle queued");
             if (Runtime::GameRuntime::Get().Enqueue([this] { BeginOnGameThread(); }))
@@ -118,8 +120,10 @@ namespace Tutones::Game::PersonalVehicles
                 return Finish(false, "Could not read the current vehicle model");
 
             for (const auto blocked : BlacklistedModels)
+            {
                 if (*model == blocked)
                     return Finish(false, "This vehicle is blocked from personal-garage acquisition");
+            }
 
             auto& scripts = Script::ScriptRuntime::Get();
             if (!scripts.IsReady())
@@ -138,11 +142,8 @@ namespace Tutones::Game::PersonalVehicles
             }
 
             auto* freemode = scripts.FindThread(FreemodeHash);
-            auto* reward = scripts.FindThread(VehicleRewardHash);
             if (!freemode || !freemode->stack)
                 return Finish(false, "Freemode script is unavailable");
-            if (!reward || !reward->stack)
-                return Finish(false, "GTA vehicle-reward script is not active; try again in Freemode");
 
             static Script::ScriptFunction isVehicleValidForPv(
                 FreemodeHash,
@@ -151,11 +152,21 @@ namespace Tutones::Game::PersonalVehicles
             if (!valid || *valid == 0)
                 return Finish(false, "GTA rejected this model as a personal vehicle");
 
+            // YimMenuV2 first reuses AM_MP_VEHICLE_REWARD when Freemode already owns it.
+            // Tutones does not yet start arbitrary GTA scripts, so bind the live reward
+            // thread and keep that identity for the complete selector transaction.
+            m_Thread = scripts.FindThread(VehicleRewardHash);
+            if (!m_Thread || !m_Thread->stack)
+                return Finish(false, "GTA vehicle-reward script is not active; try again in Freemode");
+
             m_Vehicle = state.vehicle;
             m_Deadline = Clock::now() + FlowTimeout;
             m_SelectorObserved = false;
             SetPending("Opening GTA personal-garage selector...");
-            RunRewardStep();
+
+            // Match Yim's yielding state machine: do not spin the reward function here.
+            // Queue the first reward call so it executes on the following scheduler tick.
+            QueueNextRewardStep();
         }
 
         void RunRewardStep()
@@ -178,28 +189,28 @@ namespace Tutones::Game::PersonalVehicles
             if (!reward || !reward->stack)
                 return Finish(false, "GTA vehicle-reward script became unavailable");
 
-            auto* transactionStatus = Script::ScriptLocal(reward, 151).As<int>();
-            auto* garage = Script::ScriptLocal(reward, 152).As<int>();
-            auto* garageOffset = Script::ScriptLocal(reward, 153).As<int>();
-            auto* controlStatus = Script::ScriptLocal(reward, 154).As<int>();
-            auto* vehicleMenuData = Script::ScriptLocal(reward, 195).As<int>();
-            if (!transactionStatus || !garage || !garageOffset || !controlStatus || !vehicleMenuData)
+            // If Freemode recycled the thread object during the flow, rebind before
+            // touching locals. This keeps all pointers from the same live reward stack.
+            if (reward != m_Thread)
+                m_Thread = reward;
+
+            auto* rewardData = Types::VehicleRewardData::Get(m_Thread);
+            auto* vehicleMenuData = Script::ScriptLocal(m_Thread, 195).As<int>();
+            if (!rewardData || !vehicleMenuData)
                 return Finish(false, "Vehicle-reward script locals are unavailable");
 
             static Script::ScriptFunction giveVehicleReward(
                 VehicleRewardHash,
                 Script::ScriptPointer("GiveVehicleReward", "2D 0C 1E 00 00"));
 
-            // YimMenuV2 only interprets ControlStatus after GiveVehicleReward itself
-            // returns true. A false return means GTA is still servicing/waiting on the
-            // selector, so its locals must be left untouched and retried next script tick.
+            // Keep YimMenuV2's exact argument order and boolean semantics.
             const auto callResult = giveVehicleReward.TryCall<std::int32_t>(
                 m_Vehicle,
                 vehicleMenuData,
-                transactionStatus,
-                garage,
-                garageOffset,
-                controlStatus,
+                &rewardData->transactionStatus,
+                &rewardData->garage,
+                &rewardData->garageOffset,
+                &rewardData->controlStatus,
                 std::int32_t{0},
                 std::int32_t{1},
                 std::int32_t{1},
@@ -210,6 +221,8 @@ namespace Tutones::Game::PersonalVehicles
             if (!callResult)
                 return Finish(false, "GiveVehicleReward script function could not be invoked");
 
+            // Yim only inspects ControlStatus after GiveVehicleReward returns true.
+            // False means GTA is still servicing the selector; leave every local alone.
             if (*callResult == 0)
             {
                 SetPending(m_SelectorObserved
@@ -218,33 +231,34 @@ namespace Tutones::Game::PersonalVehicles
                 return QueueNextRewardStep();
             }
 
-            if (*controlStatus == 3)
+            if (rewardData->controlStatus == 3)
             {
                 m_SelectorObserved = true;
                 SetPending("GTA garage selector active - choose a garage and slot");
                 return QueueNextRewardStep();
             }
 
-            // A true return with ControlStatus != 3 matches Yim's completion path:
-            // the player either saved the vehicle or backed out of the selector.
-            const bool accepted = *transactionStatus != 0 || *garage != 0 || *garageOffset != 0;
-            *transactionStatus = 0;
-            *garage = 0;
-            *garageOffset = 0;
-            *controlStatus = 0;
-            Finish(accepted, accepted
-                ? "Personal-garage save flow completed"
-                : "Garage selector closed without saving the vehicle");
+            // This is Yim's completion path. It intentionally treats both a successful
+            // save and backing out of GTA's selector as completion of the script flow.
+            rewardData->transactionStatus = 0;
+            rewardData->garage = 0;
+            rewardData->garageOffset = 0;
+            rewardData->controlStatus = 0;
+            Finish(true, "GTA personal-garage selector completed");
         }
 
         void QueueNextRewardStep()
         {
+            if (!m_Pending.load(std::memory_order_acquire))
+                return;
+
             if (!Runtime::GameRuntime::Get().Enqueue([this] { RunRewardStep(); }))
                 Finish(false, "Lost game-thread scheduling during garage save");
         }
 
         void Finish(bool success, std::string message)
         {
+            m_Thread = nullptr;
             m_Vehicle = 0;
             m_Deadline = {};
             m_SelectorObserved = false;
@@ -273,6 +287,7 @@ namespace Tutones::Game::PersonalVehicles
         bool m_HaveResult{};
         bool m_LastSucceeded{};
         std::string m_Message{"Ready"};
+        Types::ScriptThread* m_Thread{};
         Vehicle m_Vehicle{};
         Clock::time_point m_Deadline{};
         bool m_SelectorObserved{};
