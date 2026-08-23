@@ -20,6 +20,7 @@
 #include "../../byte_array.h"
 
 #include <imgui.h>
+#include <imgui_internal.h>
 
 #include <algorithm>
 #include <array>
@@ -93,6 +94,8 @@ namespace Tutones::UI
         ImFont* g_TabTitleIcon{};
         ImFont* g_SubtabTitle{};
         ImGuiContext* g_FontContext{};
+        ImGuiContext* g_FrameResourceHookContext{};
+        ImGuiID g_FrameResourceHookId{};
 
         struct TabAnimation final
         {
@@ -151,11 +154,37 @@ namespace Tutones::UI
             style.Colors[ImGuiCol_SeparatorActive] = Accent;
         }
 
+        void EnsureFrameResourceHook(ImGuiContext* context) noexcept
+        {
+            if (!context)
+                return;
+
+            if (g_FrameResourceHookContext != context)
+            {
+                g_FrameResourceHookContext = context;
+                g_FrameResourceHookId = 0;
+            }
+            if (g_FrameResourceHookId != 0)
+                return;
+
+            ImGuiContextHook hook{};
+            hook.Type = ImGuiContextHookType_NewFramePre;
+            hook.Callback = [](ImGuiContext*, ImGuiContextHook*) {
+                static_cast<void>(TutonesMenu::Get().PrepareFrameResources());
+            };
+            g_FrameResourceHookId = ImGui::AddContextHook(context, &hook);
+        }
+
         bool EnsureOriginalFonts() noexcept
         {
             auto* context = ImGui::GetCurrentContext();
             if (!context)
                 return false;
+
+            // Reset() calls this immediately after backend initialization, before the
+            // first NewFrame. The hook keeps subsequent theme/font mutations in the
+            // NewFramePre phase, before ImGui locks the dynamic font atlas.
+            EnsureFrameResourceHook(context);
 
             if (g_FontContext == context && g_Medium && g_Bold && g_TabIcons)
             {
