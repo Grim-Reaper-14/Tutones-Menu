@@ -43,6 +43,8 @@ namespace Tutones::Game
         [[nodiscard]] const Memory::ModuleView& Module() const noexcept;
 
     private:
+        static void SafeInitNativeTables(void* program);
+
         GamePointers() = default;
         ~GamePointers() = default;
         GamePointers(const GamePointers&) = delete;
