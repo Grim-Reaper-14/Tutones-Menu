@@ -49,6 +49,8 @@ namespace Tutones::UI
 #include "TutonesMenu.part01.inc"
 #define DrawPanel(...) RenderProtectionPanel(m_Item)
 #define RenderMiscOverlay(...) RenderTutonesRuntimeOverlays()
+#define RenderMiscPanel(index) ((m_Item == 2) ? RenderNightclubPanel() : ::Tutones::UI::RenderMiscPanel(index))
 #include "TutonesMenu.part03.inc"
+#undef RenderMiscPanel
 #undef RenderMiscOverlay
 #undef DrawPanel
