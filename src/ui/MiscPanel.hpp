@@ -292,7 +292,7 @@ namespace Tutones::UI
                 ImGui::Text("Gameplay camera FOV: %.2f", fov);
             else
                 ImGui::TextDisabled("Gameplay camera FOV: unavailable");
-            ImGui::TextDisabled("FOV is read-only until the scripted-camera lifecycle backend is added.");
+            ImGui::TextDisabled("Scripted Freecam is available under Native Tools > Vehicle / Camera.");
 
             bool disableShake = g_DisableCameraShake.load(std::memory_order_acquire);
             if (ImGui::Checkbox("Disable camera shake", &disableShake))
@@ -305,11 +305,6 @@ namespace Tutones::UI
                     return Game::MiscNatives::StopGameplayCamShaking(true);
                 }));
             }
-
-            ImGui::BeginDisabled();
-            ImGui::Button("Freecam - backend pending", ImVec2(-1.0f, 0.0f));
-            ImGui::EndDisabled();
-            DescribeLastV11Item("Freecam stays disabled until a dedicated scripted-camera create/activate/destroy lifecycle is implemented.");
 
             ImGui::Separator();
             ImGui::TextColored(V11Theme::Accent, "Utilities");
