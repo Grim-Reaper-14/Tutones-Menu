@@ -8,8 +8,11 @@
 #include "../../runtime/GameRuntime.hpp"
 
 #include <algorithm>
+#include <chrono>
 #include <cstdint>
+#include <memory>
 #include <string>
+#include <thread>
 
 namespace Tutones::Game::WeaponFeatures
 {
@@ -124,6 +127,17 @@ namespace Tutones::Game::WeaponFeatures
         Runtime::GameRuntime::Get().SetReleaseDeadTargetEnabled(false);
         RestorePatches();
         QueueNativeCleanup();
+
+        // Application saves the requested settings before Stop(), so clear the live
+        // runtime state to prevent stale feature state if the runtime is started again.
+        m_InfiniteAmmo.store(false, std::memory_order_release);
+        m_InfiniteClip.store(false, std::memory_order_release);
+        m_Aimbot.store(false, std::memory_order_release);
+        m_AimForHead.store(true, std::memory_order_release);
+        m_TargetDrivers.store(true, std::memory_order_release);
+        m_ReleaseDeadPed.store(false, std::memory_order_release);
+        m_ExplosiveAmmo.store(false, std::memory_order_release);
+
         TUTONES_LOG_INFO("weapon.runtime", "Weapon runtime stopped and reversible weapon state was restored");
     }
 
@@ -290,14 +304,10 @@ namespace Tutones::Game::WeaponFeatures
 
         if (IsRunning() && !QueueNextTick())
         {
-            if (Native::NativeRegistry::Get().IsReady())
-                static_cast<void>(Native::NativeInvoker::InvokeVoid(
-                    Native::NativeId::EnableLaserSightRendering,
-                    std::int32_t{0}));
-            m_Running.store(false, std::memory_order_release);
-            Runtime::GameRuntime::Get().SetReleaseDeadTargetEnabled(false);
-            RestorePatches();
-            TUTONES_LOG_ERROR("weapon.runtime", "Weapon runtime lost its GTA script-thread scheduling slot and stopped");
+            TUTONES_LOG_ERROR("weapon.runtime", "Weapon runtime lost its GTA script-thread scheduling slot and is restoring state");
+            // Stop from this callback while the native/TLS context is still valid. This
+            // guarantees infinite-ammo/clip and laser state are restored immediately.
+            Stop();
         }
     }
 
@@ -432,26 +442,55 @@ namespace Tutones::Game::WeaponFeatures
     {
         auto& runtime = Runtime::GameRuntime::Get();
         if (!runtime.IsInitialized())
+        {
+            m_InfiniteAmmoWasApplied = false;
+            m_InfiniteClipWasApplied = false;
             return;
+        }
 
-        static_cast<void>(runtime.Enqueue([] {
+        const auto cleanup = [this] {
             static_cast<void>(Native::NativeInvoker::InvokeVoid(
                 Native::NativeId::EnableLaserSightRendering,
                 std::int32_t{0}));
 
             const auto ped = PlayerNatives::PlayerPedId();
-            if (!ped || *ped == 0)
-                return;
+            if (ped && *ped != 0)
+            {
+                static_cast<void>(Native::NativeInvoker::InvokeVoid(
+                    Native::NativeId::SetPedInfiniteAmmo,
+                    *ped,
+                    std::int32_t{0},
+                    std::uint32_t{0}));
+                static_cast<void>(Native::NativeInvoker::InvokeVoid(
+                    Native::NativeId::SetPedInfiniteAmmoClip,
+                    *ped,
+                    std::int32_t{0}));
+            }
 
-            static_cast<void>(Native::NativeInvoker::InvokeVoid(
-                Native::NativeId::SetPedInfiniteAmmo,
-                *ped,
-                std::int32_t{0},
-                std::uint32_t{0}));
-            static_cast<void>(Native::NativeInvoker::InvokeVoid(
-                Native::NativeId::SetPedInfiniteAmmoClip,
-                *ped,
-                std::int32_t{0}));
-        }));
+            m_InfiniteAmmoWasApplied = false;
+            m_InfiniteClipWasApplied = false;
+        };
+
+        if (runtime.IsOnGameThread())
+        {
+            cleanup();
+            return;
+        }
+
+        const auto cleaned = std::make_shared<std::atomic<bool>>(false);
+        if (!runtime.Enqueue([cleanup, cleaned] {
+                cleanup();
+                cleaned->store(true, std::memory_order_release);
+            }))
+        {
+            return;
+        }
+
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(250);
+        while (!cleaned->load(std::memory_order_acquire)
+            && std::chrono::steady_clock::now() < deadline)
+        {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
     }
 }
