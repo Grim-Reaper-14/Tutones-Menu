@@ -123,27 +123,10 @@ namespace Tutones::Game::SessionFeatures
         }
 
     private:
-        static constexpr std::uint32_t Joaat(const char* text) noexcept
-        {
-            std::uint32_t hash{};
-            while (text && *text)
-            {
-                char c = *text++;
-                if (c >= 'A' && c <= 'Z')
-                    c = static_cast<char>(c - 'A' + 'a');
-
-                hash += static_cast<std::uint8_t>(c);
-                hash += hash << 10;
-                hash ^= hash >> 6;
-            }
-
-            hash += hash << 3;
-            hash ^= hash >> 11;
-            hash += hash << 15;
-            return hash;
-        }
-
-        static constexpr std::uint32_t TunablesRegistrationHash = Joaat("tunables_registration");
+        // joaat("tunables_registration"). Keep this as the verified literal instead of
+        // evaluating a member constexpr function during class initialization; MSVC 19.51
+        // rejects that pattern with C2131 while compiling this header.
+        static constexpr std::uint32_t TunablesRegistrationHash = 0x7655AE9Eu;
         static constexpr std::size_t TunableBase = 0x40001;
 
         static constexpr std::array<int, 4> IdleDefaults{
