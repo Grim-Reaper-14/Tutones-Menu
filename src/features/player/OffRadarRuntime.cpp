@@ -7,7 +7,10 @@
 #include "../../game/script/ScriptRuntime.hpp"
 #include "../../runtime/GameRuntime.hpp"
 
+#include <chrono>
 #include <cstdint>
+#include <memory>
+#include <thread>
 
 namespace Tutones::Game::PlayerFeatures
 {
@@ -74,8 +77,9 @@ namespace Tutones::Game::PlayerFeatures
             std::scoped_lock lock(m_Mutex);
             m_State.enabled = false;
         }
+
         QueueDisableCleanup();
-        TUTONES_LOG_INFO("player.otr", "Off Radar runtime stopped; queued best-effort broadcast-state cleanup");
+        TUTONES_LOG_INFO("player.otr", "Off Radar runtime stopped and broadcast-state cleanup was attempted before teardown");
     }
 
     bool OffRadarRuntime::IsRunning() const noexcept
@@ -112,8 +116,10 @@ namespace Tutones::Game::PlayerFeatures
 
         if (IsRunning() && !QueueNextTick())
         {
-            m_Running.store(false, std::memory_order_release);
-            TUTONES_LOG_ERROR("player.otr", "Off Radar runtime lost its GTA script-thread scheduling slot and stopped");
+            TUTONES_LOG_ERROR("player.otr", "Off Radar runtime lost its GTA script-thread scheduling slot and is restoring state");
+            // We are still on the GTA script thread here, so Stop() can run the cleanup
+            // synchronously instead of enqueueing work into a queue that just failed.
+            Stop();
         }
     }
 
@@ -188,9 +194,32 @@ namespace Tutones::Game::PlayerFeatures
     {
         auto& runtime = Runtime::GameRuntime::Get();
         if (!runtime.IsInitialized())
+        {
+            m_Applied.store(false, std::memory_order_release);
             return;
+        }
 
-        static_cast<void>(runtime.Enqueue([this] { ApplyOnGameThread(false); }));
+        if (runtime.IsOnGameThread())
+        {
+            ApplyOnGameThread(false);
+            return;
+        }
+
+        const auto cleaned = std::make_shared<std::atomic<bool>>(false);
+        if (!runtime.Enqueue([this, cleaned] {
+                ApplyOnGameThread(false);
+                cleaned->store(true, std::memory_order_release);
+            }))
+        {
+            return;
+        }
+
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(250);
+        while (!cleaned->load(std::memory_order_acquire)
+            && std::chrono::steady_clock::now() < deadline)
+        {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
     }
 
     void OffRadarRuntime::PublishState(const OffRadarState& state) noexcept
