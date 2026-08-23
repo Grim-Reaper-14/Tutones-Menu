@@ -13,11 +13,9 @@
 
 #include <algorithm>
 #include <array>
-#include <climits>
 #include <cmath>
 #include <cstdint>
 #include <memory>
-#include <optional>
 #include <thread>
 
 namespace Tutones::Game::SessionFeatures
@@ -43,44 +41,7 @@ namespace Tutones::Game::SessionFeatures
         }
 
         constexpr std::uint32_t ShopControllerHash = Joaat("shop_controller");
-        constexpr std::uint32_t TunablesRegistrationHash = Joaat("tunables_registration");
         constexpr std::size_t JoinTypeGlobal = 1575048;
-        constexpr std::size_t TunableBaseAddress = 0x40001;
-        constexpr std::array<int, 4> IdleKickDefaults{{120000, 300000, 600000, 900000}};
-        constexpr std::array<int, 4> ConstrainedKickDefaults{{30000, 60000, 90000, 120000}};
-
-        template<std::size_t N>
-        [[nodiscard]] std::optional<std::size_t> FindUniqueTunablePattern(
-            std::int64_t** globals,
-            std::size_t tunableCount,
-            const std::array<int, N>& pattern) noexcept
-        {
-            if (!globals || tunableCount < N)
-                return std::nullopt;
-
-            std::optional<std::size_t> match;
-            for (std::size_t offset = 0; offset + N <= tunableCount; ++offset)
-            {
-                bool equal = true;
-                for (std::size_t index = 0; index < N; ++index)
-                {
-                    const int* value = Script::ScriptGlobal(TunableBaseAddress + offset + index).As<int>(globals);
-                    if (!value || *value != pattern[index])
-                    {
-                        equal = false;
-                        break;
-                    }
-                }
-
-                if (!equal)
-                    continue;
-
-                if (match)
-                    return std::nullopt;
-                match = TunableBaseAddress + offset;
-            }
-            return match;
-        }
     }
 
     GameSessionRuntime& GameSessionRuntime::Get() noexcept
@@ -207,41 +168,13 @@ namespace Tutones::Game::SessionFeatures
         return false;
     }
 
-    void GameSessionRuntime::SetNoIdle(bool enabled)
-    {
-        const bool previous = m_NoIdle.exchange(enabled, std::memory_order_acq_rel);
-        if (previous == enabled)
-            return;
-
-        {
-            std::scoped_lock lock(m_Mutex);
-            m_State.noIdleEnabled = enabled;
-            if (!enabled)
-                m_State.noIdleReady = false;
-        }
-
-        if (enabled)
-        {
-            m_NextNoIdleResolve = {};
-            static_cast<void>(EnsureUtilityTick());
-            return;
-        }
-
-        static_cast<void>(Runtime::GameRuntime::Get().Enqueue([this] {
-            static_cast<void>(RestoreNoIdleOnGameThread());
-        }));
-    }
-
     void GameSessionRuntime::Shutdown() noexcept
     {
-        m_NoIdle.store(false, std::memory_order_release);
         m_Pending.store(false, std::memory_order_release);
         m_ServicePending.store(false, std::memory_order_release);
         m_UtilityTickQueued.store(false, std::memory_order_release);
 
         const auto cleanup = [this] {
-            static_cast<void>(RestoreNoIdleOnGameThread());
-
             if (m_PendingPickupModel != 0)
             {
                 static_cast<void>(PlayerNatives::SetModelAsNoLongerNeeded(m_PendingPickupModel));
@@ -272,8 +205,6 @@ namespace Tutones::Game::SessionFeatures
 
         std::scoped_lock lock(m_Mutex);
         m_State.actionPending = false;
-        m_State.noIdleEnabled = false;
-        m_State.noIdleReady = false;
         m_State.servicePending = false;
     }
 
@@ -286,15 +217,13 @@ namespace Tutones::Game::SessionFeatures
         }
         snapshot.scriptRuntimeReady = Script::ScriptRuntime::Get().IsReady();
         snapshot.actionPending = m_Pending.load(std::memory_order_acquire);
-        snapshot.noIdleEnabled = m_NoIdle.load(std::memory_order_acquire);
         snapshot.servicePending = m_ServicePending.load(std::memory_order_acquire);
         return snapshot;
     }
 
     bool GameSessionRuntime::EnsureUtilityTick()
     {
-        if (!m_NoIdle.load(std::memory_order_acquire)
-            && !m_ServicePending.load(std::memory_order_acquire))
+        if (!m_ServicePending.load(std::memory_order_acquire))
             return false;
 
         bool expected = false;
@@ -312,115 +241,11 @@ namespace Tutones::Game::SessionFeatures
     {
         m_UtilityTickQueued.store(false, std::memory_order_release);
 
-        if (m_NoIdle.load(std::memory_order_acquire))
-        {
-            const bool applied = ApplyNoIdleOnGameThread();
-            std::scoped_lock lock(m_Mutex);
-            m_State.noIdleEnabled = true;
-            m_State.noIdleReady = applied;
-        }
-
         if (m_ServicePending.load(std::memory_order_acquire))
             ProcessPendingServiceOnGameThread();
 
-        if ((m_NoIdle.load(std::memory_order_acquire)
-                || m_ServicePending.load(std::memory_order_acquire))
-            && !EnsureUtilityTick())
-            TUTONES_LOG_WARN("game.session", "Game utility tick could not be re-queued");
-    }
-
-    bool GameSessionRuntime::ResolveNoIdleTunablesOnGameThread() noexcept
-    {
-        if (m_NoIdleResolved.load(std::memory_order_acquire))
-            return true;
-
-        const auto now = Clock::now();
-        if (m_NextNoIdleResolve != Clock::time_point{} && now < m_NextNoIdleResolve)
-            return false;
-        m_NextNoIdleResolve = now + std::chrono::seconds(1);
-
-        auto& scriptRuntime = Script::ScriptRuntime::Get();
-        auto** globals = scriptRuntime.Globals();
-        auto* program = scriptRuntime.FindProgram(TunablesRegistrationHash);
-        if (!scriptRuntime.IsReady() || !globals || !program || program->globalCount <= TunableBaseAddress)
-            return false;
-
-        const std::size_t tunableCount = static_cast<std::size_t>(program->globalCount) - TunableBaseAddress;
-        const auto idle = FindUniqueTunablePattern(globals, tunableCount, IdleKickDefaults);
-        const auto constrained = FindUniqueTunablePattern(globals, tunableCount, ConstrainedKickDefaults);
-        if (!idle || !constrained || *idle == *constrained)
-            return false;
-
-        for (std::size_t index = 0; index < 4; ++index)
-        {
-            m_NoIdleGlobals[index] = *idle + index;
-            m_NoIdleGlobals[index + 4] = *constrained + index;
-        }
-
-        for (std::size_t index = 0; index < m_NoIdleGlobals.size(); ++index)
-        {
-            const int* value = Script::ScriptGlobal(m_NoIdleGlobals[index]).As<int>(globals);
-            if (!value)
-            {
-                m_NoIdleGlobals = {};
-                return false;
-            }
-            m_NoIdleOriginals[index] = *value;
-        }
-
-        m_NoIdleResolved.store(true, std::memory_order_release);
-        TUTONES_LOG_INFO("game.session", "Resolved current-build idle-kick tunables from verified default timer sequences");
-        return true;
-    }
-
-    bool GameSessionRuntime::ApplyNoIdleOnGameThread() noexcept
-    {
-        if (!ResolveNoIdleTunablesOnGameThread())
-            return false;
-
-        auto** globals = Script::ScriptRuntime::Get().Globals();
-        if (!globals)
-            return false;
-
-        for (const std::size_t global : m_NoIdleGlobals)
-        {
-            int* value = Script::ScriptGlobal(global).As<int>(globals);
-            if (!value)
-                return false;
-            *value = INT_MAX;
-        }
-        return true;
-    }
-
-    bool GameSessionRuntime::RestoreNoIdleOnGameThread() noexcept
-    {
-        if (!m_NoIdleResolved.exchange(false, std::memory_order_acq_rel))
-            return true;
-
-        auto** globals = Script::ScriptRuntime::Get().Globals();
-        bool success = globals != nullptr;
-        if (globals)
-        {
-            for (std::size_t index = 0; index < m_NoIdleGlobals.size(); ++index)
-            {
-                int* value = Script::ScriptGlobal(m_NoIdleGlobals[index]).As<int>(globals);
-                if (!value)
-                {
-                    success = false;
-                    continue;
-                }
-                *value = m_NoIdleOriginals[index];
-            }
-        }
-
-        m_NoIdleGlobals = {};
-        m_NoIdleOriginals = {};
-        m_NextNoIdleResolve = {};
-        if (success)
-            TUTONES_LOG_INFO("game.session", "Restored original idle-kick tunable timers");
-        else
-            TUTONES_LOG_WARN("game.session", "Could not fully restore idle-kick tunables");
-        return success;
+        if (m_ServicePending.load(std::memory_order_acquire) && !EnsureUtilityTick())
+            TUTONES_LOG_WARN("game.session", "Game service utility tick could not be re-queued");
     }
 
     bool GameSessionRuntime::BeginPickupDropOnGameThread(GameServiceAction action) noexcept
