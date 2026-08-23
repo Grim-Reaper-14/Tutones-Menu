@@ -2,6 +2,7 @@
 
 #include "../../game/GamePointers.hpp"
 #include "../../game/Natives.hpp"
+#include "../../game/VehicleNatives.hpp"
 #include "../../game/native/NativeCallContext.hpp"
 #include "../../game/native/NativeRegistry.hpp"
 #include "../../runtime/GameRuntime.hpp"
@@ -62,6 +63,7 @@ namespace Tutones::Game::World
         {
             if (!CanQueue())
                 return false;
+
             SetPending("Waypoint teleport queued");
             return QueueOrFail([this] { BeginWaypoint(false); });
         }
@@ -70,6 +72,7 @@ namespace Tutones::Game::World
         {
             if (index >= TeleportData::Groups.size() || !CanQueue())
                 return false;
+
             SetPending(std::string("Teleport queued: ") + TeleportData::Groups[index].label);
             return QueueOrFail([this, index] { TeleportGroup(index); });
         }
@@ -87,6 +90,7 @@ namespace Tutones::Game::World
             out.nativeReady = Native::NativeRegistry::Get().IsReady();
             out.actionPending = m_Pending.load(std::memory_order_acquire);
             out.autoWaypointEnabled = m_AutoWaypoint.load(std::memory_order_acquire);
+
             std::scoped_lock lock(m_Mutex);
             out.haveResult = m_HaveResult;
             out.lastSucceeded = m_LastSucceeded;
@@ -102,12 +106,6 @@ namespace Tutones::Game::World
             std::byte pad30[0x10]{};
             Native::NativeHandler* nativeEntrypoints{};
             std::byte pad48[0x38]{};
-        };
-
-        struct TeleportTarget final
-        {
-            Entity entity{};
-            bool inVehicle{};
         };
 
         static_assert(offsetof(NativeProgram, nativeCount) == 0x2C);
@@ -151,6 +149,7 @@ namespace Tutones::Game::World
 
         static constexpr std::size_t MaxBlips = 64;
         static constexpr int MaxGroundAttempts = 20;
+        static constexpr float MaxGroundCheck = 1000.0f;
 
         TeleportRuntime() = default;
 
@@ -165,6 +164,7 @@ namespace Tutones::Game::World
         {
             if (Runtime::GameRuntime::Get().Enqueue(std::forward<Task>(task)))
                 return true;
+
             m_Pending.store(false, std::memory_order_release);
             SetResult(false, "Game-thread queue unavailable");
             return false;
@@ -214,15 +214,15 @@ namespace Tutones::Game::World
             program.nativeEntrypoints = reinterpret_cast<Native::NativeHandler*>(slots.data());
             init(&program);
 
-            for (std::size_t i = 0; i < slots.size(); ++i)
+            for (std::size_t index = 0; index < slots.size(); ++index)
             {
-                const auto address = static_cast<std::uintptr_t>(slots[i]);
+                const auto address = static_cast<std::uintptr_t>(slots[index]);
                 if (!IsExecutable(address))
                 {
                     m_Handlers.fill(nullptr);
                     return false;
                 }
-                m_Handlers[i] = reinterpret_cast<Native::NativeHandler>(address);
+                m_Handlers[index] = reinterpret_cast<Native::NativeHandler>(address);
             }
             return true;
         }
@@ -232,9 +232,11 @@ namespace Tutones::Game::World
         {
             if (index >= m_Handlers.size() || !m_Handlers[index])
                 return false;
+
             Native::CallContext context;
             if (!(context.PushArg(args) && ...))
                 return false;
+
             m_Handlers[index](&context);
             context.FixVectors();
             out = context.GetReturnValue<Ret>();
@@ -246,9 +248,11 @@ namespace Tutones::Game::World
         {
             if (index >= m_Handlers.size() || !m_Handlers[index])
                 return false;
+
             Native::CallContext context;
             if (!(context.PushArg(args) && ...))
                 return false;
+
             m_Handlers[index](&context);
             context.FixVectors();
             return true;
@@ -270,6 +274,7 @@ namespace Tutones::Game::World
         {
             if (!BlipExists(blip) || !Call(GetBlipCoords, out, blip))
                 return false;
+
             return std::isfinite(out.x) && std::isfinite(out.y) && std::isfinite(out.z);
         }
 
@@ -294,6 +299,7 @@ namespace Tutones::Game::World
         {
             std::vector<int> blips;
             blips.reserve(16);
+
             int blip = BlipIterator(GetFirstBlip, sprite);
             while (blip != 0 && blips.size() < MaxBlips)
             {
@@ -304,57 +310,65 @@ namespace Tutones::Game::World
             return blips;
         }
 
-        [[nodiscard]] TeleportTarget ResolveLocalTeleportTarget() const noexcept
-        {
-            TeleportTarget target{};
-            const auto ped = Natives::PlayerPedId();
-            if (!ped || *ped == 0)
-                return target;
-
-            const auto inVehicle = Natives::IsPedInAnyVehicle(*ped, false);
-            if (inVehicle && *inVehicle)
-            {
-                const auto vehicle = Natives::GetVehiclePedIsIn(*ped, false);
-                if (vehicle && *vehicle != 0)
-                {
-                    const auto exists = Natives::DoesEntityExist(*vehicle);
-                    if (exists && *exists)
-                    {
-                        target.entity = *vehicle;
-                        target.inVehicle = true;
-                        return target;
-                    }
-                }
-            }
-
-            target.entity = *ped;
-            return target;
-        }
-
-        [[nodiscard]] bool MoveEntity(Entity entity, float x, float y, float z) const
+        [[nodiscard]] bool MoveEntity(Entity entity, const Native::NativeVector3& coords) const
         {
             if (entity == 0)
                 return false;
+
             const auto exists = Natives::DoesEntityExist(entity);
             if (!exists || !*exists)
                 return false;
 
-            // Mirrors YimMenuV2 Entity::SetPosition: the current vehicle is selected
-            // by ResolveLocalTeleportTarget(), then SET_ENTITY_COORDS_NO_OFFSET is used.
+            // Exact YimMenuV2 Entity::SetPosition behavior.
             return CallVoid(
                 SetEntityCoords,
                 entity,
-                x,
-                y,
-                z,
+                coords.x,
+                coords.y,
+                coords.z,
                 std::int32_t{1},
                 std::int32_t{1},
                 std::int32_t{1});
         }
 
-        void StreamCollision(float x, float y, float z) const
+        [[nodiscard]] bool TeleportLocalPedLikeYim(
+            const Native::NativeVector3& coords,
+            bool& movedVehicle) const
         {
-            static_cast<void>(CallVoid(RequestCollision, x, y, z));
+            movedVehicle = false;
+
+            const auto ped = Natives::PlayerPedId();
+            if (!ped || *ped == 0)
+                return false;
+
+            const auto pedExists = Natives::DoesEntityExist(*ped);
+            if (!pedExists || !*pedExists)
+                return false;
+
+            // Mirror YimMenuV2 Ped::GetVehicle() exactly:
+            // IS_PED_IN_ANY_VEHICLE(ped, false) -> GET_VEHICLE_PED_IS_USING(ped).
+            const auto inVehicle = Natives::IsPedInAnyVehicle(*ped, false);
+            if (inVehicle && *inVehicle)
+            {
+                const auto vehicle = VehicleNatives::GetVehiclePedIsUsing(*ped);
+                if (vehicle && *vehicle != 0)
+                {
+                    const auto vehicleExists = Natives::DoesEntityExist(*vehicle);
+                    if (vehicleExists && *vehicleExists)
+                    {
+                        movedVehicle = true;
+                        return MoveEntity(*vehicle, coords);
+                    }
+                }
+            }
+
+            // No actively used vehicle: YimMenuV2 Ped::TeleportTo falls back to the ped.
+            return MoveEntity(*ped, coords);
+        }
+
+        void StreamCollision(const Native::NativeVector3& coords) const
+        {
+            static_cast<void>(CallVoid(RequestCollision, coords.x, coords.y, coords.z));
         }
 
         [[nodiscard]] bool ProbeGround(float x, float y, float& out) const
@@ -363,26 +377,30 @@ namespace Tutones::Game::World
             if (!m_Handlers[GetGroundZ]
                 || !context.PushArg(x)
                 || !context.PushArg(y)
-                || !context.PushArg(1000.0f)
+                || !context.PushArg(MaxGroundCheck)
                 || !context.PushArg(&out)
                 || !context.PushArg(std::int32_t{0})
                 || !context.PushArg(std::int32_t{0}))
+            {
                 return false;
+            }
 
             m_Handlers[GetGroundZ](&context);
             context.FixVectors();
             return context.GetReturnValue<std::int32_t>() != 0 && std::isfinite(out);
         }
 
-        [[nodiscard]] bool ProbeWater(float x, float y, float z, float& out) const
+        [[nodiscard]] bool ProbeWater(const Native::NativeVector3& coords, float& out) const
         {
             Native::CallContext context;
             if (!m_Handlers[GetWaterHeight]
-                || !context.PushArg(x)
-                || !context.PushArg(y)
-                || !context.PushArg(z)
+                || !context.PushArg(coords.x)
+                || !context.PushArg(coords.y)
+                || !context.PushArg(coords.z)
                 || !context.PushArg(&out))
+            {
                 return false;
+            }
 
             m_Handlers[GetWaterHeight](&context);
             context.FixVectors();
@@ -412,96 +430,88 @@ namespace Tutones::Game::World
             BeginResolvedTeleport(coords, automatic ? "Auto waypoint teleport" : "Waypoint teleport");
         }
 
-        void BeginWaypoint(const Native::NativeVector3& coords, bool automatic)
-        {
-            if (!ResolveHandlers())
-                return Fail("Teleport natives are unavailable");
-            if (automatic)
-                static_cast<void>(CallVoid(SetWaypointOff));
-            BeginResolvedTeleport(coords, automatic ? "Auto waypoint teleport" : "Waypoint teleport");
-        }
-
         void BeginResolvedTeleport(const Native::NativeVector3& coords, std::string label)
         {
             if (!ResolveHandlers())
                 return Fail("Teleport natives are unavailable");
 
-            const TeleportTarget target = ResolveLocalTeleportTarget();
-            if (target.entity == 0)
-                return Fail("Local player/vehicle entity is unavailable");
-
-            m_GroundX = coords.x;
-            m_GroundY = coords.y;
-            m_GroundOriginalZ = coords.z;
-            m_GroundProbeZ = coords.z;
-            m_GroundResolvedZ = coords.z;
+            // Mirror YimMenuV2 ResolveZCoordinate state exactly. We cannot call
+            // ScriptMgr::Yield directly, so every re-queued ResolveZStep is one GTA
+            // script scheduler tick later because GameRuntime drains one task per tick.
+            m_ResolveCoords = coords;
+            m_GroundZ = coords.z;
             m_GroundAttempt = 0;
-            m_GroundLabel = std::move(label);
+            m_FoundGround = false;
+            m_ResolveLabel = std::move(label);
 
-            StreamCollision(coords.x, coords.y, coords.z);
-            SetPending(m_GroundLabel + ": resolving destination");
-            if (!Runtime::GameRuntime::Get().Enqueue([this] { GroundProbe(); }))
-                Fail("Ground-probe queue unavailable");
+            SetPending(m_ResolveLabel + ": resolving landing Z");
+            ResolveZStep();
         }
 
-        void GroundProbe()
+        void ResolveZStep()
         {
             if (!m_Pending.load(std::memory_order_acquire))
                 return;
             if (!Native::NativeRegistry::Get().CanInvokeOnCurrentThread() || !ResolveHandlers())
                 return Fail("Teleport natives became unavailable");
 
-            // YimMenuV2 requests collision and yields between attempts rather than
-            // repeatedly moving the entity while the destination is still streaming.
-            StreamCollision(m_GroundX, m_GroundY, m_GroundOriginalZ);
+            // YimMenuV2 requests collision at the destination before each ground test.
+            StreamCollision(m_ResolveCoords);
 
-            float ground = m_GroundProbeZ;
-            if (ProbeGround(m_GroundX, m_GroundY, ground))
+            float ground = m_GroundZ;
+            if (ProbeGround(m_ResolveCoords.x, m_ResolveCoords.y, ground))
             {
-                m_GroundResolvedZ = ground + 1.0f;
-                return ResolveWaterAndFinish(true);
+                m_GroundZ = ground;
+                m_ResolveCoords.z = ground + 1.0f;
+                m_FoundGround = true;
+                return FinishResolvedZ();
             }
 
             if ((m_GroundAttempt % 3) == 0)
-                m_GroundProbeZ += 25.0f;
+                m_GroundZ += 25.0f;
 
             ++m_GroundAttempt;
             if (m_GroundAttempt < MaxGroundAttempts)
             {
-                if (Runtime::GameRuntime::Get().Enqueue([this] { GroundProbe(); }))
+                if (Runtime::GameRuntime::Get().Enqueue([this] { ResolveZStep(); }))
                     return;
-                return Fail("Ground-probe queue unavailable");
+                return Fail("Ground-resolution queue unavailable");
             }
 
-            m_GroundResolvedZ = m_GroundOriginalZ;
-            ResolveWaterAndFinish(false);
+            FinishResolvedZ();
         }
 
-        void ResolveWaterAndFinish(bool foundGround)
+        void FinishResolvedZ()
         {
-            float finalZ = m_GroundResolvedZ;
-            float water{};
-            if (ProbeWater(m_GroundX, m_GroundY, finalZ, water))
+            // Exact YimMenuV2 order:
+            // 1) ground + 1.0 if found
+            // 2) water height wins whether ground was found or not
+            // 3) approximate path height only when ground was never found
+            float waterHeight{};
+            if (ProbeWater(m_ResolveCoords, waterHeight))
             {
-                // Match YimMenuV2: water height wins even when a ground probe succeeded.
-                finalZ = water;
+                m_ResolveCoords.z = waterHeight;
             }
-            else if (!foundGround)
+            else if (!m_FoundGround)
             {
-                finalZ = ApproxHeight(m_GroundX, m_GroundY);
+                m_ResolveCoords.z = ApproxHeight(m_ResolveCoords.x, m_ResolveCoords.y);
             }
 
-            FinishMove(finalZ, m_GroundLabel + " complete");
-        }
+            bool movedVehicle = false;
+            const bool moved = TeleportLocalPedLikeYim(m_ResolveCoords, movedVehicle);
 
-        void FinishMove(float z, std::string successMessage)
-        {
-            // Resolve the current vehicle at the final step, matching YimMenuV2's
-            // Ped::TeleportTo behavior after its yielded ground-resolution loop.
-            const TeleportTarget target = ResolveLocalTeleportTarget();
-            const bool moved = target.entity != 0 && MoveEntity(target.entity, m_GroundX, m_GroundY, z);
             m_Pending.store(false, std::memory_order_release);
-            SetResult(moved, moved ? std::move(successMessage) : "Teleport destination placement failed");
+            if (!moved)
+            {
+                SetResult(false, "Teleport destination placement failed");
+                return;
+            }
+
+            SetResult(
+                true,
+                m_ResolveLabel + (movedVehicle
+                    ? " complete - moved current vehicle"
+                    : " complete - moved player on foot"));
         }
 
         void TeleportGroup(std::size_t index)
@@ -509,7 +519,9 @@ namespace Tutones::Game::World
             if (!Native::NativeRegistry::Get().CanInvokeOnCurrentThread()
                 || !ResolveHandlers()
                 || index >= TeleportData::Groups.size())
+            {
                 return Fail("Teleport natives are unavailable");
+            }
 
             const auto& group = TeleportData::Groups[index];
             const auto blips = CollectBlips(group.sprite);
@@ -530,6 +542,7 @@ namespace Tutones::Game::World
             std::string label = group.label;
             if (group.cycle)
                 label += " " + std::to_string(ordinal + 1) + "/" + std::to_string(blips.size());
+
             BeginResolvedTeleport(coords, std::move(label));
         }
 
@@ -538,6 +551,7 @@ namespace Tutones::Game::World
             bool expected = false;
             if (!m_AutoLoopScheduled.compare_exchange_strong(expected, true, std::memory_order_acq_rel))
                 return;
+
             if (!Runtime::GameRuntime::Get().Enqueue([this] { AutoTick(); }))
                 m_AutoLoopScheduled.store(false, std::memory_order_release);
         }
@@ -558,9 +572,8 @@ namespace Tutones::Game::World
                 if (WaypointCoords(coords)
                     && !m_Pending.exchange(true, std::memory_order_acq_rel))
                 {
-                    // YimMenuV2 consumes the waypoint immediately after capturing its
-                    // coordinates. This prevents the loop from repeatedly teleporting to
-                    // the same marker and lets the user place a fresh waypoint afterward.
+                    // YimMenuV2 captures the marker, queues the teleport work, then
+                    // consumes the waypoint so the loop cannot retrigger on the same marker.
                     static_cast<void>(CallVoid(SetWaypointOff));
                     SetPending("Auto waypoint detected");
                     BeginResolvedTeleport(coords, "Auto waypoint teleport");
@@ -569,7 +582,10 @@ namespace Tutones::Game::World
 
             if (m_AutoWaypoint.load(std::memory_order_acquire)
                 && Runtime::GameRuntime::Get().Enqueue([this] { AutoTick(); }))
+            {
                 return;
+            }
+
             m_AutoLoopScheduled.store(false, std::memory_order_release);
         }
 
@@ -602,13 +618,11 @@ namespace Tutones::Game::World
         std::atomic<bool> m_AutoWaypoint{false};
         std::atomic<bool> m_AutoLoopScheduled{false};
 
-        float m_GroundX{};
-        float m_GroundY{};
-        float m_GroundOriginalZ{};
-        float m_GroundProbeZ{};
-        float m_GroundResolvedZ{};
+        Native::NativeVector3 m_ResolveCoords{};
+        float m_GroundZ{};
         int m_GroundAttempt{};
-        std::string m_GroundLabel{};
+        bool m_FoundGround{};
+        std::string m_ResolveLabel{};
 
         mutable std::mutex m_Mutex;
         bool m_HaveResult{};
