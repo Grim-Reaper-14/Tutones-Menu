@@ -2,8 +2,10 @@
 
 #include "../core/logging/Logger.hpp"
 #include "memory/PatternScanner.hpp"
+#include "native/NativeHandlerValidation.hpp"
 
 #include <array>
+#include <cstddef>
 #include <iomanip>
 #include <sstream>
 #include <string>
@@ -12,6 +14,19 @@ namespace Tutones::Game
 {
     namespace
     {
+        struct NativeProgramView final
+        {
+            std::byte pad00[0x2C]{};
+            std::uint32_t nativeCount{};
+            std::byte pad30[0x10]{};
+            std::uint64_t* nativeEntrypoints{};
+            std::byte pad48[0x38]{};
+        };
+
+        static_assert(offsetof(NativeProgramView, nativeCount) == 0x2C);
+        static_assert(offsetof(NativeProgramView, nativeEntrypoints) == 0x40);
+        static_assert(sizeof(NativeProgramView) == 0x80);
+
         std::string AddressString(const void* address)
         {
             std::ostringstream stream;
@@ -24,6 +39,32 @@ namespace Tutones::Game
     {
         static GamePointers instance;
         return instance;
+    }
+
+    void GamePointers::SafeInitNativeTables(void* opaqueProgram)
+    {
+        auto& pointers = Get();
+        const auto rawInit = pointers.m_InitNativeTables;
+        if (!rawInit || !opaqueProgram)
+            return;
+
+        rawInit(opaqueProgram);
+
+        auto* program = static_cast<NativeProgramView*>(opaqueProgram);
+        if (!program->nativeEntrypoints || program->nativeCount == 0 || program->nativeCount > 4096)
+            return;
+
+        // Focused helper tables used to trust any non-null slot returned by the game.
+        // Fail closed here for every caller: unresolved hashes or corrupt results are
+        // zeroed before a feature can reinterpret them as callable native handlers.
+        for (std::uint32_t index = 0; index < program->nativeCount; ++index)
+        {
+            if (!Native::IsExecutableHandlerAddress(
+                    static_cast<std::uintptr_t>(program->nativeEntrypoints[index])))
+            {
+                program->nativeEntrypoints[index] = 0;
+            }
+        }
     }
 
     bool GamePointers::Resolve()
@@ -308,7 +349,10 @@ namespace Tutones::Game
     }
 
     bool GamePointers::IsResolved() const noexcept { return m_Resolved.load(std::memory_order_acquire); }
-    InitNativeTablesFn GamePointers::InitNativeTables() const noexcept { return m_InitNativeTables; }
+    InitNativeTablesFn GamePointers::InitNativeTables() const noexcept
+    {
+        return m_InitNativeTables ? &GamePointers::SafeInitNativeTables : nullptr;
+    }
     RunScriptThreadsFn GamePointers::RunScriptThreads() const noexcept { return m_RunScriptThreads; }
     Types::AtArray<Types::ScriptThread*>* GamePointers::ScriptThreads() const noexcept { return m_ScriptThreads; }
     Types::ScriptProgram** GamePointers::ScriptPrograms() const noexcept { return m_ScriptPrograms; }
