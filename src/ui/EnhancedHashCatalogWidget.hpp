@@ -33,12 +33,20 @@ namespace Tutones::UI
         }
     }
 
+    [[nodiscard]] inline const char* DirectServiceTransactionActionName(
+        Game::NetworkFeatures::DirectServiceTransactionAction action) noexcept
+    {
+        using Game::NetworkFeatures::DirectServiceTransactionAction;
+        return action == DirectServiceTransactionAction::Spend ? "Spend" : "Earn";
+    }
+
     inline void RenderNamedHashList(
         const char* childId,
         const char* filterLabel,
         std::span<const std::string_view> names,
         ImGuiTextFilter& filter,
-        bool executable) noexcept
+        bool executable,
+        Game::NetworkFeatures::DirectServiceTransactionAction action) noexcept
     {
         using Game::NetworkFeatures::DirectServiceTransactionRuntime;
         using Game::NetworkFeatures::NetworkRuntime;
@@ -68,7 +76,7 @@ namespace Tutones::UI
                         || transaction.pending;
                     ImGui::BeginDisabled(blocked);
                     if (ImGui::SmallButton("Execute"))
-                        static_cast<void>(direct.Queue(hash));
+                        static_cast<void>(direct.Queue(hash, action));
                     ImGui::EndDisabled();
 
                     if (!network.sessionStarted)
@@ -106,7 +114,7 @@ namespace Tutones::UI
         if (executable)
         {
             ImGui::TextWrapped(
-                "Named service items use the same direct NETSHOP service path as YimMenuV2: validate the catalog item, read its live price, switch into shop_controller TLS, call NET_GAMESERVER_BEGIN_SERVICE, then NET_GAMESERVER_CHECKOUT_START.");
+                "Named service items use the direct NETSHOP service path: validate the catalog item, read its live price, switch into shop_controller TLS, call NET_GAMESERVER_BEGIN_SERVICE with the correct Earn/Spend action, then NET_GAMESERVER_CHECKOUT_START.");
 
             if (transaction.serviceHash != 0)
             {
@@ -114,6 +122,10 @@ namespace Tutones::UI
                     "Last: 0x%08X - %s",
                     transaction.serviceHash,
                     DirectServiceTransactionResultName(transaction.result));
+                ImGui::TextDisabled(
+                    "Action: %s (0x%08X)",
+                    DirectServiceTransactionActionName(transaction.action),
+                    transaction.actionHash);
                 if (transaction.price >= 0)
                     ImGui::TextDisabled("Catalog price/value: $%d", transaction.price);
                 if (transaction.transactionId >= 0)
@@ -123,7 +135,7 @@ namespace Tutones::UI
                 ImGui::TextDisabled("Waiting for the queued NETSHOP service transaction to run on the GTA script thread...");
 
             ImGui::TextDisabled(
-                "Checkout started means GTA accepted creation/start of the service checkout. Service/refund settlement remains server-controlled, matching YimMenuV2's fire-and-forget service path.");
+                "Checkout started means GTA accepted creation/start of the service checkout. Service/refund settlement remains server-controlled; the service path is fire-and-forget.");
         }
         else
         {
@@ -136,9 +148,15 @@ namespace Tutones::UI
             {
                 static ImGuiTextFilter filter;
                 ImGui::TextDisabled(executable
-                    ? "109 executable SERVICE_SPEND_* service items. These can deduct the live catalog price."
+                    ? "109 executable SERVICE_SPEND_* service items. These use NET_SHOP_ACTION_SPEND and can deduct the live catalog price."
                     : "109 SERVICE_SPEND_* identifiers");
-                RenderNamedHashList("##spend_hash_list", "Filter spend", SpendNames, filter, executable);
+                RenderNamedHashList(
+                    "##spend_hash_list",
+                    "Filter spend",
+                    SpendNames,
+                    filter,
+                    executable,
+                    DirectServiceTransactionAction::Spend);
                 ImGui::EndTabItem();
             }
 
@@ -146,9 +164,15 @@ namespace Tutones::UI
             {
                 static ImGuiTextFilter filter;
                 ImGui::TextDisabled(executable
-                    ? "63 executable award / bonus SERVICE_EARN_* service items."
+                    ? "63 executable award / bonus SERVICE_EARN_* service items using NET_SHOP_ACTION_EARN."
                     : "63 award / bonus SERVICE_EARN_* identifiers");
-                RenderNamedHashList("##award_hash_list", "Filter awards", AwardNames, filter, executable);
+                RenderNamedHashList(
+                    "##award_hash_list",
+                    "Filter awards",
+                    AwardNames,
+                    filter,
+                    executable,
+                    DirectServiceTransactionAction::Earn);
                 ImGui::EndTabItem();
             }
 
@@ -156,9 +180,15 @@ namespace Tutones::UI
             {
                 static ImGuiTextFilter filter;
                 ImGui::TextDisabled(executable
-                    ? "17 executable refund service items using YimMenuV2-style direct service checkout."
+                    ? "17 executable SERVICE_EARN_REFUND_* service items using NET_SHOP_ACTION_EARN."
                     : "17 named refund identifiers");
-                RenderNamedHashList("##refund_hash_list", "Filter refunds", RefundNames, filter, executable);
+                RenderNamedHashList(
+                    "##refund_hash_list",
+                    "Filter refunds",
+                    RefundNames,
+                    filter,
+                    executable,
+                    DirectServiceTransactionAction::Earn);
                 ImGui::EndTabItem();
             }
 
@@ -166,7 +196,13 @@ namespace Tutones::UI
             {
                 static ImGuiTextFilter filter;
                 ImGui::TextDisabled("Transaction type, action, category and invalid/reset identifiers.");
-                RenderNamedHashList("##netshop_hash_list", "Filter NETSHOP", NetshopNames, filter, false);
+                RenderNamedHashList(
+                    "##netshop_hash_list",
+                    "Filter NETSHOP",
+                    NetshopNames,
+                    filter,
+                    false,
+                    DirectServiceTransactionAction::Earn);
                 ImGui::EndTabItem();
             }
 
@@ -182,7 +218,9 @@ namespace Tutones::UI
                         ImGui::PushID(static_cast<int>(5000 + index));
                         ImGui::Text("%d  ->  0x%08X", value, hash);
                         if (value == 1445302971)
-                            ImGui::TextDisabled("Observed as the earn action hash in the shared transaction helper; metadata only.");
+                            ImGui::TextDisabled("NET_SHOP_ACTION_EARN metadata value.");
+                        else if (value == 537254313)
+                            ImGui::TextDisabled("NET_SHOP_ACTION_SPEND metadata value.");
                         else
                             ImGui::TextDisabled("Unlabeled numeric transaction case; reference only.");
                         ImGui::PopID();
