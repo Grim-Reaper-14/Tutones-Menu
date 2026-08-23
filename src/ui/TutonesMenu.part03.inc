@@ -67,6 +67,24 @@ namespace Tutones::UI
         }
     }
 
+    bool TutonesMenu::PrepareFrameResources() noexcept
+    {
+        if (!ImGui::GetCurrentContext())
+            return false;
+
+        auto& themes = ThemeManager::Get();
+        if (!themes.EnsureInitialized())
+            return false;
+        if (!EnsureOriginalFonts())
+            return false;
+
+        // ImGui 1.92 has a dynamic font atlas and DX12 texture-update support, but
+        // the atlas is still locked between NewFrame() and EndFrame(). All font/image
+        // mutations therefore happen here before Renderer starts the ImGui frame.
+        themes.ApplyPendingResources();
+        return true;
+    }
+
     void TutonesMenu::Render() noexcept
     {
         SyncPersistentMenuState();
@@ -76,12 +94,6 @@ namespace Tutones::UI
             return;
 
         auto& themes = ThemeManager::Get();
-        if (!themes.EnsureInitialized())
-            return;
-        if (!EnsureOriginalFonts())
-            return;
-        themes.ApplyPendingResources();
-
         ApplyV11Style();
         ProcessInput();
 
