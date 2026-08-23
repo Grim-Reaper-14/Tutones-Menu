@@ -13,8 +13,10 @@
 #include <algorithm>
 #include <array>
 #include <cstdio>
+#include <memory>
 #include <set>
 #include <string>
+#include <thread>
 #include <utility>
 
 namespace Tutones::Game::PersonalVehicles
@@ -279,6 +281,9 @@ namespace Tutones::Game::PersonalVehicles
 
         m_RequestStage = RequestStage::Idle;
         m_RequestVehicleId = -1;
+        m_DespawnVehicleId = -1;
+        m_DespawnToggleWasSet = false;
+        m_DespawnToggleModified = false;
         m_RequestDeadline = {};
         m_RequestStageReady = {};
         m_NextRefresh = {};
@@ -308,16 +313,39 @@ namespace Tutones::Game::PersonalVehicles
 
     void PersonalVehicleRuntime::Stop() noexcept
     {
-        if (!m_Running.exchange(false, std::memory_order_acq_rel))
-            return;
+        const bool wasRunning = m_Running.exchange(false, std::memory_order_acq_rel);
 
-        std::scoped_lock lock(m_Mutex);
-        m_QueuedAction = PersonalVehicleAction::None;
-        m_QueuedVehicleId = -1;
-        m_ActionBusy = false;
-        m_Snapshot.actionPending = false;
-        m_Snapshot.running = false;
-        TUTONES_LOG_INFO("vehicle.personal", "Personal vehicle runtime stopped");
+        const auto cleanup = [this] { AbortRequestOnGameThread(); };
+        auto& runtime = Runtime::GameRuntime::Get();
+        if (runtime.IsOnGameThread())
+        {
+            cleanup();
+        }
+        else if (runtime.IsInitialized())
+        {
+            const auto cleaned = std::make_shared<std::atomic<bool>>(false);
+            if (runtime.Enqueue([cleanup, cleaned] {
+                    cleanup();
+                    cleaned->store(true, std::memory_order_release);
+                }))
+            {
+                const auto deadline = Clock::now() + std::chrono::milliseconds(250);
+                while (!cleaned->load(std::memory_order_acquire) && Clock::now() < deadline)
+                    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            }
+        }
+
+        {
+            std::scoped_lock lock(m_Mutex);
+            m_QueuedAction = PersonalVehicleAction::None;
+            m_QueuedVehicleId = -1;
+            m_ActionBusy = false;
+            m_Snapshot.actionPending = false;
+            m_Snapshot.running = false;
+        }
+
+        if (wasRunning)
+            TUTONES_LOG_INFO("vehicle.personal", "Personal vehicle runtime stopped with interrupted request state rolled back");
     }
 
     bool PersonalVehicleRuntime::IsRunning() const noexcept
@@ -380,12 +408,8 @@ namespace Tutones::Game::PersonalVehicles
 
         if (IsRunning() && !QueueNextTick())
         {
-            m_Running.store(false, std::memory_order_release);
-            std::scoped_lock lock(m_Mutex);
-            m_ActionBusy = false;
-            m_Snapshot.actionPending = false;
-            m_Snapshot.running = false;
-            TUTONES_LOG_ERROR("vehicle.personal", "Personal vehicle runtime lost its GTA script-thread scheduling slot and stopped");
+            TUTONES_LOG_ERROR("vehicle.personal", "Personal vehicle runtime lost its GTA script-thread scheduling slot; rolling back request state");
+            Stop();
         }
     }
 
@@ -420,6 +444,7 @@ namespace Tutones::Game::PersonalVehicles
 
         if (action == PersonalVehicleAction::Request && !BeginRequestOnGameThread(vehicleId, now))
         {
+            AbortRequestOnGameThread();
             RecordAction(action, vehicleId, false);
             m_NextRefresh = {};
         }
@@ -462,6 +487,10 @@ namespace Tutones::Game::PersonalVehicles
             return false;
 
         m_RequestVehicleId = vehicleId;
+        m_DespawnVehicleId = -1;
+        m_DespawnToggleWasSet = false;
+        m_DespawnToggleModified = false;
+
         if (*currentVehicleHandle != 0)
         {
             const auto exists = Natives::DoesEntityExist(*currentVehicleHandle);
@@ -481,7 +510,11 @@ namespace Tutones::Game::PersonalVehicles
                 if (!currentFlags)
                     return false;
 
+                m_DespawnVehicleId = *currentVehicleId;
+                m_DespawnToggleWasSet = (*currentFlags & TriggerSpawnToggleBit) != 0;
+                m_DespawnToggleModified = true;
                 *currentFlags &= ~TriggerSpawnToggleBit;
+
                 m_RequestStage = RequestStage::WaitingForDespawn;
                 m_RequestDeadline = now + DespawnTimeout;
                 return true;
@@ -496,14 +529,56 @@ namespace Tutones::Game::PersonalVehicles
         return true;
     }
 
+    void PersonalVehicleRuntime::AbortRequestOnGameThread() noexcept
+    {
+        auto* pages = GamePointers::Get().ScriptGlobals();
+
+        // Only roll back the single bit we changed while waiting for the currently
+        // active personal vehicle to despawn. Preserve every other live MPSV flag.
+        if (m_RequestStage == RequestStage::WaitingForDespawn
+            && m_DespawnToggleModified
+            && pages
+            && ValidMpsvId(m_DespawnVehicleId, pages))
+        {
+            if (auto* flags = VehicleFlags(m_DespawnVehicleId, pages))
+            {
+                if (m_DespawnToggleWasSet)
+                    *flags |= TriggerSpawnToggleBit;
+                else
+                    *flags &= ~TriggerSpawnToggleBit;
+            }
+        }
+
+        // Once the request globals were submitted we should not attempt to undo the
+        // game's request. The only local state Tutones still owns is this freemode local.
+        if (m_RequestStage == RequestStage::WaitBeforeLocalClear)
+        {
+            auto* freemode = Script::ScriptRuntime::Get().FindThread(FreemodeHash);
+            if (freemode && freemode->stack)
+            {
+                if (int* requestLocal = Script::ScriptLocal(freemode, FreemodeRequestLocalBase)
+                        .At(FreemodeRequestLocalOffset)
+                        .As<int>())
+                {
+                    *requestLocal = 0;
+                }
+            }
+        }
+
+        m_RequestStage = RequestStage::Idle;
+        m_RequestVehicleId = -1;
+        m_DespawnVehicleId = -1;
+        m_DespawnToggleWasSet = false;
+        m_DespawnToggleModified = false;
+        m_RequestDeadline = {};
+        m_RequestStageReady = {};
+    }
+
     void PersonalVehicleRuntime::ContinueRequestOnGameThread(Clock::time_point now) noexcept
     {
         auto fail = [this] {
             const int vehicleId = m_RequestVehicleId;
-            m_RequestStage = RequestStage::Idle;
-            m_RequestVehicleId = -1;
-            m_RequestDeadline = {};
-            m_RequestStageReady = {};
+            AbortRequestOnGameThread();
             RecordAction(PersonalVehicleAction::Request, vehicleId, false);
             m_NextRefresh = {};
         };
@@ -543,6 +618,12 @@ namespace Tutones::Game::PersonalVehicles
                     fail();
                 return;
             }
+
+            // The despawn completed, so the cleared trigger bit did its job and must not
+            // be restored if a later stage fails.
+            m_DespawnVehicleId = -1;
+            m_DespawnToggleWasSet = false;
+            m_DespawnToggleModified = false;
 
             if (!RepairVehicleOnGameThread(m_RequestVehicleId, false))
             {
@@ -602,6 +683,9 @@ namespace Tutones::Game::PersonalVehicles
             const int vehicleId = m_RequestVehicleId;
             m_RequestStage = RequestStage::Idle;
             m_RequestVehicleId = -1;
+            m_DespawnVehicleId = -1;
+            m_DespawnToggleWasSet = false;
+            m_DespawnToggleModified = false;
             m_RequestDeadline = {};
             m_RequestStageReady = {};
             RecordAction(PersonalVehicleAction::Request, vehicleId, true);
