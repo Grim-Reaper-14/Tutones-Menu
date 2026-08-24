@@ -41,7 +41,6 @@ namespace Tutones::UI
 
         auto& wheelRuntime = CasinoLuckyWheelRuntime::Get();
         auto& slotRuntime = CasinoSlotMachineRuntime::Get();
-        slotRuntime.Tick();
 
         ImGui::SetCursorPos(ImVec2(226.0f, 16.0f));
         ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(6.0f, 4.0f));
@@ -135,41 +134,62 @@ namespace Tutones::UI
             }
             else
             {
-                auto state = slotRuntime.Snapshot();
+                const auto state = slotRuntime.Snapshot();
                 bool enabled = state.enabled;
 
                 ImGui::TextColored(V11Theme::Accent, "Rig Slot Machines");
                 ImGui::SameLine();
-                ImGui::TextDisabled("casino_slots");
+                ImGui::TextDisabled("READ / WRITE");
                 ImGui::Separator();
 
-                ImGui::TextWrapped("Forces the current Enhanced casino_slots random-result table to result 6 while the script is active and its spin state is safe.");
+                ImGui::TextWrapped("Direct casino_slots result-table controls. These buttons read and write the live Enhanced script locals; they are not read-only inspectors.");
                 ImGui::Spacing();
 
-                if (ImGui::Checkbox("Rig Slot Machines", &enabled))
-                    slotRuntime.SetEnabled(enabled);
-                DescribeLastV11Item("When enabled, write result 6 to casino_slots locals 1357 + [3..196], excluding 9, 21, 22, 87 and 152, only at spin states 8 or 14.");
+                ImGui::SeparatorText("Direct Read / Write");
+                ImGui::BeginDisabled(state.taskQueued);
+                if (ImGui::Button("Read Current Result Table", ImVec2(-1.0f, 0.0f)))
+                    static_cast<void>(slotRuntime.QueueReadResults());
+                DescribeLastV11Item("Read every non-blacklisted casino_slots result entry from locals 1357 + [3..196] and report how many currently equal win result 6.");
 
-                ImGui::SeparatorText("Runtime");
+                if (ImGui::Button("Write Win Table Now", ImVec2(-1.0f, 0.0f)))
+                    static_cast<void>(slotRuntime.QueueWriteWinResults());
+                DescribeLastV11Item("Immediately write result 6 to every supported casino_slots result entry and verify all values by reading the table back.");
+
+                if (ImGui::Button("Reset Result Table Now", ImVec2(-1.0f, 0.0f)))
+                    static_cast<void>(slotRuntime.QueueResetResults());
+                DescribeLastV11Item("Immediately replace the forced result table with normal 3-9 result values and verify the table remains readable.");
+                ImGui::EndDisabled();
+
+                ImGui::SeparatorText("Continuous Write");
+                if (ImGui::Checkbox("Keep Win Table Forced", &enabled))
+                    slotRuntime.SetEnabled(enabled);
+                DescribeLastV11Item("Continuously rewrites supported casino_slots result entries to 6 whenever the game changes them. Spin state 8/14 is shown as telemetry, not used as a write blocker.");
+
+                ImGui::SeparatorText("Live Table State");
                 ImGui::Text("Script active: %s", state.scriptActive ? "Yes" : "No");
                 if (state.scriptActive)
                 {
                     ImGui::Text("Spin state: %d", state.spinState);
-                    ImGui::Text("Safe write state: %s", state.safeSpinState ? "Yes" : "No");
-                    ImGui::Text("Last writes: %zu", state.lastWriteCount);
+                    ImGui::Text("Original 8/14 state check: %s", state.safeSpinState ? "Yes" : "No");
                 }
-                ImGui::Text("Reset pending: %s", state.restorePending ? "Yes" : "No");
+
+                if (state.tableReadable)
+                {
+                    ImGui::Text("Readable entries: %zu", state.tableEntryCount);
+                    ImGui::Text("Entries set to win result 6: %zu / %zu", state.forcedWinCount, state.tableEntryCount);
+                }
+                ImGui::Text("Last writes: %zu", state.lastWriteCount);
+                ImGui::Text("Continuous reset pending: %s", state.restorePending ? "Yes" : "No");
 
                 ImGui::SeparatorText("Status");
-                if (state.haveResult)
-                    ImGui::TextDisabled("%s: %s", state.lastSucceeded ? "Success" : "Waiting/Failed", state.message.c_str());
+                if (state.taskQueued)
+                    ImGui::TextDisabled("Working: %s", state.message.c_str());
+                else if (state.haveResult)
+                    ImGui::TextDisabled("%s: %s", state.lastSucceeded ? "Success" : "Failed", state.message.c_str());
                 else
-                    ImGui::TextDisabled("%s", state.message.c_str());
+                    ImGui::TextDisabled("Ready. Sit at/use a casino slot machine first so casino_slots is active.");
 
-                ImGui::Spacing();
-                ImGui::TextWrapped("Disabling waits for a safe spin state, then replaces the forced result table with normal 3-9 values instead of leaving forced wins behind.");
-
-                SetV11Description("Rig Slot Machines uses the current Enhanced casino_slots result-table mapping with script/thread checks, safe spin-state gating, read-back validation and cleanup on disable.");
+                SetV11Description("Rig Slot Machines is now a direct read/write tool: inspect the live result table, write result 6 immediately, reset the table immediately, or keep result 6 continuously forced while casino_slots is active.");
             }
         }
 
