@@ -28,6 +28,39 @@ namespace Tutones::UI
                 ImGui::GetColorU32(ImVec4(V11Theme::Accent.x, V11Theme::Accent.y, V11Theme::Accent.z, 0.55f)),
                 1.5f);
 
+            // One-column legacy pages intentionally occupy the left side of the
+            // workspace. Until a page is converted to a native two-column V12
+            // layout, use the spare area as a guide card instead of dead space.
+            const ImVec2 guideMin{windowPos.x + 724.0f, windowPos.y + 18.0f};
+            const ImVec2 guideMax{windowPos.x + 1008.0f, windowPos.y + 246.0f};
+            draw->AddRectFilled(guideMin, guideMax, IM_COL32(10, 13, 18, 247), 7.0f);
+            draw->AddRect(guideMin, guideMax, IM_COL32(77, 82, 91, 88), 7.0f, 0, 1.0f);
+            draw->AddText(
+                FontOrDefault(g_Bold),
+                13.0f,
+                ImVec2(guideMin.x + 16.0f, guideMin.y + 15.0f),
+                ImGui::GetColorU32(V11Theme::Accent),
+                "PAGE GUIDE");
+            draw->AddText(
+                FontOrDefault(g_Medium),
+                12.0f,
+                ImVec2(guideMin.x + 16.0f, guideMin.y + 46.0f),
+                ImGui::GetColorU32(V11Theme::MutedText),
+                CurrentV11Description() ? CurrentV11Description() : "Use the controls on this page to manage the selected feature.",
+                nullptr,
+                252.0f);
+            draw->AddLine(
+                ImVec2(guideMin.x + 16.0f, guideMax.y - 48.0f),
+                ImVec2(guideMax.x - 16.0f, guideMax.y - 48.0f),
+                ImGui::GetColorU32(V11Theme::Separator),
+                1.0f);
+            draw->AddText(
+                FontOrDefault(g_Medium),
+                11.0f,
+                ImVec2(guideMin.x + 16.0f, guideMax.y - 34.0f),
+                ImGui::GetColorU32(V11Theme::MutedText),
+                "Hover controls for live help on the right rail.");
+
             ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 7.0f);
             ImGui::PushStyleVar(ImGuiStyleVar_ChildBorderSize, 1.0f);
             ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 5.0f);
