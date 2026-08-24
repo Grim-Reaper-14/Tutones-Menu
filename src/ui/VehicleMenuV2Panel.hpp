@@ -35,26 +35,88 @@ namespace Tutones::UI
             g_SavedGarageLoaded = true;
         }
 
-        inline void DrawModeSelector(const char* id, int& mode, const char* left, const char* right) noexcept
+        inline bool SectionButton(const char* label, bool selected, const ImVec2& size) noexcept
         {
-            ImGui::SetCursorPos(ImVec2(226.0f, 454.0f));
-            ImGui::PushID(id);
-            ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 5.0f);
-            ImGui::PushStyleColor(ImGuiCol_Button, V11Theme::PanelBg);
-            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, V11Theme::AccentDark);
-            ImGui::PushStyleColor(ImGuiCol_ButtonActive, V11Theme::AccentDark);
+            if (selected)
+            {
+                ImGui::PushStyleColor(ImGuiCol_Button, V11Theme::AccentDark);
+                ImGui::PushStyleColor(ImGuiCol_ButtonHovered, V11Theme::AccentDark);
+                ImGui::PushStyleColor(ImGuiCol_ButtonActive, V11Theme::Accent);
+            }
+            else
+            {
+                ImGui::PushStyleColor(ImGuiCol_Button, V11Theme::PanelBg);
+                ImGui::PushStyleColor(ImGuiCol_ButtonHovered, V11Theme::ControlHover);
+                ImGui::PushStyleColor(ImGuiCol_ButtonActive, V11Theme::AccentDark);
+            }
 
-            ImGui::TextDisabled("SECTION");
-            ImGui::SameLine(78.0f);
-            if (ImGui::Button(left, ImVec2(194.0f, 28.0f)))
-                mode = 0;
-            ImGui::SameLine();
-            if (ImGui::Button(right, ImVec2(194.0f, 28.0f)))
-                mode = 1;
-
+            const bool pressed = ImGui::Button(label, size);
             ImGui::PopStyleColor(3);
-            ImGui::PopStyleVar();
-            ImGui::PopID();
+            return pressed;
+        }
+
+        inline void DrawCustomizeSelector() noexcept
+        {
+            ImGui::SetCursorPos(ImVec2(724.0f, 330.0f));
+            ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(14.0f, 12.0f));
+            ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 7.0f);
+            ImGui::PushStyleColor(ImGuiCol_ChildBg, V11Theme::PanelBg);
+            ImGui::PushStyleColor(ImGuiCol_Border, V11Theme::PanelBorder);
+
+            if (ImGui::BeginChild("##vehicle_customize_selector", ImVec2(284.0f, 168.0f), true))
+            {
+                ImGui::TextColored(V11Theme::Accent, "CUSTOMIZATION");
+                ImGui::TextDisabled("Choose what you want to edit");
+                ImGui::Separator();
+
+                if (SectionButton("Paint & Colors", g_CustomizeMode == 0, ImVec2(-1.0f, 31.0f)))
+                    g_CustomizeMode = 0;
+                DescribeLastV11Item("Primary and secondary paint, indexed color families, custom RGB, pearlescent and wheel color.");
+
+                if (SectionButton("Mods / Wheels / Lights", g_CustomizeMode == 1, ImVec2(-1.0f, 31.0f)))
+                    g_CustomizeMode = 1;
+                DescribeLastV11Item("Body and performance modification slots, wheel styles, xenon, neon, tire smoke and tire behavior.");
+
+                ImGui::Spacing();
+                ImGui::TextDisabled(g_CustomizeMode == 0
+                    ? "Paint stays inside Customization."
+                    : "Workshop stays inside Customization.");
+            }
+
+            ImGui::EndChild();
+            ImGui::PopStyleColor(2);
+            ImGui::PopStyleVar(2);
+        }
+
+        inline void DrawGarageSelector() noexcept
+        {
+            ImGui::SetCursorPos(ImVec2(724.0f, 330.0f));
+            ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(14.0f, 12.0f));
+            ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 7.0f);
+            ImGui::PushStyleColor(ImGuiCol_ChildBg, V11Theme::PanelBg);
+            ImGui::PushStyleColor(ImGuiCol_Border, V11Theme::PanelBorder);
+
+            if (ImGui::BeginChild("##vehicle_garage_selector", ImVec2(284.0f, 168.0f), true))
+            {
+                ImGui::TextColored(V11Theme::Accent, "GARAGE");
+                ImGui::TextDisabled("All stored vehicles stay here");
+                ImGui::Separator();
+
+                if (SectionButton("Rockstar Personal Garage", g_GarageMode == 0, ImVec2(-1.0f, 31.0f)))
+                    g_GarageMode = 0;
+                DescribeLastV11Item("Browse owned GTA Online garage vehicles, request or repair them, save the current vehicle to a Rockstar garage, or teleport into the active personal vehicle.");
+
+                if (SectionButton("Tutones Saved Vehicles", g_GarageMode == 1, ImVec2(-1.0f, 31.0f)))
+                    g_GarageMode = 1;
+                DescribeLastV11Item("Manage local Tutones full-vehicle presets without mixing them into current-vehicle or customization controls.");
+
+                ImGui::Spacing();
+                ImGui::TextDisabled("Garage features never leave this page.");
+            }
+
+            ImGui::EndChild();
+            ImGui::PopStyleColor(2);
+            ImGui::PopStyleVar(2);
         }
 
         inline void RenderSavedGaragePanel() noexcept
@@ -72,9 +134,9 @@ namespace Tutones::UI
 
             if (ImGui::BeginChild("##vehicle_saved_garage_v2", ImVec2(490.0f, 430.0f), true))
             {
-                ImGui::TextColored(V11Theme::Accent, "Tutones Saved Garage");
+                ImGui::TextColored(V11Theme::Accent, "Tutones Saved Vehicles");
                 ImGui::SameLine();
-                ImGui::TextDisabled("Local vehicle presets");
+                ImGui::TextDisabled("Local garage presets");
                 ImGui::Separator();
 
                 if (!runtime.IsRunning())
@@ -83,7 +145,7 @@ namespace Tutones::UI
                 }
                 else
                 {
-                    ImGui::TextWrapped("Save and respawn complete local vehicle presets here. Rockstar Online personal vehicles stay in the Rockstar Garage section.");
+                    ImGui::TextWrapped("Local saved vehicles live here beside Rockstar personal-garage tools, but remain separate from Rockstar Online garage data.");
                     ImGui::SeparatorText("Save Current Vehicle");
                     ImGui::SetNextItemWidth(-1.0f);
                     ImGui::InputTextWithHint("##saved_garage_name", "Preset name", g_PresetName, sizeof(g_PresetName));
@@ -96,7 +158,7 @@ namespace Tutones::UI
                             ? "Vehicle preset queued for save"
                             : "Save rejected - enter a vehicle first";
                     }
-                    DescribeLastV11Item("Save the current vehicle as a local Tutones preset without changing Rockstar personal-garage data.");
+                    DescribeLastV11Item("Save the current vehicle as a local Tutones garage preset without changing Rockstar personal-garage data.");
 
                     ImGui::SeparatorText("Saved Vehicles");
                     if (ImGui::Button("Refresh Saved Vehicles", ImVec2(-1.0f, 0.0f)))
@@ -132,7 +194,7 @@ namespace Tutones::UI
                         g_SavedGarageMessage = queued ? "Saved vehicle queued" : "Saved vehicle load rejected";
                     }
                     ImGui::EndDisabled();
-                    DescribeLastV11Item("Spawn the selected Tutones preset and restore its supported paint, wheels, modifications, lighting and tire state.");
+                    DescribeLastV11Item("Spawn the selected Tutones garage preset and restore its supported paint, wheels, modifications, lighting and tire state.");
 
                     if (!snapshot.lastSavedPreset.empty())
                         ImGui::Text("Last preset: %s", snapshot.lastSavedPreset.c_str());
@@ -154,15 +216,11 @@ namespace Tutones::UI
         else
             RenderV12VehicleModificationPanel();
 
-        DrawModeSelector(
-            "vehicle_customize_mode",
-            g_CustomizeMode,
-            g_CustomizeMode == 0 ? "PAINT & COLORS" : "Paint & Colors",
-            g_CustomizeMode == 1 ? "MODS / WHEELS / LIGHTS" : "Mods / Wheels / Lights");
+        DrawCustomizeSelector();
 
         SetV11Description(g_CustomizeMode == 0
-            ? "Vehicle Customize - primary/secondary paint, custom RGB, pearlescent and wheel colors in the same customization hub as the workshop."
-            : "Vehicle Customize - LSC modifications, wheels, lighting, neon, tire smoke and tire behavior in one workshop.");
+            ? "Vehicle Customization - paint and color controls are grouped here instead of living as a separate top-level vehicle menu."
+            : "Vehicle Customization - LSC modifications, wheels, lighting, neon, tire smoke and tire behavior share the same customization workspace.");
     }
 
     inline void RenderVehicleGarageV2() noexcept
@@ -173,14 +231,10 @@ namespace Tutones::UI
         else
             RenderV12PageSurface([] { RenderSavedGaragePanel(); });
 
-        DrawModeSelector(
-            "vehicle_garage_mode",
-            g_GarageMode,
-            g_GarageMode == 0 ? "ROCKSTAR GARAGE" : "Rockstar Garage",
-            g_GarageMode == 1 ? "TUTONES SAVED" : "Tutones Saved");
+        DrawGarageSelector();
 
         SetV11Description(g_GarageMode == 0
-            ? "Vehicle Garage - Rockstar personal vehicles, owned garage slots, request, repair, save-current and teleport-to-personal-vehicle actions."
-            : "Vehicle Garage - local Tutones saved vehicle presets, kept together with the rest of the garage tools.");
+            ? "Vehicle Garage - Rockstar personal vehicles, owned garage slots, request, repair, save-current and teleport-to-personal-vehicle actions all stay together here."
+            : "Vehicle Garage - local Tutones saved vehicle presets stay with the rest of the garage tools instead of being mixed into the current-vehicle page.");
     }
 }
