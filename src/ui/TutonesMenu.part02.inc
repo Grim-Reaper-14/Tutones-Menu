@@ -46,7 +46,7 @@ namespace Tutones::UI
         case 5:
             RenderRecoveryPanel(m_Item);
             if (m_Item == 0)
-                RenderGoodBehaviorBonusControl(Game::Recovery::RecoveryRuntime::Get().Snapshot().sessionStarted);
+                RenderGoodBehaviorBonusControl();
             break;
 
         case 6:
