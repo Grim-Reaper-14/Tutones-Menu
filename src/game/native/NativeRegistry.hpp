@@ -153,6 +153,16 @@ namespace Tutones::Game::Native
         SetDeployHeliStubWings,
         SetDeployMissileBays,
 
+        Wait,
+        RequestScriptWithNameHash,
+        HasScriptWithNameHashLoaded,
+        StartNewScriptWithNameHashAndArgs,
+        SetScriptWithNameHashAsNoLongerNeeded,
+        GetNumberOfThreadsRunningScriptWithHash,
+        NetworkGetTunablesRegistrationInt,
+        NetworkGetTunablesRegistrationBool,
+        NetworkGetTunablesRegistrationFloat,
+
         Count,
     };
 
