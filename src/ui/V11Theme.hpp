@@ -19,10 +19,14 @@ namespace Tutones::UI::V11Theme
     inline ImVec4 MutedText{139.0f / 255.0f, 153.0f / 255.0f, 177.0f / 255.0f, 1.0f};
 
     inline constexpr float MenuWidth = 1120.0f;
-    inline constexpr float MenuHeight = 816.0f;
+    // Eleven category buttons use a 42px pitch from HeaderHeight + 12. The old
+    // 446px body ended before the last category, which let Native Tools overlap
+    // the description/footer. Give the navigation rail enough vertical body space
+    // while keeping the existing header and footer proportions unchanged.
+    inline constexpr float MenuHeight = 854.0f;
     inline constexpr float HeaderHeight = 220.0f;
     inline constexpr float FooterHeight = 150.0f;
-    inline constexpr float BodyHeight = 446.0f;
+    inline constexpr float BodyHeight = 484.0f;
     inline constexpr float FooterY = HeaderHeight + BodyHeight;
 
     inline constexpr float CategoryRailX = 12.0f;
