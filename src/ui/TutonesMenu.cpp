@@ -92,7 +92,7 @@ namespace Tutones::UI
             {"V", "VEHICLES",
                 {{"Vehicle Hub", "Customization", "Garage", nullptr}},
                 {{"V", "R", "G", nullptr}},
-                {{"Spawn vehicles, work with the current vehicle, repair/clean it, change plates and clone nearby vehicles.", "Paint, custom RGB, LSC modifications, wheels, lighting, neon and tire settings are grouped into one customization workspace.", "All stored-vehicle tools stay together: Rockstar personal garages and Tutones local saved vehicles.", nullptr}}, 3, true},
+                {{"Spawn vehicles, work with the current vehicle, repair/clean it, change plates, clone nearby vehicles and manage decompiled-script website availability.", "Paint, custom RGB, LSC modifications, wheels, lighting, neon and tire settings are grouped into one customization workspace.", "All stored-vehicle tools stay together: Rockstar personal garages and Tutones local saved vehicles.", nullptr}}, 3, true},
             {"O", "ONLINE",
                 {{"Session", "Players", "Services", "Player State"}},
                 {{"G", "P", "N", "S"}},
@@ -231,7 +231,7 @@ namespace Tutones::UI
 #define RenderPlayerPanel(index) ((index) == 0 ? RenderSelfV2Panel() : RenderV12PlayerPanel(index))
 #define RenderPlayerOnlinePanel() RenderV12PlayerOnlinePanel()
 #define RenderWeaponPanel(index) RenderV12WeaponPanel(index)
-#define RenderVehicleGeneralPanel() RenderV12VehicleGeneralPanel()
+#define RenderVehicleGeneralPanel() RenderVehicleHubV2()
 #define RenderVehiclePaintPanel() RenderV12VehiclePaintPanel()
 #define RenderVehicleModificationPanel() RenderV12VehicleModificationPanel()
 #define RenderPersonalVehiclePanel() RenderV12PersonalVehiclePanel()
