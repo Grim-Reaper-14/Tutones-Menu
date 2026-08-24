@@ -6,6 +6,7 @@
 #include "../../runtime/GameRuntime.hpp"
 
 #include <atomic>
+#include <cstddef>
 #include <cstdint>
 #include <mutex>
 
