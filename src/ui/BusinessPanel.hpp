@@ -96,12 +96,12 @@ namespace Tutones::UI
         else if (selectedBusinessPage == 4)
         {
             RenderAcidLabBusinessPanel();
-            SetV11Description("Acid Lab business controls and Enhanced tuning values in the V12 Business Hub.");
+            SetV11Description("Acid Lab business controls and Enhanced tuning values in the V2 Business Hub.");
         }
         else if (selectedBusinessPage == 5)
         {
             RenderHangarBusinessPanel();
-            SetV11Description("Hangar / Air Freight business controls and Enhanced tuning values in the V12 Business Hub.");
+            SetV11Description("Hangar / Air Freight business controls and Enhanced tuning values in the V2 Business Hub.");
         }
         else
         {
