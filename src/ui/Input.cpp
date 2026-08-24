@@ -106,6 +106,7 @@ namespace Tutones::UI
         }
 
         m_MenuOpen.store(false, std::memory_order_release);
+        m_F4FallbackDown.store(false, std::memory_order_release);
         m_PendingActions.store(0, std::memory_order_release);
         Hooking::Win32Hook::Get().SetMessageHandler(&Input::HandleWindowMessage);
 
@@ -128,6 +129,7 @@ namespace Tutones::UI
 
         Hooking::Win32Hook::Get().SetMessageHandler(nullptr);
         m_MenuOpen.store(false, std::memory_order_release);
+        m_F4FallbackDown.store(false, std::memory_order_release);
         m_PendingActions.store(0, std::memory_order_release);
 
         if (ImGui::GetCurrentContext())
@@ -178,6 +180,20 @@ namespace Tutones::UI
         SetMenuOpen(!IsMenuOpen());
     }
 
+    void Input::PollFallbackHotkeys() noexcept
+    {
+        if (!IsInitialized())
+            return;
+
+        const bool down = (::GetAsyncKeyState(VK_F4) & 0x8000) != 0;
+        const bool wasDown = m_F4FallbackDown.exchange(down, std::memory_order_acq_rel);
+        if (down && !wasDown)
+        {
+            TUTONES_LOG_DEBUG("input", "F4 detected by render-frame fallback");
+            ToggleMenu();
+        }
+    }
+
     std::uint32_t Input::ConsumePendingActions() noexcept
     {
         return m_PendingActions.exchange(0, std::memory_order_acq_rel);
@@ -216,6 +232,7 @@ namespace Tutones::UI
         {
             if (wParam == VK_F4)
             {
+                input.m_F4FallbackDown.store(true, std::memory_order_release);
                 if (!IsRepeat(lParam))
                     input.ToggleMenu();
                 return true;
@@ -249,7 +266,10 @@ namespace Tutones::UI
         if (IsKeyUpMessage(message))
         {
             if (wParam == VK_F4)
+            {
+                input.m_F4FallbackDown.store(false, std::memory_order_release);
                 return true;
+            }
             if (input.IsMenuOpen() && IsMenuKey(wParam))
                 return true;
         }
