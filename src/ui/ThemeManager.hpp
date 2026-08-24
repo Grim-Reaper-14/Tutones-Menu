@@ -7,6 +7,7 @@
 
 #include <imgui.h>
 
+#include <algorithm>
 #include <filesystem>
 #include <string>
 #include <unordered_map>
@@ -203,10 +204,41 @@ namespace Tutones::UI
         [[nodiscard]] ImTextureRef BackgroundTexture() const noexcept { return m_Background.Ref(); }
         [[nodiscard]] bool HeaderIsCustom() const noexcept { return m_Header.Valid(); }
         [[nodiscard]] bool FooterIsCustom() const noexcept { return m_Footer.Valid(); }
+
+        [[nodiscard]] float HeaderAspect(const ImVec2& uvMin, const ImVec2& uvMax) const noexcept
+        {
+            return TextureRegionAspect(m_Header.Valid() ? m_Header : m_Embedded, uvMin, uvMax);
+        }
+
+        [[nodiscard]] float FooterAspect(const ImVec2& uvMin, const ImVec2& uvMax) const noexcept
+        {
+            return TextureRegionAspect(m_Footer.Valid() ? m_Footer : m_Embedded, uvMin, uvMax);
+        }
+
+        [[nodiscard]] float BackgroundAspect() const noexcept
+        {
+            return TextureRegionAspect(m_Background, ImVec2(0.0f, 0.0f), ImVec2(1.0f, 1.0f));
+        }
+
         [[nodiscard]] ThemeStorage& Storage() noexcept { return m_Storage; }
 
     private:
         ThemeManager() = default;
+
+        [[nodiscard]] static float TextureRegionAspect(
+            const ThemeTexture& texture,
+            const ImVec2& uvMin,
+            const ImVec2& uvMax) noexcept
+        {
+            if (!texture.Valid() || texture.Width() == 0 || texture.Height() == 0)
+                return 1.0f;
+
+            const float uSpan = std::max(0.0001f, std::abs(uvMax.x - uvMin.x));
+            const float vSpan = std::max(0.0001f, std::abs(uvMax.y - uvMin.y));
+            const float regionWidth = static_cast<float>(texture.Width()) * uSpan;
+            const float regionHeight = static_cast<float>(texture.Height()) * vSpan;
+            return regionWidth / regionHeight;
+        }
 
         void ApplyFont() noexcept
         {
