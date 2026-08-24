@@ -85,6 +85,27 @@ namespace Tutones::UI
             ImGui::TextDisabled("Enhanced 1.73 / b1158.13");
             ImGui::Separator();
 
+            ImGui::BeginDisabled(toolState.pending || !snapshot.sessionStarted);
+            if (ImGui::Button("Source All Crates", ImVec2(-1.0f, 0.0f)))
+            {
+                if (tools.QueueFillAllWarehouses())
+                {
+                    for (std::size_t index = 0; index < snapshot.warehouses.size(); ++index)
+                    {
+                        const auto& warehouse = snapshot.warehouses[index];
+                        if (warehouse.owned && warehouse.capacity > 0)
+                            crates[index] = warehouse.capacity;
+                    }
+                    message = "Source All Crates queued - filling owned warehouses to capacity";
+                }
+                else
+                {
+                    message = "Source All Crates rejected";
+                }
+            }
+            ImGui::EndDisabled();
+            DescribeLastV11Item("Instantly fill every owned Special Cargo warehouse by writing its real MPX_CONTOTALFORWHOUSE slot stat to that warehouse's 16, 42, or 111 crate capacity, then read it back for verification.");
+
             if (!runtime.IsRunning())
             {
                 ImGui::TextDisabled("Recovery business runtime is offline.");
@@ -122,7 +143,7 @@ namespace Tutones::UI
                     if (ImGui::Button("Apply", ImVec2(92.0f, 0.0f)))
                         message = runtime.QueueSetWarehouseCrates(static_cast<int>(index), crates[index]) ? "Cargo write queued" : "Cargo write rejected";
                     ImGui::EndDisabled();
-                    ImGui::TextDisabled("Current: %d / %d", warehouse.crates, warehouse.capacity);
+                    ImGui::TextDisabled("Current: %d / %d", crates[index], warehouse.capacity);
                     ImGui::Separator();
                     ImGui::PopID();
                 }
@@ -130,7 +151,9 @@ namespace Tutones::UI
                 if (!anyOwned)
                     ImGui::TextDisabled("No owned Special Cargo warehouse was detected.");
 
-                if (snapshot.actionPending)
+                if (toolState.pending)
+                    ImGui::TextDisabled("Source All Crates is writing and verifying warehouse stats...");
+                else if (snapshot.actionPending)
                     ImGui::TextDisabled("Special Cargo action is running on the GTA script thread...");
                 else
                     ImGui::TextDisabled("%s", message);
@@ -209,6 +232,6 @@ namespace Tutones::UI
         ImGui::EndChild();
         ImGui::PopStyleColor(2);
         ImGui::PopStyleVar(2);
-        SetV11Description("Special Cargo is fully rendered inside its business tab: warehouse stock, Lupe sourcing, cooldowns, mission locals, crate prices and unique cargo.");
+        SetV11Description("Special Cargo is fully rendered inside its business tab. Source All Crates now fills every owned warehouse directly to its real capacity and verifies the stored crate stats.");
     }
 }
