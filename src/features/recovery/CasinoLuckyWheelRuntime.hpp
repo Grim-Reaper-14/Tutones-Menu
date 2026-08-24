@@ -58,8 +58,15 @@ namespace Tutones::Game::Recovery
         static constexpr std::size_t AdditionalSpinsOffset = 26856;
         static constexpr std::size_t GtaPlusMaxSpinsOffset = 37458;
         static constexpr std::uint32_t LuckyWheelScriptHash = CasinoLuckyWheelDetail::Joaat("casino_lucky_wheel");
-        static constexpr std::size_t PlayerLocalBase = 150;
+
+        // casino_lucky_wheel declares the per-player array at local 150. The
+        // ScriptLocal array form used by the verified implementation resolves
+        // 150 + 1 + (PLAYER_ID * 5), where +1 skips the array header slot.
+        static constexpr std::size_t PlayerLocalArrayBase = 150;
+        static constexpr std::size_t PlayerLocalArrayHeader = 1;
         static constexpr std::size_t PlayerLocalStride = 5;
+        static constexpr int MinPrize = 0;
+        static constexpr int MaxPrize = 19;
 
         static CasinoLuckyWheelRuntime& Get() noexcept
         {
@@ -92,6 +99,79 @@ namespace Tutones::Game::Recovery
             });
         }
 
+        bool QueueSetPrize(int prize)
+        {
+            if (prize < MinPrize || prize > MaxPrize)
+                return false;
+
+            return Queue("Lucky Wheel prize queued", [this, prize] {
+                bool* sessionStarted = GamePointers::Get().IsSessionStarted();
+                if (!sessionStarted || !*sessionStarted)
+                    return Finish(false, "Join GTA Online before setting a Lucky Wheel prize");
+
+                auto& scripts = Script::ScriptRuntime::Get();
+                if (!scripts.IsReady())
+                    return Finish(false, "Shared Enhanced script runtime is unavailable");
+
+                auto* thread = scripts.FindThread(LuckyWheelScriptHash);
+                if (!thread || !thread->stack)
+                    return Finish(false, "casino_lucky_wheel is not active; approach/use the Lucky Wheel first");
+
+                const auto player = PlayerNatives::PlayerId();
+                if (!player || *player < 0)
+                    return Finish(false, "PLAYER_ID could not be resolved");
+
+                const auto index = PlayerLocalArrayBase
+                    + PlayerLocalArrayHeader
+                    + static_cast<std::size_t>(*player) * PlayerLocalStride;
+                const auto stackSlots = static_cast<std::size_t>(thread->context.stackSize) / sizeof(std::uint64_t);
+                if (index >= stackSlots)
+                    return Finish(false, "Lucky Wheel prize local is outside the active script stack");
+
+                int* prizeOutcome = Script::ScriptLocal(thread, index).As<int>();
+                if (!prizeOutcome)
+                    return Finish(false, "Lucky Wheel prize local is unavailable");
+
+                auto* pages = GamePointers::Get().ScriptGlobals();
+                if (!pages)
+                    return Finish(false, "Enhanced script globals are unavailable");
+
+                int* additionalSpins = Script::ScriptGlobal(TunablesGlobal).At(AdditionalSpinsOffset).As<int>(pages);
+                int* gtaPlusMaxSpins = Script::ScriptGlobal(TunablesGlobal).At(GtaPlusMaxSpinsOffset).As<int>(pages);
+                if (!additionalSpins || !gtaPlusMaxSpins)
+                    return Finish(false, "Lucky Wheel spin globals are unavailable");
+
+                // Match the verified Enhanced selector flow: permit the extra spin,
+                // keep the GTA+ daily spin limit supplied for this build, then set
+                // the selected 0-19 prize outcome in the active wheel script.
+                *additionalSpins = 1;
+                *gtaPlusMaxSpins = 2;
+                *prizeOutcome = prize;
+
+                const bool success = *additionalSpins == 1
+                    && *gtaPlusMaxSpins == 2
+                    && *prizeOutcome == prize;
+
+                {
+                    std::scoped_lock lock(m_Mutex);
+                    m_LocalAvailable = true;
+                    m_PlayerId = *player;
+                    m_LocalIndex = index;
+                    m_LocalValue = *prizeOutcome;
+                }
+
+                if (success)
+                {
+                    TUTONES_LOG_INFO(
+                        "recovery.casino",
+                        std::string("Set Lucky Wheel prize outcome to ") + std::to_string(prize)
+                            + " at local " + std::to_string(index));
+                }
+
+                Finish(success, success ? "Selected Lucky Wheel prize applied" : "Lucky Wheel prize failed read-back verification");
+            });
+        }
+
         bool QueueInspectPlayerLocal()
         {
             return Queue("Lucky Wheel player local inspection queued", [this] {
@@ -111,10 +191,16 @@ namespace Tutones::Game::Recovery
                 if (!player || *player < 0)
                     return Finish(false, "PLAYER_ID could not be resolved");
 
-                const auto index = PlayerLocalBase + static_cast<std::size_t>(*player) * PlayerLocalStride;
+                const auto index = PlayerLocalArrayBase
+                    + PlayerLocalArrayHeader
+                    + static_cast<std::size_t>(*player) * PlayerLocalStride;
+                const auto stackSlots = static_cast<std::size_t>(thread->context.stackSize) / sizeof(std::uint64_t);
+                if (index >= stackSlots)
+                    return Finish(false, "Lucky Wheel prize local is outside the active script stack");
+
                 int* value = Script::ScriptLocal(thread, index).As<int>();
                 if (!value)
-                    return Finish(false, "Supplied casino_lucky_wheel player local is unavailable");
+                    return Finish(false, "casino_lucky_wheel prize local is unavailable");
 
                 {
                     std::scoped_lock lock(m_Mutex);
@@ -124,8 +210,8 @@ namespace Tutones::Game::Recovery
                     m_LocalValue = *value;
                 }
 
-                TUTONES_LOG_DEBUG("recovery.casino", std::string("casino_lucky_wheel local ") + std::to_string(index) + " = " + std::to_string(*value));
-                Finish(true, "Lucky Wheel player local inspected (read-only)");
+                TUTONES_LOG_DEBUG("recovery.casino", std::string("casino_lucky_wheel prize local ") + std::to_string(index) + " = " + std::to_string(*value));
+                Finish(true, "Lucky Wheel prize local inspected");
             });
         }
 
