@@ -23,7 +23,7 @@ namespace Tutones::UI
         ImGui::PushStyleColor(ImGuiCol_Border, V11Theme::PanelBorder);
 
         if (ImGui::BeginChild(
-                "##menu_settings_v12",
+                "##menu_settings_v2",
                 ImVec2(780.0f, 500.0f),
                 true,
                 ImGuiWindowFlags_AlwaysVerticalScrollbar))
@@ -31,7 +31,7 @@ namespace Tutones::UI
             ImGui::TextColored(V11Theme::Accent, "SETTINGS");
             ImGui::SameLine();
             ImGui::TextDisabled(page == 0 ? "GENERAL" : page == 1 ? "THEME" : "CONTROLS & RESOURCES");
-            ImGui::TextDisabled("Tutones V12 configuration, persistence, media and font resources.");
+            ImGui::TextDisabled("Tutones V2 configuration, persistence, media and font resources.");
             ImGui::Separator();
 
             if (page == 0)
@@ -49,7 +49,7 @@ namespace Tutones::UI
 
                         if (ImGui::Checkbox("Resizable Window", &uiSettings.resizable))
                             message = uiSettings.resizable ? "Window resizing enabled" : "Window resizing locked";
-                        DescribeLastV11Item("Enable the lower-right ImGui resize grip. The last safe V12 window size is saved with Menu Settings.");
+                        DescribeLastV11Item("Enable the lower-right ImGui resize grip. The last safe V2 window size is saved with Menu Settings.");
 
                         if (ImGui::Checkbox("Anchor Top Left", &uiSettings.anchorTopLeft))
                             message = uiSettings.anchorTopLeft ? "Menu anchored to the top-left" : "Top-left anchor disabled";
@@ -58,7 +58,7 @@ namespace Tutones::UI
                         ImGui::Spacing();
                         ImGui::SeparatorText("Current Size");
                         ImGui::Text("%.0f x %.0f", uiSettings.menuWidth, uiSettings.menuHeight);
-                        ImGui::TextDisabled("V12 minimum: 1460 x 820");
+                        ImGui::TextDisabled("V2 minimum: 1460 x 820");
                         ImGui::TextWrapped("Resize from the lower-right corner when Resizable Window is enabled. The dashboard rails keep their fixed minimum layout.");
                     }
                     ImGui::EndChild();
@@ -82,7 +82,7 @@ namespace Tutones::UI
 
                         ImGui::Spacing();
                         ImGui::TextDisabled("Active theme");
-                        ImGui::TextWrapped("%s", themes.CurrentThemeFile().empty() ? "(V12 default)" : themes.CurrentThemeFile().c_str());
+                        ImGui::TextWrapped("%s", themes.CurrentThemeFile().empty() ? "(V2 default)" : themes.CurrentThemeFile().c_str());
                         ImGui::TextDisabled("Settings file");
                         ImGui::TextWrapped("%s", SettingsPersistence::Path().string().c_str());
                     }
@@ -93,7 +93,7 @@ namespace Tutones::UI
             }
             else if (page == 1)
             {
-                if (ImGui::BeginChild("##settings_theme_v12", ImVec2(0.0f, 390.0f), true))
+                if (ImGui::BeginChild("##settings_theme_v2", ImVec2(0.0f, 390.0f), true))
                 {
                     ImGui::TextColored(V11Theme::Accent, "THEME STUDIO");
                     ImGui::TextDisabled("Colors, dashboard images, backgrounds and fonts");
