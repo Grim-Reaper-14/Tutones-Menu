@@ -30,6 +30,7 @@ namespace Tutones::UI
         [[nodiscard]] bool IsMenuOpen() const noexcept;
         void SetMenuOpen(bool open) noexcept;
         void ToggleMenu() noexcept;
+        void PollFallbackHotkeys() noexcept;
 
         [[nodiscard]] std::uint32_t ConsumePendingActions() noexcept;
         [[nodiscard]] bool Consume(InputAction action) noexcept;
@@ -48,6 +49,7 @@ namespace Tutones::UI
 
         std::atomic<bool> m_Initialized{false};
         std::atomic<bool> m_MenuOpen{false};
+        std::atomic<bool> m_F4FallbackDown{false};
         std::atomic<std::uint32_t> m_PendingActions{0};
     };
 
