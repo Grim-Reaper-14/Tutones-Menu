@@ -1,10 +1,15 @@
+#include "DeveloperDiagnosticsPanel.hpp"
+
 namespace Tutones::UI
 {
     namespace
     {
         inline void RenderV12NativeToolsDashboard(std::size_t page) noexcept
         {
-            RenderV12NativeToolsPanel(page);
+            if (page == 3)
+                RenderDeveloperDiagnosticsPanel();
+            else
+                RenderV12NativeToolsPanel(page);
 
             auto& toolkit = Game::NativeTools::EnhancedNativeToolkit::Get();
             toolkit.RequestSample();
