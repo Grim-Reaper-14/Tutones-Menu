@@ -11,6 +11,7 @@
 #include "../features/vehicle/VehiclePaintRuntime.hpp"
 #include "../features/weapon/WeaponRuntime.hpp"
 #include "../game/GameState.hpp"
+#include "../game/tunables/TunableRegistry.hpp"
 #include "../runtime/GameRuntime.hpp"
 
 #include <chrono>
@@ -229,6 +230,12 @@ namespace Tutones::Backend
             static_cast<void>(m_Features.Register(std::move(descriptor)));
         };
 
+        registerRuntime(
+            "game.tunables",
+            "Tunable registry",
+            "Game",
+            [] { return Game::Tunables::TunableRegistry::Get().Start(); },
+            [] { Game::Tunables::TunableRegistry::Get().Stop(); });
         registerRuntime(
             "vehicle.lsc",
             "LSC restriction bypass",
