@@ -1,8 +1,7 @@
 #pragma once
 
 #include "../../core/logging/Logger.hpp"
-#include "../../game/script/ScriptGlobal.hpp"
-#include "../../game/script/ScriptRuntime.hpp"
+#include "../../game/tunables/TunableRegistry.hpp"
 #include "../../runtime/GameRuntime.hpp"
 
 #include <array>
@@ -11,14 +10,10 @@
 #include <climits>
 #include <cstddef>
 #include <cstdint>
-#include <limits>
 #include <memory>
 #include <mutex>
-#include <optional>
 #include <string>
 #include <thread>
-#include <utility>
-#include <vector>
 
 namespace Tutones::Game::SessionFeatures
 {
@@ -45,21 +40,15 @@ namespace Tutones::Game::SessionFeatures
             if (previous == enabled)
                 return;
 
-            {
-                std::scoped_lock lock(m_Mutex);
-                m_Message = enabled ? "Scanning live Enhanced tunables" : "Disabling No Idle";
-            }
-
             if (enabled)
             {
                 m_Resolved.store(false, std::memory_order_release);
-                m_Globals = {};
-                m_Originals = {};
-                m_NextResolveAttemptMs.store(0, std::memory_order_release);
+                SetMessage("Waiting for central tunable registry");
                 EnsureTick();
             }
             else
             {
+                SetMessage("Disabling No Idle");
                 static_cast<void>(Runtime::GameRuntime::Get().Enqueue([this] {
                     RestoreOnGameThread();
                 }));
@@ -85,9 +74,7 @@ namespace Tutones::Game::SessionFeatures
             if (!runtime.IsInitialized())
             {
                 m_Resolved.store(false, std::memory_order_release);
-                m_Globals = {};
                 m_Originals = {};
-                m_NextResolveAttemptMs.store(0, std::memory_order_release);
                 SetMessage("Off");
                 return;
             }
@@ -125,28 +112,16 @@ namespace Tutones::Game::SessionFeatures
         }
 
     private:
-        // GTA's Online tunable block begins at Global_262145 (0x40001).
-        // YimMenuV2 resolves names to addresses through its Tunables registry. Tutones
-        // does not yet have that registry, so No Idle resolves only its eight known
-        // timer values directly from the already-loaded global block instead of
-        // depending on tunables_registration remaining resident after startup.
-        static constexpr std::size_t TunableBase = 0x40001;
-        static constexpr std::size_t FallbackScanCount = 20000;
-        static constexpr std::int64_t ResolveRetryMs = 750;
-
-        static constexpr std::array<int, 4> IdleDefaults{
-            120000, 300000, 600000, 900000,
-        };
-        static constexpr std::array<int, 4> ConstrainedDefaults{
-            30000, 60000, 90000, 120000,
-        };
-        static constexpr std::array<int, 8> AllDefaults{
-            120000, 300000, 600000, 900000,
-            30000, 60000, 90000, 120000,
-        };
-
-        static constexpr std::size_t HistoricalIdleOffset = 87;
-        static constexpr std::size_t HistoricalConstrainedOffset = 8420;
+        static constexpr std::array<std::uint32_t, 8> IdleHashes{{
+            Tunables::Joaat("IDLEKICK_WARNING1"),
+            Tunables::Joaat("IDLEKICK_WARNING2"),
+            Tunables::Joaat("IDLEKICK_WARNING3"),
+            Tunables::Joaat("IDLEKICK_KICK"),
+            Tunables::Joaat("ConstrainedKick_Warning1"),
+            Tunables::Joaat("ConstrainedKick_Warning2"),
+            Tunables::Joaat("ConstrainedKick_Warning3"),
+            Tunables::Joaat("ConstrainedKick_Kick"),
+        }};
 
         NoIdleRuntime() = default;
 
@@ -172,34 +147,48 @@ namespace Tutones::Game::SessionFeatures
             if (!m_Enabled.load(std::memory_order_acquire))
                 return;
 
-            if (!ResolveOnGameThread())
+            auto& registry = Tunables::TunableRegistry::Get();
+            if (!registry.IsRunning() || !registry.Initialized())
             {
+                SetMessage("Waiting for central tunable registry");
                 EnsureTick();
                 return;
             }
 
-            auto** globals = Script::ScriptRuntime::Get().Globals();
-            bool success = globals != nullptr;
-
-            if (globals)
+            if (!m_Resolved.load(std::memory_order_acquire))
             {
-                for (const std::size_t global : m_Globals)
+                std::array<int, 8> originals{};
+                for (std::size_t index = 0; index < IdleHashes.size(); ++index)
                 {
-                    int* value = Script::ScriptGlobal(global).As<int>(globals);
+                    const Tunables::Tunable tunable{IdleHashes[index]};
+                    const auto value = tunable.Get<int>();
                     if (!value)
                     {
-                        success = false;
-                        break;
+                        SetMessage("Waiting for idle tunable hash registration");
+                        EnsureTick();
+                        return;
                     }
-                    *value = INT_MAX;
+                    originals[index] = *value;
                 }
+
+                m_Originals = originals;
+                m_Resolved.store(true, std::memory_order_release);
+                TUTONES_LOG_INFO("game.noidle", "No Idle acquired all 8 tunables from the central registry");
+            }
+
+            bool success = true;
+            for (const auto hash : IdleHashes)
+            {
+                const Tunables::Tunable tunable{hash};
+                success = tunable.Set<int>(INT_MAX) && success;
             }
 
             if (success)
             {
-                for (const std::size_t global : m_Globals)
+                for (const auto hash : IdleHashes)
                 {
-                    const int* value = Script::ScriptGlobal(global).As<int>(globals);
+                    const Tunables::Tunable tunable{hash};
+                    const auto value = tunable.Get<int>();
                     if (!value || *value != INT_MAX)
                     {
                         success = false;
@@ -210,217 +199,35 @@ namespace Tutones::Game::SessionFeatures
 
             if (success)
             {
-                SetMessage("No Idle active - all 8 live tunables verified");
+                SetMessage("No Idle active - 8/8 registered tunables verified");
             }
             else
             {
                 m_Resolved.store(false, std::memory_order_release);
-                m_Globals = {};
-                m_Originals = {};
-                m_NextResolveAttemptMs.store(0, std::memory_order_release);
-                SetMessage("No Idle write verification failed - rescanning");
+                SetMessage("No Idle tunable write verification failed - waiting for registry");
             }
 
             EnsureTick();
-        }
-
-        template<std::size_t N>
-        [[nodiscard]] static bool PatternMatchesAt(
-            std::int64_t** globals,
-            std::size_t offset,
-            const std::array<int, N>& pattern) noexcept
-        {
-            if (!globals)
-                return false;
-
-            for (std::size_t index = 0; index < N; ++index)
-            {
-                const int* value = Script::ScriptGlobal(TunableBase + offset + index).As<int>(globals);
-                if (!value || *value != pattern[index])
-                    return false;
-            }
-            return true;
-        }
-
-        template<std::size_t N>
-        [[nodiscard]] static std::vector<std::size_t> FindPatternMatches(
-            std::int64_t** globals,
-            std::size_t tunableCount,
-            const std::array<int, N>& pattern) noexcept
-        {
-            std::vector<std::size_t> matches;
-            if (!globals || tunableCount < N)
-                return matches;
-
-            for (std::size_t offset = 0; offset + N <= tunableCount; ++offset)
-            {
-                if (PatternMatchesAt(globals, offset, pattern))
-                    matches.push_back(offset);
-            }
-
-            return matches;
-        }
-
-        [[nodiscard]] static std::optional<std::pair<std::size_t, std::size_t>> SelectBestPair(
-            const std::vector<std::size_t>& idleMatches,
-            const std::vector<std::size_t>& constrainedMatches) noexcept
-        {
-            if (idleMatches.empty() || constrainedMatches.empty())
-                return std::nullopt;
-
-            std::optional<std::pair<std::size_t, std::size_t>> best;
-            std::size_t bestScore = std::numeric_limits<std::size_t>::max();
-
-            for (const std::size_t idle : idleMatches)
-            {
-                for (const std::size_t constrained : constrainedMatches)
-                {
-                    if (idle == constrained)
-                        continue;
-
-                    const std::size_t idleDelta = idle > HistoricalIdleOffset
-                        ? idle - HistoricalIdleOffset
-                        : HistoricalIdleOffset - idle;
-                    const std::size_t constrainedDelta = constrained > HistoricalConstrainedOffset
-                        ? constrained - HistoricalConstrainedOffset
-                        : HistoricalConstrainedOffset - constrained;
-                    const std::size_t score = idleDelta + constrainedDelta;
-
-                    if (!best || score < bestScore)
-                    {
-                        best = std::pair<std::size_t, std::size_t>{idle, constrained};
-                        bestScore = score;
-                    }
-                }
-            }
-
-            return best;
-        }
-
-        [[nodiscard]] bool ResolveOnGameThread() noexcept
-        {
-            if (m_Resolved.load(std::memory_order_acquire))
-                return true;
-
-            auto& scripts = Script::ScriptRuntime::Get();
-            auto** globals = scripts.Globals();
-            if (!scripts.IsReady() || !globals)
-            {
-                SetMessage("Waiting for shared Online tunable globals");
-                return false;
-            }
-
-            const auto nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(
-                std::chrono::steady_clock::now().time_since_epoch()).count();
-            const auto nextAttempt = m_NextResolveAttemptMs.load(std::memory_order_acquire);
-            if (nextAttempt != 0 && nowMs < nextAttempt)
-                return false;
-            m_NextResolveAttemptMs.store(nowMs + ResolveRetryMs, std::memory_order_release);
-
-            std::optional<std::pair<std::size_t, std::size_t>> pair;
-
-            // Fast path for builds where the long-standing idle offsets remain unchanged.
-            if (PatternMatchesAt(globals, HistoricalIdleOffset, IdleDefaults)
-                && PatternMatchesAt(globals, HistoricalConstrainedOffset, ConstrainedDefaults))
-            {
-                pair = std::pair<std::size_t, std::size_t>{
-                    HistoricalIdleOffset,
-                    HistoricalConstrainedOffset,
-                };
-            }
-            else
-            {
-                // The tunable values themselves remain available in Global_262145 after
-                // tunables_registration exits. Search a bounded portion of that live block
-                // for the exact YimMenuV2 default timer sequences.
-                const auto idleMatches = FindPatternMatches(globals, FallbackScanCount, IdleDefaults);
-                const auto constrainedMatches = FindPatternMatches(globals, FallbackScanCount, ConstrainedDefaults);
-                pair = SelectBestPair(idleMatches, constrainedMatches);
-            }
-
-            if (!pair)
-            {
-                SetMessage("Idle tunables not resolved yet - retrying live Global_262145 scan");
-                return false;
-            }
-
-            const auto [idleOffset, constrainedOffset] = *pair;
-            for (std::size_t index = 0; index < 4; ++index)
-            {
-                m_Globals[index] = TunableBase + idleOffset + index;
-                m_Globals[index + 4] = TunableBase + constrainedOffset + index;
-            }
-
-            std::array<int, 8> current{};
-            for (std::size_t index = 0; index < m_Globals.size(); ++index)
-            {
-                const int* value = Script::ScriptGlobal(m_Globals[index]).As<int>(globals);
-                if (!value)
-                {
-                    m_Globals = {};
-                    SetMessage("Resolved idle tunable became unreadable");
-                    return false;
-                }
-                current[index] = *value;
-            }
-
-            if (current != AllDefaults)
-            {
-                m_Globals = {};
-                SetMessage("Idle tunables changed during verification - retrying");
-                return false;
-            }
-
-            m_Originals = current;
-            m_Resolved.store(true, std::memory_order_release);
-            m_NextResolveAttemptMs.store(0, std::memory_order_release);
-
-            TUTONES_LOG_INFO(
-                "game.noidle",
-                std::string("Resolved live Enhanced no-idle tunables directly from Global_262145: idle +")
-                    + std::to_string(idleOffset)
-                    + ", constrained +"
-                    + std::to_string(constrainedOffset));
-
-            SetMessage(
-                std::string("Resolved live idle tunables at +")
-                    + std::to_string(idleOffset)
-                    + " / +"
-                    + std::to_string(constrainedOffset));
-            return true;
         }
 
         void RestoreOnGameThread() noexcept
         {
             if (!m_Resolved.exchange(false, std::memory_order_acq_rel))
             {
-                m_Globals = {};
                 m_Originals = {};
-                m_NextResolveAttemptMs.store(0, std::memory_order_release);
                 SetMessage("Off");
                 return;
             }
 
-            auto** globals = Script::ScriptRuntime::Get().Globals();
-            bool success = globals != nullptr;
-            if (globals)
+            bool success = true;
+            for (std::size_t index = 0; index < IdleHashes.size(); ++index)
             {
-                for (std::size_t index = 0; index < m_Globals.size(); ++index)
-                {
-                    int* value = Script::ScriptGlobal(m_Globals[index]).As<int>(globals);
-                    if (!value)
-                    {
-                        success = false;
-                        continue;
-                    }
-                    *value = m_Originals[index];
-                }
+                const Tunables::Tunable tunable{IdleHashes[index]};
+                success = tunable.Set<int>(m_Originals[index]) && success;
             }
 
-            m_Globals = {};
             m_Originals = {};
-            m_NextResolveAttemptMs.store(0, std::memory_order_release);
-            SetMessage(success ? "Off - original idle timers restored" : "Off - timer restore incomplete");
+            SetMessage(success ? "Off - original idle tunables restored" : "Off - idle tunable restore incomplete");
         }
 
         void SetMessage(std::string message)
@@ -432,8 +239,6 @@ namespace Tutones::Game::SessionFeatures
         std::atomic<bool> m_Enabled{false};
         std::atomic<bool> m_Resolved{false};
         std::atomic<bool> m_TickQueued{false};
-        std::atomic<std::int64_t> m_NextResolveAttemptMs{0};
-        std::array<std::size_t, 8> m_Globals{};
         std::array<int, 8> m_Originals{};
         mutable std::mutex m_Mutex;
         std::string m_Message{"Off"};
