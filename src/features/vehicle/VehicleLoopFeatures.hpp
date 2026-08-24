@@ -13,6 +13,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <thread>
 
 namespace Tutones::Game::Mods
@@ -206,6 +207,30 @@ namespace Tutones::Game::Mods
             return handler;
         }
 
+        static Native::NativeHandler& DamageDecalsHandler() noexcept
+        {
+            static Native::NativeHandler handler{};
+            return handler;
+        }
+
+        static Native::NativeHandler& VehicleEngineHealthHandler() noexcept
+        {
+            static Native::NativeHandler handler{};
+            return handler;
+        }
+
+        static Native::NativeHandler& VehiclePetrolTankHealthHandler() noexcept
+        {
+            static Native::NativeHandler handler{};
+            return handler;
+        }
+
+        static Native::NativeHandler& ForceEntityUpdateHandler() noexcept
+        {
+            static Native::NativeHandler handler{};
+            return handler;
+        }
+
         [[nodiscard]] static bool IsExecutableAddress(std::uintptr_t address) noexcept
         {
             if (address == 0)
@@ -278,6 +303,34 @@ namespace Tutones::Game::Mods
             return ResolveSingleHandler(EntityInvincibleHandler(), 0x935364B4448CD584ull);
         }
 
+        [[nodiscard]] static bool ResolveDamageDecalsHandler() noexcept
+        {
+            // GET_DOES_VEHICLE_HAVE_DAMAGE_DECALS
+            // legacy BCDC5017D3CE1E9E -> Enhanced B69AE16F62A14003.
+            return ResolveSingleHandler(DamageDecalsHandler(), 0xB69AE16F62A14003ull);
+        }
+
+        [[nodiscard]] static bool ResolveVehicleEngineHealthHandler() noexcept
+        {
+            // SET_VEHICLE_ENGINE_HEALTH
+            // legacy 45F6D8EEF34ABEF1 -> Enhanced 2AEBE39F6BF7D6BC.
+            return ResolveSingleHandler(VehicleEngineHealthHandler(), 0x2AEBE39F6BF7D6BCull);
+        }
+
+        [[nodiscard]] static bool ResolveVehiclePetrolTankHealthHandler() noexcept
+        {
+            // SET_VEHICLE_PETROL_TANK_HEALTH
+            // legacy 70DB57649FA8D0D8 -> Enhanced DF9DC0584881B7AF.
+            return ResolveSingleHandler(VehiclePetrolTankHealthHandler(), 0xDF9DC0584881B7AFull);
+        }
+
+        [[nodiscard]] static bool ResolveForceEntityUpdateHandler() noexcept
+        {
+            // FORCE_ENTITY_AI_AND_ANIMATION_UPDATE
+            // legacy 40FDEDB72F8293B2 -> Enhanced 2B2ECB6F6371E59E.
+            return ResolveSingleHandler(ForceEntityUpdateHandler(), 0x2B2ECB6F6371E59Eull);
+        }
+
         [[nodiscard]] static bool SetReducedSuspensionForce(Vehicle vehicle, bool enabled) noexcept
         {
             if (vehicle == 0 || !ResolveReducedSuspensionHandler())
@@ -323,6 +376,58 @@ namespace Tutones::Game::Mods
             return true;
         }
 
+        [[nodiscard]] static std::optional<bool> HasVehicleDamageDecals(Vehicle vehicle) noexcept
+        {
+            if (vehicle == 0 || !ResolveDamageDecalsHandler())
+                return std::nullopt;
+
+            Native::CallContext context;
+            if (!context.PushArg(vehicle))
+                return std::nullopt;
+
+            DamageDecalsHandler()(&context);
+            return context.GetReturnValue<std::int32_t>() != 0;
+        }
+
+        [[nodiscard]] static bool SetVehicleEngineHealth(Vehicle vehicle, float health) noexcept
+        {
+            if (vehicle == 0 || !ResolveVehicleEngineHealthHandler())
+                return false;
+
+            Native::CallContext context;
+            if (!context.PushArg(vehicle) || !context.PushArg(health))
+                return false;
+
+            VehicleEngineHealthHandler()(&context);
+            return true;
+        }
+
+        [[nodiscard]] static bool SetVehiclePetrolTankHealth(Vehicle vehicle, float health) noexcept
+        {
+            if (vehicle == 0 || !ResolveVehiclePetrolTankHealthHandler())
+                return false;
+
+            Native::CallContext context;
+            if (!context.PushArg(vehicle) || !context.PushArg(health))
+                return false;
+
+            VehiclePetrolTankHealthHandler()(&context);
+            return true;
+        }
+
+        [[nodiscard]] static bool ForceEntityAiAndAnimationUpdate(Entity entity) noexcept
+        {
+            if (entity == 0 || !ResolveForceEntityUpdateHandler())
+                return false;
+
+            Native::CallContext context;
+            if (!context.PushArg(entity))
+                return false;
+
+            ForceEntityUpdateHandler()(&context);
+            return true;
+        }
+
         static void ApplyVehicleGodMode(Vehicle vehicle) noexcept
         {
             if (vehicle != 0)
@@ -334,8 +439,29 @@ namespace Tutones::Game::Mods
             if (vehicle == 0)
                 return;
 
+            // Mirror YimMenuV2's Vehicle::Fix repair path whenever GTA reports
+            // visible vehicle damage. If the damage query cannot resolve, repair
+            // anyway rather than silently degrading back to dirt-only cleanup.
+            const auto hasDamageDecals = HasVehicleDamageDecals(vehicle);
+            if (!hasDamageDecals || *hasDamageDecals)
+            {
+                static_cast<void>(Natives::SetVehicleFixed(vehicle));
+                static_cast<void>(Native::NativeInvoker::InvokeVoid(
+                    Native::NativeId::SetEntityHealth,
+                    vehicle,
+                    1000,
+                    std::int32_t{0},
+                    std::uint32_t{0}));
+                static_cast<void>(SetVehicleEngineHealth(vehicle, 1000.0f));
+                static_cast<void>(SetVehiclePetrolTankHealth(vehicle, 1000.0f));
+            }
+
+            // Keep the visible-clean portion active every tick. Yim's Fix() exits
+            // when no damage decals are reported, but GTA can still accumulate dirt
+            // without that flag; always clearing dirt keeps this toggle dependable.
             static_cast<void>(Natives::SetVehicleDirtLevel(vehicle, 0.0f));
             static_cast<void>(RemoveVehicleDecals(vehicle));
+            static_cast<void>(ForceEntityAiAndAnimationUpdate(vehicle));
         }
 
         void RestoreLastGodVehicle() noexcept
