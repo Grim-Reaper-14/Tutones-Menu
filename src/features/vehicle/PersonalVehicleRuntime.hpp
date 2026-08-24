@@ -43,7 +43,6 @@ namespace Tutones::Game::PersonalVehicles
         int currentVehicleId{-1};
         int requestedVehicleId{-1};
         int lastActionVehicleId{-1};
-        int lastActionAffectedCount{};
         int garageCharacterIndex{-1};
         PersonalVehicleAction lastAction{PersonalVehicleAction::None};
         bool lastActionSucceeded{};
@@ -95,9 +94,7 @@ namespace Tutones::Game::PersonalVehicles
         void ContinueRequestOnGameThread(Clock::time_point now) noexcept;
         void AbortRequestOnGameThread() noexcept;
         bool RepairVehicleOnGameThread(int vehicleId, bool requireRepairable) noexcept;
-        bool ReturnVehicleToStorageOnGameThread(int vehicleId) noexcept;
-        int RepairAllVehiclesOnGameThread() noexcept;
-        void RecordAction(PersonalVehicleAction action, int vehicleId, bool success, int affectedCount = 0) noexcept;
+        void RecordAction(PersonalVehicleAction action, int vehicleId, bool success) noexcept;
         void RefreshOnGameThread() noexcept;
         void PublishUnavailable(bool globalsReady, bool nativeReady) noexcept;
 
