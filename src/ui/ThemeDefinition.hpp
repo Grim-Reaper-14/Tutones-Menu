@@ -8,7 +8,7 @@ namespace Tutones::UI
 {
     struct ThemeDefinition final
     {
-        std::string name{"Tutones V12 Red"};
+        std::string name{"Tutones V2 Red"};
         ImVec4 accent{};
         ImVec4 accentHover{};
         ImVec4 accentDark{};
