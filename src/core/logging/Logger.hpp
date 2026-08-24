@@ -80,7 +80,7 @@ namespace Tutones::Core::Logging
         [[nodiscard]] LoggerStats SnapshotStats() const noexcept;
 
         bool SetConsoleVisible(bool visible) noexcept;
-        bool SetConsoleTitle(std::wstring_view title) noexcept;
+        bool SetConsoleWindowTitle(std::wstring_view title) noexcept;
 
     private:
         Logger() = default;
