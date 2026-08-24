@@ -34,12 +34,22 @@ namespace Tutones::UI
             return g_GarageFilter.empty() || vehicle.garage == g_GarageFilter;
         }
 
+        [[nodiscard]] int RepairableVehicleCount(const PersonalVehicleSnapshot& snapshot) noexcept
+        {
+            int count{};
+            for (const auto& vehicle : snapshot.vehicles)
+                count += vehicle.destroyed && vehicle.insured ? 1 : 0;
+            return count;
+        }
+
         [[nodiscard]] const char* ActionName(PersonalVehicleAction action) noexcept
         {
             switch (action)
             {
             case PersonalVehicleAction::Repair: return "Repair";
             case PersonalVehicleAction::Request: return "Request";
+            case PersonalVehicleAction::ReturnToStorage: return "Return to Storage";
+            case PersonalVehicleAction::RepairAll: return "Repair All";
             case PersonalVehicleAction::None: break;
             }
             return "None";
@@ -85,7 +95,7 @@ namespace Tutones::UI
         {
             ImGui::TextColored(V11Theme::Accent, "Personal Vehicles");
             ImGui::SameLine();
-            ImGui::TextDisabled("Enhanced MPSV runtime");
+            ImGui::TextDisabled("Enhanced MPSV / Freemode scripts");
             ImGui::Separator();
 
             ImGui::TextColored(V11Theme::Accent, "Save Current Vehicle");
@@ -116,12 +126,40 @@ namespace Tutones::UI
             else if (!snapshot.sessionStarted)
                 ImGui::TextDisabled("Save Personal Vehicle requires an active GTA Online session.");
             else
-                ImGui::TextDisabled("Tutones releases input while GTA's garage selector is active; reopen with F4 after choosing or backing out.");
+                ImGui::TextDisabled("AM_MP_VEHICLE_REWARD-backed garage save; Tutones releases input while GTA owns the selector.");
 
             ImGui::Spacing();
-            ImGui::TextColored(V11Theme::Accent, "Quick Personal Vehicle Action");
+            ImGui::TextColored(V11Theme::Accent, "Freemode Personal Vehicle Actions");
+            const bool pvActionReady = snapshot.sessionStarted && snapshot.scriptGlobalsReady && !snapshot.actionPending;
+            const bool quickRequestReady = pvActionReady
+                && snapshot.requestSupported
+                && snapshot.currentVehicleId >= 0
+                && snapshot.requestedVehicleId == -1;
+            ImGui::BeginDisabled(!quickRequestReady);
+            if (ImGui::Button("Request Current / Last PV", ImVec2(224.0f, 0.0f)))
+                g_Message = runtime.QueueRequest(snapshot.currentVehicleId) ? "Current personal vehicle request queued" : "Current personal vehicle request rejected";
+            ImGui::EndDisabled();
+            DescribeLastV11Item("Use the Enhanced Freemode personal-vehicle request state: PersonalVehicleRequested, RequestedPersonalVehicleId and the freemode request local. If another personal vehicle is active, its MPSV spawn-toggle flag is cleared first.");
+
+            ImGui::SameLine();
+            ImGui::BeginDisabled(!pvActionReady || snapshot.currentVehicleId < 0);
+            if (ImGui::Button("Return to Storage", ImVec2(-1.0f, 0.0f)))
+                g_Message = runtime.QueueReturnCurrent() ? "Return-to-storage state queued" : "Return-to-storage request rejected";
+            ImGui::EndDisabled();
+            DescribeLastV11Item("Return the current personal vehicle using the decompiled MPSV TRIGGER_SPAWN_TOGGLE state instead of deleting the vehicle locally.");
+
+            const int repairableCount = RepairableVehicleCount(snapshot);
+            ImGui::BeginDisabled(!pvActionReady || repairableCount == 0);
+            char repairAllLabel[80]{};
+            std::snprintf(repairAllLabel, sizeof(repairAllLabel), "Repair All Insured (%d)", repairableCount);
+            if (ImGui::Button(repairAllLabel, ImVec2(224.0f, 0.0f)))
+                g_Message = runtime.QueueRepairAll() ? "Repair-all MPSV state queued" : "Repair-all request rejected";
+            ImGui::EndDisabled();
+            DescribeLastV11Item("Scan the live Enhanced MPSV array and repair every insured destroyed vehicle by clearing the same destroyed, impounded and repair-state flags used by the selected-vehicle repair path.");
+
+            ImGui::SameLine();
             ImGui::BeginDisabled(teleportSnapshot.pending || !snapshot.sessionStarted || !snapshot.scriptGlobalsReady);
-            if (ImGui::Button(teleportSnapshot.pending ? "Teleporting..." : "Teleport Into Personal Vehicle", ImVec2(-1.0f, 0.0f)))
+            if (ImGui::Button(teleportSnapshot.pending ? "Teleporting..." : "Teleport Into PV", ImVec2(-1.0f, 0.0f)))
                 g_Message = teleportRuntime.QueueTeleport() ? "Personal vehicle teleport queued" : "Personal vehicle teleport rejected";
             ImGui::EndDisabled();
             DescribeLastV11Item("Enhanced 1.73 b1158.13: set Global_2640101.f_8 = 1 on the GTA script thread to teleport into the currently active personal vehicle.");
@@ -131,7 +169,7 @@ namespace Tutones::UI
             else if (teleportSnapshot.haveResult)
                 ImGui::TextDisabled("Teleport result: %s - %s", teleportSnapshot.lastSucceeded ? "success" : "failed", teleportSnapshot.message.c_str());
             else
-                ImGui::TextDisabled("Targets GTA Online's currently active personal vehicle.");
+                ImGui::TextDisabled("Current/last MPSV ID: %d   Requested ID: %d", snapshot.currentVehicleId, snapshot.requestedVehicleId);
 
             ImGui::Separator();
 
@@ -189,7 +227,7 @@ namespace Tutones::UI
                 }
                 DescribeLastV11Item("Filter the Enhanced personal-vehicle snapshot to one garage that passed the current ownership gate, or show vehicles from every resolved owned garage.");
 
-                if (ImGui::BeginListBox("##personal_vehicles", ImVec2(-1.0f, 118.0f)))
+                if (ImGui::BeginListBox("##personal_vehicles", ImVec2(-1.0f, 100.0f)))
                 {
                     for (const auto& vehicle : snapshot.vehicles)
                     {
@@ -252,10 +290,15 @@ namespace Tutones::UI
                 if (snapshot.actionPending)
                     ImGui::TextDisabled("Personal vehicle action is running on the GTA script thread...");
                 else if (snapshot.lastAction != PersonalVehicleAction::None)
-                    ImGui::TextDisabled("Last action: %s ID %d - %s",
-                        ActionName(snapshot.lastAction),
-                        snapshot.lastActionVehicleId,
-                        snapshot.lastActionSucceeded ? "success" : "failed");
+                {
+                    if (snapshot.lastAction == PersonalVehicleAction::RepairAll)
+                        ImGui::TextDisabled("Last action: %s - %s", ActionName(snapshot.lastAction), snapshot.lastActionSucceeded ? "success" : "failed");
+                    else
+                        ImGui::TextDisabled("Last action: %s ID %d - %s",
+                            ActionName(snapshot.lastAction),
+                            snapshot.lastActionVehicleId,
+                            snapshot.lastActionSucceeded ? "success" : "failed");
+                }
                 else
                     ImGui::TextDisabled("%s", g_Message);
 
@@ -266,7 +309,7 @@ namespace Tutones::UI
             }
 
             ImGui::Separator();
-            ImGui::TextDisabled("Rockstar Personal Garage uses GTA's vehicle-reward script; Tutones Saved Garage remains local-only preset storage.");
+            ImGui::TextDisabled("Rockstar Personal Garage stays decompile-backed through MPSV, Freemode and AM_MP_VEHICLE_REWARD state; Tutones Saved Garage remains local-only preset storage.");
         }
 
         ImGui::EndChild();
