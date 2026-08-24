@@ -19,14 +19,14 @@ namespace Tutones::UI::V11Theme
     inline ImVec4 MutedText{139.0f / 255.0f, 153.0f / 255.0f, 177.0f / 255.0f, 1.0f};
 
     inline constexpr float MenuWidth = 1120.0f;
-    // Eleven category buttons use a 42px pitch from HeaderHeight + 12. The old
-    // 446px body ended before the last category, which let Native Tools overlap
-    // the description/footer. Give the navigation rail enough vertical body space
-    // while keeping the existing header and footer proportions unchanged.
-    inline constexpr float MenuHeight = 854.0f;
-    inline constexpr float HeaderHeight = 220.0f;
-    inline constexpr float FooterHeight = 150.0f;
-    inline constexpr float BodyHeight = 484.0f;
+    // Keep the existing horizontal layout intact so fixed-width feature panels
+    // do not get squeezed, but trim the oversized banner/footer to make the
+    // overall V11 frame substantially shorter. The 474px body still fits all
+    // eleven 38px category buttons on their existing 42px pitch.
+    inline constexpr float MenuHeight = 754.0f;
+    inline constexpr float HeaderHeight = 150.0f;
+    inline constexpr float FooterHeight = 130.0f;
+    inline constexpr float BodyHeight = 474.0f;
     inline constexpr float FooterY = HeaderHeight + BodyHeight;
 
     inline constexpr float CategoryRailX = 12.0f;
@@ -35,7 +35,9 @@ namespace Tutones::UI::V11Theme
     inline constexpr float SubtabRailWidth = 170.0f;
 
     inline constexpr float ContentHostX = 139.0f;
-    inline constexpr float ContentHostWidth = 716.0f;
+    // Reserve a little extra width for the main content scrollbar without
+    // pushing into the status column at x=870.
+    inline constexpr float ContentHostWidth = 730.0f;
 
     inline constexpr float StatusX = 870.0f;
     inline constexpr float StatusWidth = 236.0f;
