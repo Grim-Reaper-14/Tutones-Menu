@@ -94,7 +94,7 @@ namespace Tutones::Core::Config
         std::string activeTheme{"default.json"};
         bool resizable{true};
         bool anchorTopLeft{true};
-        float menuWidth{1120.0f};
+        float menuWidth{1280.0f};
         float menuHeight{754.0f};
     };
 
