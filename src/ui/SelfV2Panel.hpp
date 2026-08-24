@@ -78,7 +78,7 @@ namespace Tutones::UI
         const auto ghost = ghostRuntime.Snapshot();
         const auto stats = statsRuntime.Snapshot();
 
-        static Ped lastPed{};
+        static Game::Ped lastPed{};
         static bool godMode{};
         static bool neverWanted{};
         static bool superRun{};
