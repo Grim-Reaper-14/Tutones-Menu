@@ -40,6 +40,9 @@ namespace Tutones::UI
 
         void RenderTutonesRuntimeOverlays() noexcept
         {
+            // Keep F4 usable even when GTA's WndProc path misses the key event.
+            // This runs once per rendered frame before TutonesMenu checks IsMenuOpen().
+            Input::Get().PollFallbackHotkeys();
             static_cast<void>(Game::Protections::ProtectionRuntime::Get().Start());
             RenderMiscOverlay();
         }
