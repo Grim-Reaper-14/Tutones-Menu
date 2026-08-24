@@ -2,6 +2,7 @@
 
 #include "BunkerBusinessPanel.hpp"
 #include "BunkerToolsPanel.hpp"
+#include "MotorcycleClubPanel.hpp"
 #include "NightclubPanel.hpp"
 #include "SpecialCargoBusinessPanel.hpp"
 #include "SpecialCargoToolsPanel.hpp"
@@ -28,16 +29,21 @@ namespace Tutones::UI
             RenderSpecialCargoToolsControl();
             SetV11Description("Special Cargo only: warehouse crate stock plus Lupe sourcing, cooldowns, contraband mission locals, crate-price globals and unique special cargo.");
         }
-        else
+        else if (selectedBusinessPage == 2)
         {
             RenderBunkerBusinessPanel();
             RenderBunkerToolsControl();
             SetV11Description("Bunker only: supplies/product stock plus product value, sale multipliers, high-demand bonus, production times and gb_gunrunning Instant Sell.");
         }
+        else
+        {
+            RenderMotorcycleClubPanel();
+            SetV11Description("Motorcycle Club only: supplied Enhanced 1.73 stock values, Near/Far sale multipliers, and max capacities for Documents, Cash, Cocaine, Meth, Weed and Acid.");
+        }
 
         // Business tabs are drawn last so they remain clickable above each full-size
         // business child panel.
-        ImGui::SetCursorPos(ImVec2(385.0f, 19.0f));
+        ImGui::SetCursorPos(ImVec2(292.0f, 19.0f));
         if (ImGui::SmallButton("Nightclub##business_page"))
             selectedBusinessPage = 0;
         ImGui::SameLine();
@@ -46,5 +52,8 @@ namespace Tutones::UI
         ImGui::SameLine();
         if (ImGui::SmallButton("Bunker##business_page"))
             selectedBusinessPage = 2;
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Motorcycle Club##business_page"))
+            selectedBusinessPage = 3;
     }
 }
