@@ -42,7 +42,7 @@ namespace Tutones::UI
         auto& wheelRuntime = CasinoLuckyWheelRuntime::Get();
         auto& slotRuntime = CasinoSlotMachineRuntime::Get();
 
-        // V12 inner navigation: large dashboard tabs, separate from Recovery tabs.
+        // V2 inner navigation: large dashboard tabs, separate from Recovery tabs.
         ImGui::SetCursorPos(ImVec2(226.0f, 16.0f));
         ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(8.0f, 6.0f));
         ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 5.0f);
@@ -83,7 +83,7 @@ namespace Tutones::UI
         ImGui::PushStyleColor(ImGuiCol_ChildBg, V11Theme::PanelBg);
         ImGui::PushStyleColor(ImGuiCol_Border, V11Theme::PanelBorder);
 
-        if (ImGui::BeginChild("##casino_v12_panel", ImVec2(780.0f, 500.0f), true))
+        if (ImGui::BeginChild("##casino_v2_panel", ImVec2(780.0f, 500.0f), true))
         {
             if (casinoPage == 0)
             {
@@ -95,7 +95,7 @@ namespace Tutones::UI
                 ImGui::TextDisabled("Pick the reward, write it to the active wheel script, then spin.");
                 ImGui::Separator();
 
-                if (ImGui::BeginTable("##lucky_wheel_v12_columns", 2, ImGuiTableFlags_SizingStretchSame))
+                if (ImGui::BeginTable("##lucky_wheel_v2_columns", 2, ImGuiTableFlags_SizingStretchSame))
                 {
                     ImGui::TableNextColumn();
                     if (ImGui::BeginChild("##lucky_wheel_actions", ImVec2(0.0f, 382.0f), true))
@@ -179,7 +179,7 @@ namespace Tutones::UI
                     ImGui::EndTable();
                 }
 
-                SetV11Description("Lucky Wheel V12: choose any reward from the 0-19 list, write it to the active Enhanced wheel player local, refresh the live value and verify the operation before spinning.");
+                SetV11Description("Lucky Wheel V2: choose any reward from the 0-19 list, write it to the active Enhanced wheel player local, refresh the live value and verify the operation before spinning.");
             }
             else
             {
@@ -192,7 +192,7 @@ namespace Tutones::UI
                 ImGui::TextDisabled("Use explicit table reads/writes or keep the win table continuously forced.");
                 ImGui::Separator();
 
-                if (ImGui::BeginTable("##slot_v12_columns", 2, ImGuiTableFlags_SizingStretchSame))
+                if (ImGui::BeginTable("##slot_v2_columns", 2, ImGuiTableFlags_SizingStretchSame))
                 {
                     ImGui::TableNextColumn();
                     if (ImGui::BeginChild("##slot_write_controls", ImVec2(0.0f, 382.0f), true))
@@ -278,7 +278,7 @@ namespace Tutones::UI
                     ImGui::EndTable();
                 }
 
-                SetV11Description("Rig Slot Machines V12: direct live result-table read/write controls on the left and script/table verification telemetry on the right, plus optional continuous forced-win writes.");
+                SetV11Description("Rig Slot Machines V2: direct live result-table read/write controls on the left and script/table verification telemetry on the right, plus optional continuous forced-win writes.");
             }
         }
 
