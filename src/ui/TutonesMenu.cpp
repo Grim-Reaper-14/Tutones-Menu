@@ -21,48 +21,48 @@ namespace ImGui
 {
     namespace
     {
-        bool g_TutonesV12OverlayItemHovered{};
-        ImVec2 g_TutonesV12OverlayCursor{};
+        bool g_TutonesV2OverlayItemHovered{};
+        ImVec2 g_TutonesV2OverlayCursor{};
     }
 
-    // V12 navigation is drawn in a NoMouseInputs overlay child. Keep a virtual
+    // V2 navigation is drawn in a NoMouseInputs overlay child. Keep a virtual
     // cursor for its manually hit-tested controls rather than mutating ImGui's
     // real cursor. ImGui 1.92 asserts when SetCursorPos extends window bounds
     // without a submitted item afterwards.
-    inline void TutonesV12OverlaySetCursorPos(const ImVec2& localPos) noexcept
+    inline void TutonesV2OverlaySetCursorPos(const ImVec2& localPos) noexcept
     {
         const ImVec2 windowPos = GetWindowPos();
-        g_TutonesV12OverlayCursor = ImVec2(
+        g_TutonesV2OverlayCursor = ImVec2(
             windowPos.x + localPos.x - GetScrollX(),
             windowPos.y + localPos.y - GetScrollY());
     }
 
-    inline ImVec2 TutonesV12OverlayGetCursorScreenPos() noexcept
+    inline ImVec2 TutonesV2OverlayGetCursorScreenPos() noexcept
     {
-        return g_TutonesV12OverlayCursor;
+        return g_TutonesV2OverlayCursor;
     }
 
-    // The V12 rail is rendered inside a transparent overlay child so it can sit
+    // The V2 rail is rendered inside a transparent overlay child so it can sit
     // above the dashboard visually. The child itself must not own mouse input,
     // otherwise it blocks every real feature control underneath it. Navigation
     // uses direct mouse hit-testing instead of normal ImGui item ownership.
-    inline bool TutonesV12OverlayInvisibleButton(
+    inline bool TutonesV2OverlayInvisibleButton(
         const char*,
         const ImVec2& size,
         ImGuiButtonFlags = 0) noexcept
     {
-        const ImVec2 min = g_TutonesV12OverlayCursor;
+        const ImVec2 min = g_TutonesV2OverlayCursor;
         const ImVec2 max{min.x + size.x, min.y + size.y};
-        g_TutonesV12OverlayItemHovered = IsMouseHoveringRect(min, max, false);
-        return g_TutonesV12OverlayItemHovered && IsMouseClicked(ImGuiMouseButton_Left);
+        g_TutonesV2OverlayItemHovered = IsMouseHoveringRect(min, max, false);
+        return g_TutonesV2OverlayItemHovered && IsMouseClicked(ImGuiMouseButton_Left);
     }
 
-    inline bool TutonesV12OverlayIsItemHovered(ImGuiHoveredFlags = 0) noexcept
+    inline bool TutonesV2OverlayIsItemHovered(ImGuiHoveredFlags = 0) noexcept
     {
-        return g_TutonesV12OverlayItemHovered;
+        return g_TutonesV2OverlayItemHovered;
     }
 
-    inline bool TutonesV12BeginChild(
+    inline bool TutonesV2BeginChild(
         const char* strId,
         const ImVec2& size,
         bool border,
@@ -138,10 +138,10 @@ namespace Tutones::UI
 
 #include "TutonesMenu.part01.inc"
 #include "TutonesMenu.v12style.inc"
-#define SetCursorPos TutonesV12OverlaySetCursorPos
-#define GetCursorScreenPos TutonesV12OverlayGetCursorScreenPos
-#define InvisibleButton TutonesV12OverlayInvisibleButton
-#define IsItemHovered TutonesV12OverlayIsItemHovered
+#define SetCursorPos TutonesV2OverlaySetCursorPos
+#define GetCursorScreenPos TutonesV2OverlayGetCursorScreenPos
+#define InvisibleButton TutonesV2OverlayInvisibleButton
+#define IsItemHovered TutonesV2OverlayIsItemHovered
 #include "TutonesMenu.v12.inc"
 #undef IsItemHovered
 #undef InvisibleButton
@@ -154,6 +154,25 @@ namespace Tutones::UI
 {
     namespace
     {
+        void DrawV2FooterBrand() noexcept
+        {
+            const ImVec2 pos = ImGui::GetWindowPos();
+            auto* draw = ImGui::GetWindowDrawList();
+            const ImVec2 footerMin{pos.x + 28.0f, pos.y + V11Theme::MenuHeight - 66.0f};
+
+            // Cover the old redesign working-label and expose the real product version.
+            draw->AddRectFilled(
+                ImVec2(footerMin.x + 10.0f, footerMin.y + 20.0f),
+                ImVec2(footerMin.x + 150.0f, footerMin.y + 38.0f),
+                IM_COL32(8, 11, 16, 255));
+            draw->AddText(
+                FontOrDefault(g_Bold),
+                11.0f,
+                ImVec2(footerMin.x + 14.0f, footerMin.y + 23.0f),
+                ImGui::GetColorU32(Accent),
+                "V2 Dashboard");
+        }
+
         void RenderOnlineNavigationPanel(std::size_t index) noexcept
         {
             switch (index)
@@ -221,11 +240,11 @@ namespace Tutones::UI
 #define RenderSettingsPanel(index) RenderV12SettingsPanel(index)
 #define RenderMiscPanel(index) RenderUtilitiesNavigationPanel(index)
 #define RenderNativeToolsPanel(index) RenderV12NativeToolsDashboard(index)
-#define RenderNavigationRail() RenderV12NavigationRail()
+#define RenderNavigationRail() do { RenderV12NavigationRail(); DrawV2FooterBrand(); } while (false)
 #define RenderCategoryRail() RenderV12CategoryRail()
 #define RenderStatusPanel(category, item) RenderV12StatusPanel(category, item)
 #define ApplyV11Style() ApplyV12Style()
-#define BeginChild TutonesV12BeginChild
+#define BeginChild TutonesV2BeginChild
 #include "TutonesMenu.part03.inc"
 #undef BeginChild
 #undef ApplyV11Style
