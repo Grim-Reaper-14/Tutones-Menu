@@ -11,6 +11,8 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
+#include <limits>
 
 namespace Tutones::UI
 {
@@ -92,6 +94,7 @@ namespace Tutones::UI
         static int rp{};
         static int kills{};
         static int deaths{};
+        static float kdRatio{};
         static const char* actionMessage = "Ready";
 
         if (player.valid && player.ped != lastPed)
@@ -123,6 +126,7 @@ namespace Tutones::UI
             rp = stats.rp;
             kills = stats.kills;
             deaths = stats.deaths;
+            kdRatio = stats.kdRatio;
             statsLoaded = true;
         }
 
@@ -236,22 +240,32 @@ namespace Tutones::UI
                     ImGui::TextUnformatted("K/D Ratio");
                     ImGui::SameLine(105.0f);
                     ImGui::SetNextItemWidth(-1.0f);
-                    float kd = deaths > 0 ? static_cast<float>(kills) / static_cast<float>(deaths) : static_cast<float>(kills);
-                    ImGui::BeginDisabled();
-                    ImGui::InputFloat("##kd_derived", &kd, 0.0f, 0.0f, "%.2f", ImGuiInputTextFlags_ReadOnly);
-                    ImGui::EndDisabled();
+                    if (ImGui::InputFloat("##kd_edit", &kdRatio, 0.0f, 0.0f, "%.2f"))
+                    {
+                        kdRatio = std::clamp(kdRatio, 0.0f, 10000.0f);
+                        const int denominator = std::max(1, deaths);
+                        const double requestedKills = static_cast<double>(kdRatio) * static_cast<double>(denominator);
+                        kills = requestedKills >= static_cast<double>(std::numeric_limits<int>::max())
+                            ? std::numeric_limits<int>::max()
+                            : static_cast<int>(std::llround(requestedKills));
+                    }
+                    DescribeLastV11Item("Edit the target K/D directly. Tutones converts the ratio into the matching kills value using your current deaths count so GTA's stored Kills / Deaths ratio matches the requested value.");
 
+                    const int oldKills = kills;
+                    const int oldDeaths = deaths;
                     SelfV2Detail::StatInputInt("Kills", kills);
                     SelfV2Detail::StatInputInt("Deaths", deaths);
                     kills = std::max(0, kills);
                     deaths = std::max(0, deaths);
+                    if (kills != oldKills || deaths != oldDeaths)
+                        kdRatio = deaths > 0 ? static_cast<float>(kills) / static_cast<float>(deaths) : static_cast<float>(kills);
 
                     ImGui::Spacing();
-                    ImGui::BeginDisabled(stats.pending || !stats.readable);
+                    ImGui::BeginDisabled(stats.pending);
                     if (ImGui::Button("APPLY STATS", ImVec2(-1.0f, 36.0f)))
                         actionMessage = statsRuntime.QueueApply(rank, rp, kills, deaths) ? "Stat writes queued" : "Stat writes rejected";
                     ImGui::EndDisabled();
-                    DescribeLastV11Item("Apply Rank, RP, Kills and Deaths on the GTA script thread with stat read-back. K/D is derived from kills/deaths. Cash and Bank remain transaction-controlled.");
+                    DescribeLastV11Item("Apply Rank, RP, Kills and Deaths on the GTA script thread with stat read-back. K/D is controlled by the editable ratio field and resolves to matching Kills / Deaths values. Cash and Bank remain transaction-controlled.");
 
                     if (ImGui::Button("Refresh Current Stats", ImVec2(-1.0f, 28.0f)))
                     {
