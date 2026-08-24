@@ -358,6 +358,61 @@ namespace Tutones::UI
             ImGui::TextDisabled("%s", g_Message);
             RenderOperationStatus(snapshot);
         }
+
+        void RenderPlayerStateCard(const PlayerSnapshot& snapshot) noexcept
+        {
+            ImGui::TextColored(Accent, "LIVE PLAYER STATE");
+            ImGui::TextDisabled("Read directly from the active local-player snapshot.");
+            ImGui::Separator();
+
+            ImGui::Text("Ped");
+            ImGui::SameLine(170.0f);
+            ImGui::Text("%d", snapshot.ped);
+            ImGui::Text("Model");
+            ImGui::SameLine(170.0f);
+            ImGui::Text("0x%08X", snapshot.model);
+            ImGui::Text("Health");
+            ImGui::SameLine(170.0f);
+            ImGui::Text("%d / %d", snapshot.health, snapshot.maxHealth);
+            ImGui::Text("Armor");
+            ImGui::SameLine(170.0f);
+            ImGui::Text("%d", snapshot.armor);
+            ImGui::Text("Wanted");
+            ImGui::SameLine(170.0f);
+            ImGui::Text("%d", snapshot.wantedLevel);
+
+            ImGui::Spacing();
+            ImGui::SeparatorText("Persistent State");
+            ImGui::Text("God Mode");
+            ImGui::SameLine(170.0f);
+            ImGui::Text("%s", snapshot.invincible ? "ON" : "OFF");
+            ImGui::Text("Bulletproof");
+            ImGui::SameLine(170.0f);
+            ImGui::Text("%s", snapshot.bulletproof ? "ON" : "OFF");
+            ImGui::Text("Invisible");
+            ImGui::SameLine(170.0f);
+            ImGui::Text("%s", snapshot.invisible ? "ON" : "OFF");
+            ImGui::Text("Never Wanted");
+            ImGui::SameLine(170.0f);
+            ImGui::Text("%s", snapshot.neverWanted ? "ON" : "OFF");
+
+            ImGui::Spacing();
+            ImGui::SeparatorText("Movement");
+            ImGui::Text("Run multiplier");
+            ImGui::SameLine(170.0f);
+            ImGui::Text("%.2fx", snapshot.runMultiplier);
+            ImGui::Text("Swim multiplier");
+            ImGui::SameLine(170.0f);
+            ImGui::Text("%.2fx", snapshot.swimMultiplier);
+
+            ImGui::Spacing();
+            ImGui::SeparatorText("Last Action");
+            ImGui::TextWrapped("%s", ActionName(snapshot.lastAction));
+            if (snapshot.lastAction != PlayerAction::None)
+                ImGui::TextDisabled("%s", snapshot.lastActionSucceeded ? "Succeeded" : "Failed");
+            if (snapshot.modelLoadPending)
+                ImGui::TextDisabled("Model 0x%08X is loading...", snapshot.pendingModel);
+        }
     }
 
     void RenderPlayerPanel(std::size_t subtab) noexcept
@@ -368,31 +423,52 @@ namespace Tutones::UI
 
         ImGui::SetCursorPos(ImVec2(226.0f, 16.0f));
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(14.0f, 12.0f));
-        ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 3.0f);
+        ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 7.0f);
+        ImGui::PushStyleVar(ImGuiStyleVar_ChildBorderSize, 1.0f);
         ImGui::PushStyleColor(ImGuiCol_ChildBg, V11Theme::PanelBg);
         ImGui::PushStyleColor(ImGuiCol_Border, V11Theme::PanelBorder);
 
-        if (ImGui::BeginChild("##player_panel", ImVec2(490.0f, 430.0f), true))
+        if (ImGui::BeginChild("##player_v12_panel", ImVec2(780.0f, 500.0f), true))
         {
-            ImGui::TextColored(Accent, "Player");
+            ImGui::TextColored(Accent, "SELF");
             ImGui::SameLine();
-            ImGui::TextDisabled("%s", subtab == 0 ? "General" : subtab == 1 ? "Movement" : "Appearance");
+            ImGui::TextDisabled("%s", subtab == 0 ? "GENERAL" : subtab == 1 ? "MOVEMENT" : "APPEARANCE");
+            ImGui::TextDisabled("Player controls on the left, live local-player state on the right.");
             ImGui::Separator();
 
             if (!runtime.IsRunning())
+            {
                 ImGui::TextDisabled("Player runtime is offline.");
+            }
             else if (!snapshot.valid)
+            {
                 ImGui::TextDisabled("Waiting for a valid local player snapshot.");
-            else if (subtab == 0)
-                RenderGeneral(runtime, snapshot);
-            else if (subtab == 1)
-                RenderMovement(runtime, snapshot);
-            else
-                RenderAppearance(runtime, snapshot);
+            }
+            else if (ImGui::BeginTable("##self_v12_columns", 2, ImGuiTableFlags_SizingStretchSame))
+            {
+                ImGui::TableNextColumn();
+                if (ImGui::BeginChild("##self_controls_v12", ImVec2(0.0f, 390.0f), true, ImGuiWindowFlags_AlwaysVerticalScrollbar))
+                {
+                    if (subtab == 0)
+                        RenderGeneral(runtime, snapshot);
+                    else if (subtab == 1)
+                        RenderMovement(runtime, snapshot);
+                    else
+                        RenderAppearance(runtime, snapshot);
+                }
+                ImGui::EndChild();
+
+                ImGui::TableNextColumn();
+                if (ImGui::BeginChild("##self_live_state_v12", ImVec2(0.0f, 390.0f), true))
+                    RenderPlayerStateCard(snapshot);
+                ImGui::EndChild();
+
+                ImGui::EndTable();
+            }
         }
 
         ImGui::EndChild();
         ImGui::PopStyleColor(2);
-        ImGui::PopStyleVar(2);
+        ImGui::PopStyleVar(3);
     }
 }
