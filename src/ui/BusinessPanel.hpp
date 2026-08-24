@@ -1,5 +1,6 @@
 #pragma once
 
+#include "BunkerToolsPanel.hpp"
 #include "NightclubPanel.hpp"
 #include "RecoveryPanel.hpp"
 #include "SpecialCargoToolsPanel.hpp"
@@ -27,10 +28,11 @@ namespace Tutones::UI
             // no longer exposed as a Recovery navigation item.
             RenderRecoveryPanel(2);
 
-            // Draw the advanced Special Cargo launcher after the business panel so
-            // it stays visible above the panel instead of being hidden behind it.
+            // Draw both advanced launchers after the full-size business child so
+            // they stay visible above it instead of being covered by the child.
+            RenderBunkerToolsControl();
             RenderSpecialCargoToolsControl();
-            SetV11Description("Special Cargo and Bunker business controls, including owned warehouse state, Lupe sourcing, cooldowns, mission locals, crate-price globals, special cargo, and Bunker stock controls.");
+            SetV11Description("Special Cargo and Bunker business controls, including owned warehouse state, Lupe sourcing, cooldowns, mission locals, crate-price globals, Bunker stock, sale values, multipliers, production times and instant sell.");
         }
 
         // Compact page selector drawn last so it stays clickable above either
