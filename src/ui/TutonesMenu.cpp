@@ -80,6 +80,7 @@ namespace Tutones::UI
 #include "TutonesMenu.v12style.inc"
 #include "TutonesMenu.v12.inc"
 #include "TutonesMenu.v12pages.inc"
+#include "TutonesMenu.v12tools.inc"
 
 namespace Tutones::UI
 {
@@ -151,7 +152,7 @@ namespace Tutones::UI
 #define RenderNetworkPanel(index) RenderRecoveryNavigationPanel(index)
 #define RenderSettingsPanel(index) RenderV12SettingsPanel(index)
 #define RenderMiscPanel(index) RenderUtilitiesNavigationPanel(index)
-#define RenderNativeToolsPanel(index) RenderV12NativeToolsPanel(index)
+#define RenderNativeToolsPanel(index) RenderV12NativeToolsDashboard(index)
 #define RenderNavigationRail() RenderV12NavigationRail()
 #define RenderCategoryRail() RenderV12CategoryRail()
 #define RenderStatusPanel(category, item) RenderV12StatusPanel(category, item)
