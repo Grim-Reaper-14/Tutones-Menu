@@ -129,6 +129,7 @@ namespace Tutones::UI
 }
 
 #include "TutonesMenu.part01.inc"
+#include "TutonesMenu.v12style.inc"
 #include "TutonesMenu.v12.inc"
 #define DrawPanel(...) RenderProtectionPanel(m_Item)
 #define RenderMiscOverlay(...) RenderTutonesRuntimeOverlays()
@@ -139,7 +140,9 @@ namespace Tutones::UI
 #define RenderNavigationRail() RenderV12NavigationRail()
 #define RenderCategoryRail() RenderV12CategoryRail()
 #define RenderStatusPanel(category, item) RenderV12StatusPanel(category, item)
+#define ApplyV11Style() ApplyV12Style()
 #include "TutonesMenu.part03.inc"
+#undef ApplyV11Style
 #undef RenderStatusPanel
 #undef RenderCategoryRail
 #undef RenderNavigationRail
