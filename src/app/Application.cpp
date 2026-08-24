@@ -1,6 +1,7 @@
 #include "Application.hpp"
 #include "BuildInfo.hpp"
 
+#include "../backend/BackendHub.hpp"
 #include "../core/CoreServices.hpp"
 #include "../core/config/MenuSettings.hpp"
 #include "../core/filesystem/FileSystem.hpp"
@@ -11,10 +12,7 @@
 #include "../features/player/PlayerRuntime.hpp"
 #include "../features/recovery/RecoveryRuntime.hpp"
 #include "../features/vehicle/LscBypassRuntime.hpp"
-#include "../features/vehicle/PersonalVehicleRuntime.hpp"
 #include "../features/vehicle/VehicleLoopFeatures.hpp"
-#include "../features/vehicle/VehicleModificationRuntime.hpp"
-#include "../features/vehicle/VehiclePaintRuntime.hpp"
 #include "../features/weapon/WeaponRuntime.hpp"
 #include "../features/world/TeleportRuntime.hpp"
 #include "../features/world/WorldRuntime.hpp"
@@ -22,7 +20,6 @@
 #include "../hooking/HookManager.hpp"
 #include "../render/Renderer.hpp"
 #include "../runtime/GameRuntime.hpp"
-#include "../runtime/RuntimeStartup.hpp"
 #include "../ui/Input.hpp"
 
 #include <atomic>
@@ -76,7 +73,9 @@ namespace Tutones::App
             weapons.SetExplosionDamage(settings.weapons.explosionDamage);
             weapons.SetExplosionCameraShake(settings.weapons.explosionCameraShake);
 
-            TUTONES_LOG_INFO("config", "Staged persisted V11 state before GTA runtime startup; no one-shot commands were executed");
+            TUTONES_LOG_INFO(
+                "config",
+                "Staged persisted V11 state before GTA runtime startup; no one-shot commands were executed");
         }
 
         void SavePersistedMenuSettings() noexcept
@@ -171,7 +170,9 @@ namespace Tutones::App
                 success = Game::MiscNatives::ClearOverrideWeather() && success;
                 success = Game::MiscNatives::SetArtificialLightsState(false) && success;
                 if (!success)
-                    TUTONES_LOG_WARN("world.runtime", "One or more world overrides could not be cleared during shutdown");
+                    TUTONES_LOG_WARN(
+                        "world.runtime",
+                        "One or more world overrides could not be cleared during shutdown");
             };
 
             if (runtime.IsOnGameThread())
@@ -228,9 +229,9 @@ namespace Tutones::App
 
         StagePersistedMenuSettings();
 
-        // Renderer, hooks, GTA scheduler/native runtime, and menu input are the only
-        // application-critical services. Feature runtimes below are deliberately
-        // fail-soft so newly-added menu features cannot unload unrelated working code.
+        // Renderer, hooks, GTA scheduler/native runtime, and input are the only
+        // application-critical services. Gameplay feature lifecycle is centralized
+        // behind BackendHub and remains fail-soft.
         TUTONES_LOG_INFO("app", "Core services ready; starting renderer bootstrap");
         if (!Render::Renderer::Get().Initialize())
         {
@@ -282,69 +283,25 @@ namespace Tutones::App
             return false;
         }
 
-        std::size_t featureRuntimeCount{};
-        std::size_t featureRuntimeStarted{};
-        const auto startFeature = [&featureRuntimeCount, &featureRuntimeStarted](
-            const char* name,
-            auto&& start,
-            auto&& stop) {
-            ++featureRuntimeCount;
-            if (Runtime::StartOptionalRuntime(
-                    name,
-                    std::forward<decltype(start)>(start),
-                    std::forward<decltype(stop)>(stop)))
-            {
-                ++featureRuntimeStarted;
-            }
-        };
+        TUTONES_LOG_INFO("app", "Core runtime ready; starting centralized BackendHub");
+        if (!Backend::BackendHub::Get().Initialize())
+        {
+            // BackendHub is deliberately fail-soft. Keeping the render/input/core alive
+            // preserves diagnostics and prevents one feature-layer failure from unloading
+            // the DLL. All hub-managed gameplay features remain unavailable until fixed.
+            TUTONES_LOG_ERROR(
+                "app",
+                "BackendHub initialization failed; menu core will remain available for diagnostics");
+        }
 
-        startFeature(
-            "LSC restriction bypass",
-            [] { return Game::Mods::LscBypassRuntime::Get().Start(); },
-            [] { Game::Mods::LscBypassRuntime::Get().Stop(); });
-        startFeature(
-            "Vehicle paint",
-            [] { return Game::Paint::VehiclePaintRuntime::Get().Start(); },
-            [] { Game::Paint::VehiclePaintRuntime::Get().Stop(); });
-        startFeature(
-            "Vehicle modifications",
-            [] { return Game::Mods::VehicleModificationRuntime::Get().Start(); },
-            [] { Game::Mods::VehicleModificationRuntime::Get().Stop(); });
-        startFeature(
-            "Personal vehicle reader",
-            [] { return Game::PersonalVehicles::PersonalVehicleRuntime::Get().Start(); },
-            [] { Game::PersonalVehicles::PersonalVehicleRuntime::Get().Stop(); });
-        startFeature(
-            "Player runtime",
-            [] { return Game::PlayerFeatures::PlayerRuntime::Get().Start(); },
-            [] { Game::PlayerFeatures::PlayerRuntime::Get().Stop(); });
-        startFeature(
-            "Off Radar",
-            [] { return Game::PlayerFeatures::OffRadarRuntime::Get().Start(); },
-            [] { Game::PlayerFeatures::OffRadarRuntime::Get().Stop(); });
-        startFeature(
-            "Weapon runtime",
-            [] { return Game::WeaponFeatures::WeaponRuntime::Get().Start(); },
-            [] { Game::WeaponFeatures::WeaponRuntime::Get().Stop(); });
-        startFeature(
-            "Recovery runtime",
-            [] { return Game::Recovery::RecoveryRuntime::Get().Start(); },
-            [] { Game::Recovery::RecoveryRuntime::Get().Stop(); });
-        startFeature(
-            "Network/QoL runtime",
-            [] { return Game::NetworkFeatures::NetworkRuntime::Get().Start(); },
-            [] { Game::NetworkFeatures::NetworkRuntime::Get().Stop(); });
-
-        TUTONES_LOG_INFO(
-            "runtime.features",
-            std::string("Optional feature runtimes online: ")
-                + std::to_string(featureRuntimeStarted)
-                + "/" + std::to_string(featureRuntimeCount));
-
+        const auto backend = Backend::BackendHub::Get().Snapshot();
         TUTONES_LOG_INFO(
             "app",
-            "Tutones Menu core initialized; unavailable feature runtimes no longer tear down the menu");
-        TUTONES_LOG_DEBUG("app", "Runtime is waiting for primary render state and the first GTA script-thread tick");
+            std::string("Tutones Menu initialized; BackendHub features registered=")
+                + std::to_string(backend.features.size()));
+        TUTONES_LOG_DEBUG(
+            "app",
+            "Runtime is waiting for primary render state and the first GTA script-thread tick");
         m_Running = true;
         return true;
     }
@@ -367,16 +324,8 @@ namespace Tutones::App
         TUTONES_LOG_DEBUG("app", "Stopping vehicle loop features and restoring the last affected vehicle");
         Game::Mods::VehicleLoopFeatures::Get().Shutdown();
 
-        TUTONES_LOG_DEBUG("app", "Stopping optional feature runtimes while GTA scheduling is active");
-        Game::NetworkFeatures::NetworkRuntime::Get().Stop();
-        Game::Recovery::RecoveryRuntime::Get().Stop();
-        Game::WeaponFeatures::WeaponRuntime::Get().Stop();
-        Game::PlayerFeatures::OffRadarRuntime::Get().Stop();
-        Game::PlayerFeatures::PlayerRuntime::Get().Stop();
-        Game::PersonalVehicles::PersonalVehicleRuntime::Get().Stop();
-        Game::Mods::VehicleModificationRuntime::Get().Stop();
-        Game::Paint::VehiclePaintRuntime::Get().Stop();
-        Game::Mods::LscBypassRuntime::Get().Stop();
+        TUTONES_LOG_DEBUG("app", "Stopping centralized BackendHub while GTA scheduling is active");
+        Backend::BackendHub::Get().Shutdown();
 
         TUTONES_LOG_DEBUG("app", "Stopping Win32 menu input routing");
         UI::Input::Get().Shutdown();
