@@ -2,6 +2,7 @@
 
 #include "../../core/logging/Logger.hpp"
 #include "../../game/GamePointers.hpp"
+#include "../../game/Stats.hpp"
 #include "../../game/script/ScriptGlobal.hpp"
 #include "../../game/script/ScriptLocal.hpp"
 #include "../../game/script/ScriptRuntime.hpp"
@@ -34,6 +35,53 @@ namespace Tutones::Game::Recovery
             hash ^= hash >> 11;
             hash += hash << 15;
             return hash;
+        }
+
+        [[nodiscard]] constexpr int WarehouseCapacity(int propertyId) noexcept
+        {
+            switch (propertyId)
+            {
+            case 1:
+            case 2:
+            case 3:
+            case 4:
+            case 5:
+            case 9:
+                return 16;
+
+            case 7:
+            case 10:
+            case 11:
+            case 12:
+            case 13:
+            case 14:
+            case 15:
+            case 21:
+                return 42;
+
+            case 6:
+            case 8:
+            case 16:
+            case 17:
+            case 18:
+            case 19:
+            case 20:
+            case 22:
+                return 111;
+
+            default:
+                return 0;
+            }
+        }
+
+        [[nodiscard]] inline std::string WarehousePropertyStat(int slot)
+        {
+            return "MPX_PROP_WHOUSE_SLOT" + std::to_string(slot);
+        }
+
+        [[nodiscard]] inline std::string WarehouseCrateStat(int slot)
+        {
+            return "MPX_CONTOTALFORWHOUSE" + std::to_string(slot);
         }
     }
 
@@ -109,6 +157,61 @@ namespace Tutones::Game::Recovery
                             + " available=" + std::to_string(specialAvailable ? 1 : 0));
                 }
                 Finish(success, success ? "Special Cargo sourcing settings applied" : "Sourcing settings failed read-back verification");
+            });
+        }
+
+        bool QueueFillAllWarehouses()
+        {
+            return Queue("Source All Crates queued", [this] {
+                bool* sessionStarted = GamePointers::Get().IsSessionStarted();
+                if (!sessionStarted || !*sessionStarted)
+                    return Finish(false, "Join GTA Online before filling Special Cargo warehouses");
+
+                const auto characterIndex = Stats::GetCharIndex();
+                if (!characterIndex)
+                    return Finish(false, "MP character stats are unavailable");
+
+                int ownedCount = 0;
+                int filledCount = 0;
+                int totalCrates = 0;
+
+                for (int slot = 0; slot < 5; ++slot)
+                {
+                    const auto property = Stats::GetInt(SpecialCargoToolsDetail::WarehousePropertyStat(slot), *characterIndex);
+                    if (!property || *property <= 0)
+                        continue;
+
+                    ++ownedCount;
+                    const int capacity = SpecialCargoToolsDetail::WarehouseCapacity(*property);
+                    if (capacity <= 0)
+                        continue;
+
+                    const std::string crateStat = SpecialCargoToolsDetail::WarehouseCrateStat(slot);
+                    if (!Stats::SetInt(crateStat, capacity, *characterIndex))
+                        continue;
+
+                    const auto confirmation = Stats::GetInt(crateStat, *characterIndex);
+                    if (!confirmation || *confirmation != capacity)
+                        continue;
+
+                    ++filledCount;
+                    totalCrates += capacity;
+                    TUTONES_LOG_INFO(
+                        "recovery.special_cargo",
+                        std::string("Instant-filled warehouse slot=") + std::to_string(slot)
+                            + " property=" + std::to_string(*property)
+                            + " crates=" + std::to_string(capacity));
+                }
+
+                if (ownedCount == 0)
+                    return Finish(false, "No owned Special Cargo warehouses were detected");
+
+                const bool success = filledCount == ownedCount;
+                Finish(
+                    success,
+                    success
+                        ? std::string("Filled ") + std::to_string(filledCount) + " warehouse(s) with " + std::to_string(totalCrates) + " total crates"
+                        : std::string("Filled ") + std::to_string(filledCount) + " of " + std::to_string(ownedCount) + " owned warehouse(s)");
             });
         }
 
