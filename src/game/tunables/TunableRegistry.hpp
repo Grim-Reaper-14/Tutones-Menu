@@ -265,7 +265,7 @@ namespace Tutones::Game::Tunables
 
         struct PatchedSlot final
         {
-            std::size_t index{InvalidSlot};
+            std::size_t index{static_cast<std::size_t>(-1)};
             Native::NativeHandler original{};
         };
 
@@ -809,17 +809,20 @@ namespace Tutones::Game::Tunables
 
         static void RegistrationIntHook(Native::NativeCallContext* context) noexcept
         {
-            Get().CaptureRegistration(context, Get().m_IntSlot.original);
+            auto& self = Get();
+            self.CaptureRegistration(context, self.m_IntSlot.original);
         }
 
         static void RegistrationBoolHook(Native::NativeCallContext* context) noexcept
         {
-            Get().CaptureRegistration(context, Get().m_BoolSlot.original);
+            auto& self = Get();
+            self.CaptureRegistration(context, self.m_BoolSlot.original);
         }
 
         static void RegistrationFloatHook(Native::NativeCallContext* context) noexcept
         {
-            Get().CaptureRegistration(context, Get().m_FloatSlot.original);
+            auto& self = Get();
+            self.CaptureRegistration(context, self.m_FloatSlot.original);
         }
 
         void CaptureRegistration(Native::NativeCallContext* context, Native::NativeHandler original) noexcept
