@@ -1,5 +1,6 @@
 #pragma once
 
+#include "../../core/logging/Logger.hpp"
 #include "../../game/GamePointers.hpp"
 #include "../../game/GameState.hpp"
 #include "../../game/Natives.hpp"
@@ -67,6 +68,7 @@ namespace Tutones::Game::PersonalVehicles
 
             m_Thread = nullptr;
             m_SelectorObserved = false;
+            ResetLoggedState();
             SetPending("Save Personal Vehicle queued");
             if (Runtime::GameRuntime::Get().Enqueue([this] { BeginOnGameThread(); }))
                 return true;
@@ -152,9 +154,8 @@ namespace Tutones::Game::PersonalVehicles
             if (!valid || *valid == 0)
                 return Finish(false, "GTA rejected this model as a personal vehicle");
 
-            // YimMenuV2 first reuses AM_MP_VEHICLE_REWARD when Freemode already owns it.
-            // Tutones does not yet start arbitrary GTA scripts, so bind the live reward
-            // thread and keep that identity for the complete selector transaction.
+            // Match YimMenuV2's ownership model: acquire one reward thread and keep
+            // that exact thread identity for the entire selector transaction.
             m_Thread = scripts.FindThread(VehicleRewardHash);
             if (!m_Thread || !m_Thread->stack)
                 return Finish(false, "GTA vehicle-reward script is not active; try again in Freemode");
@@ -162,10 +163,19 @@ namespace Tutones::Game::PersonalVehicles
             m_Vehicle = state.vehicle;
             m_Deadline = Clock::now() + FlowTimeout;
             m_SelectorObserved = false;
+            ResetLoggedState();
+
+            TUTONES_LOG_INFO(
+                "vehicle.savepv",
+                std::string("Bound AM_MP_VEHICLE_REWARD thread id=")
+                    + std::to_string(m_Thread->context.threadId)
+                    + " vehicle=" + std::to_string(m_Vehicle)
+                    + " threadState=" + std::to_string(static_cast<int>(m_Thread->context.state)));
+
             SetPending("Opening GTA personal-garage selector...");
 
-            // Match Yim's yielding state machine: do not spin the reward function here.
-            // Queue the first reward call so it executes on the following scheduler tick.
+            // Match Yim's yielding state machine by placing the first reward call on
+            // the next GTA scheduler tick rather than running it inline here.
             QueueNextRewardStep();
         }
 
@@ -185,14 +195,20 @@ namespace Tutones::Game::PersonalVehicles
                 return Finish(false, "Stay in the vehicle until the garage save flow finishes");
 
             auto& scripts = Script::ScriptRuntime::Get();
-            auto* reward = scripts.FindThread(VehicleRewardHash);
-            if (!reward || !reward->stack)
-                return Finish(false, "GTA vehicle-reward script became unavailable");
+            if (!scripts.IsReady())
+                return Finish(false, "Shared script runtime became unavailable");
 
-            // If Freemode recycled the thread object during the flow, rebind before
-            // touching locals. This keeps all pointers from the same live reward stack.
-            if (reward != m_Thread)
-                m_Thread = reward;
+            // Never silently rebind during an active selector. Rebinding can pair local
+            // pointers from one reward stack with a VM call on another reward thread.
+            // If GTA recycles the thread, stop and report it instead of flashing menus.
+            auto* liveReward = scripts.FindThread(VehicleRewardHash);
+            if (!m_Thread || !m_Thread->stack || m_Thread->scriptHash != VehicleRewardHash)
+                return Finish(false, "Cached vehicle-reward thread became invalid");
+            if (liveReward != m_Thread)
+            {
+                TUTONES_LOG_WARN("vehicle.savepv", "AM_MP_VEHICLE_REWARD thread identity changed during garage selector");
+                return Finish(false, "GTA replaced the vehicle-reward thread during garage save");
+            }
 
             auto* rewardData = Types::VehicleRewardData::Get(m_Thread);
             auto* vehicleMenuData = Script::ScriptLocal(m_Thread, 195).As<int>();
@@ -203,8 +219,9 @@ namespace Tutones::Game::PersonalVehicles
                 VehicleRewardHash,
                 Script::ScriptPointer("GiveVehicleReward", "2D 0C 1E 00 00"));
 
-            // Keep YimMenuV2's exact argument order and boolean semantics.
-            const auto callResult = giveVehicleReward.TryCall<std::int32_t>(
+            // Execute on the same cached reward thread that owns rewardData and local 195.
+            const auto callResult = giveVehicleReward.TryCallOnThread<std::int32_t>(
+                m_Thread,
                 m_Vehicle,
                 vehicleMenuData,
                 &rewardData->transactionStatus,
@@ -220,6 +237,13 @@ namespace Tutones::Game::PersonalVehicles
 
             if (!callResult)
                 return Finish(false, "GiveVehicleReward script function could not be invoked");
+
+            LogStateTransition(
+                *callResult,
+                rewardData->transactionStatus,
+                rewardData->garage,
+                rewardData->garageOffset,
+                rewardData->controlStatus);
 
             // Yim only inspects ControlStatus after GiveVehicleReward returns true.
             // False means GTA is still servicing the selector; leave every local alone.
@@ -238,8 +262,8 @@ namespace Tutones::Game::PersonalVehicles
                 return QueueNextRewardStep();
             }
 
-            // This is Yim's completion path. It intentionally treats both a successful
-            // save and backing out of GTA's selector as completion of the script flow.
+            // This is Yim's completion path. Reset only after GiveVehicleReward returns
+            // true and GTA leaves ControlStatus 3.
             rewardData->transactionStatus = 0;
             rewardData->garage = 0;
             rewardData->garageOffset = 0;
@@ -256,12 +280,61 @@ namespace Tutones::Game::PersonalVehicles
                 Finish(false, "Lost game-thread scheduling during garage save");
         }
 
+        void LogStateTransition(
+            std::int32_t callResult,
+            std::int32_t transactionStatus,
+            std::int32_t garage,
+            std::int32_t garageOffset,
+            std::int32_t controlStatus)
+        {
+            if (m_HaveLoggedState
+                && callResult == m_LastCallResult
+                && transactionStatus == m_LastTransactionStatus
+                && garage == m_LastGarage
+                && garageOffset == m_LastGarageOffset
+                && controlStatus == m_LastControlStatus)
+            {
+                return;
+            }
+
+            m_HaveLoggedState = true;
+            m_LastCallResult = callResult;
+            m_LastTransactionStatus = transactionStatus;
+            m_LastGarage = garage;
+            m_LastGarageOffset = garageOffset;
+            m_LastControlStatus = controlStatus;
+
+            TUTONES_LOG_INFO(
+                "vehicle.savepv",
+                std::string("reward transition: callResult=") + std::to_string(callResult)
+                    + " transaction=" + std::to_string(transactionStatus)
+                    + " garage=" + std::to_string(garage)
+                    + " garageOffset=" + std::to_string(garageOffset)
+                    + " control=" + std::to_string(controlStatus)
+                    + " threadState=" + std::to_string(m_Thread ? static_cast<int>(m_Thread->context.state) : -1));
+        }
+
+        void ResetLoggedState() noexcept
+        {
+            m_HaveLoggedState = false;
+            m_LastCallResult = 0;
+            m_LastTransactionStatus = 0;
+            m_LastGarage = 0;
+            m_LastGarageOffset = 0;
+            m_LastControlStatus = 0;
+        }
+
         void Finish(bool success, std::string message)
         {
+            TUTONES_LOG_INFO(
+                "vehicle.savepv",
+                std::string("Garage save finished: ") + (success ? "success - " : "failed - ") + message);
+
             m_Thread = nullptr;
             m_Vehicle = 0;
             m_Deadline = {};
             m_SelectorObserved = false;
+            ResetLoggedState();
             m_Pending.store(false, std::memory_order_release);
             SetResult(success, std::move(message));
         }
@@ -291,5 +364,11 @@ namespace Tutones::Game::PersonalVehicles
         Vehicle m_Vehicle{};
         Clock::time_point m_Deadline{};
         bool m_SelectorObserved{};
+        bool m_HaveLoggedState{};
+        std::int32_t m_LastCallResult{};
+        std::int32_t m_LastTransactionStatus{};
+        std::int32_t m_LastGarage{};
+        std::int32_t m_LastGarageOffset{};
+        std::int32_t m_LastControlStatus{};
     };
 }
