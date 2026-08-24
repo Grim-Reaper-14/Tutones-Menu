@@ -13,7 +13,7 @@ namespace Tutones::UI
         auto& runtime = Game::Recovery::GoodBehaviorBonusRuntime::Get();
         const auto state = runtime.Snapshot();
 
-        // V12 gives this reward its own card below the Recovery overview instead
+        // V2 gives this reward its own card below the Recovery overview instead
         // of drawing it over the bottom of the legacy Recovery panel.
         ImGui::SetCursorPos(ImVec2(226.0f, 458.0f));
         ImGui::PushStyleColor(ImGuiCol_ChildBg, V11Theme::PanelBg);
@@ -22,7 +22,7 @@ namespace Tutones::UI
         ImGui::PushStyleVar(ImGuiStyleVar_ChildBorderSize, 1.0f);
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(14.0f, 10.0f));
 
-        if (ImGui::BeginChild("##good_behavior_bonus_v12", ImVec2(780.0f, 92.0f), true))
+        if (ImGui::BeginChild("##good_behavior_bonus_v2", ImVec2(780.0f, 92.0f), true))
         {
             ImGui::TextColored(V11Theme::Accent, "GOOD BEHAVIOR BONUS");
             ImGui::SameLine();
