@@ -90,9 +90,9 @@ namespace Tutones::UI
                 {{"X", "B", "X", "E"}},
                 {{"Weapon runtime capabilities and general weapon controls.", "Infinite ammo and infinite clip controls.", "Assisted-aim controls and target handling.", "Impact-driven bullet-effect configuration."}}, 4, true},
             {"V", "VEHICLES",
-                {{"Current Vehicle", "Paint", "Modifications", "Personal Vehicles"}},
-                {{"V", "T", "R", "V"}},
-                {{"Spawner, current vehicle, clone and saved vehicle tools.", "Vehicle color, custom RGB and finish controls.", "LSC modifications, wheels, lights, neon and tire settings.", "Rockstar personal vehicles, garage slots, request, repair and saved vehicle state."}}, 4, true},
+                {{"General", "Customize", "Garage", nullptr}},
+                {{"V", "R", "G", nullptr}},
+                {{"Spawner, current vehicle actions and clone tools.", "Paint, custom RGB, LSC modifications, wheels, lighting, neon and tire settings in one customization hub.", "Rockstar personal vehicles and Tutones local saved vehicles kept together in one garage hub.", nullptr}}, 3, true},
             {"O", "ONLINE",
                 {{"Session", "Players", "Services", "Player State"}},
                 {{"G", "P", "N", "S"}},
@@ -150,6 +150,7 @@ namespace Tutones::UI
 #undef SetCursorPos
 #include "TutonesMenu.v12pages.inc"
 #include "TutonesMenu.v12tools.inc"
+#include "VehicleMenuV2Panel.hpp"
 
 namespace Tutones::UI
 {
