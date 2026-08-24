@@ -219,7 +219,7 @@ namespace Tutones::UI
                     headerTexture,
                     pos,
                     headerMax,
-                    V11Theme::MenuWidth / V11Theme::HeaderHeight,
+                    themes.HeaderAspect(uvMin, uvMax),
                     uvMin,
                     uvMax);
             }
@@ -241,7 +241,7 @@ namespace Tutones::UI
                     backgroundTexture,
                     bodyMin,
                     bodyMax,
-                    V11Theme::MenuWidth / V11Theme::BodyHeight,
+                    themes.BackgroundAspect(),
                     ImVec2(0.0f, 0.0f),
                     ImVec2(1.0f, 1.0f),
                     IM_COL32(255, 255, 255, static_cast<int>(alpha * 255.0f)));
@@ -314,7 +314,7 @@ namespace Tutones::UI
                     footerTexture,
                     footerMin,
                     footerMax,
-                    V11Theme::MenuWidth / V11Theme::FooterHeight,
+                    themes.FooterAspect(uvMin, uvMax),
                     uvMin,
                     uvMax);
 
