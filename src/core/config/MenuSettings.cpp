@@ -105,10 +105,14 @@ namespace Tutones::Core::Config
             m_Settings.ui.anchorTopLeft = ui.value("anchor_top_left", m_Settings.ui.anchorTopLeft);
             m_Settings.ui.menuWidth = ui.value("menu_width", m_Settings.ui.menuWidth);
             m_Settings.ui.menuHeight = ui.value("menu_height", m_Settings.ui.menuHeight);
-            if (m_Settings.ui.menuWidth < 1120.0f)
-                m_Settings.ui.menuWidth = 1120.0f;
-            if (m_Settings.ui.menuHeight < 754.0f)
-                m_Settings.ui.menuHeight = 754.0f;
+
+            // V12 depends on the dashboard rails, center workspace and right status
+            // column all being present. Upgrade older V11 window sizes on load so a
+            // saved 1120/1280 configuration cannot collapse the new layout.
+            if (m_Settings.ui.menuWidth < 1460.0f)
+                m_Settings.ui.menuWidth = 1460.0f;
+            if (m_Settings.ui.menuHeight < 820.0f)
+                m_Settings.ui.menuHeight = 820.0f;
 
             m_Loaded = true;
             return true;
