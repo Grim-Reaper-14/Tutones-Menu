@@ -8,6 +8,7 @@
 #include <imgui.h>
 
 #include <algorithm>
+#include <cmath>
 #include <filesystem>
 #include <string>
 #include <unordered_map>
