@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ScriptPointer.hpp"
+#include "../types/ScriptTypes.hpp"
 
 #include <cstdint>
 #include <cstring>
@@ -25,6 +26,15 @@ namespace Tutones::Game::Script
             return CallImpl(params, nullptr, 0);
         }
 
+        template<typename... Args>
+        bool CallVoidOnThread(Types::ScriptThread* thread, Args&&... args)
+        {
+            std::vector<std::uint64_t> params;
+            params.reserve(sizeof...(Args));
+            (PushArg(params, std::forward<Args>(args)), ...);
+            return CallImplOnThread(thread, params, nullptr, 0);
+        }
+
         template<typename Ret, typename... Args>
         [[nodiscard]] std::optional<Ret> TryCall(Args&&... args)
         {
@@ -35,6 +45,20 @@ namespace Tutones::Game::Script
 
             Ret result{};
             if (!CallImpl(params, &result, static_cast<std::uint32_t>(sizeof(result))))
+                return std::nullopt;
+            return result;
+        }
+
+        template<typename Ret, typename... Args>
+        [[nodiscard]] std::optional<Ret> TryCallOnThread(Types::ScriptThread* thread, Args&&... args)
+        {
+            static_assert(!std::is_void_v<Ret>);
+            std::vector<std::uint64_t> params;
+            params.reserve(sizeof...(Args));
+            (PushArg(params, std::forward<Args>(args)), ...);
+
+            Ret result{};
+            if (!CallImplOnThread(thread, params, &result, static_cast<std::uint32_t>(sizeof(result))))
                 return std::nullopt;
             return result;
         }
@@ -55,6 +79,11 @@ namespace Tutones::Game::Script
         }
 
         bool CallImpl(const std::vector<std::uint64_t>& args, void* returnValue, std::uint32_t returnSize);
+        bool CallImplOnThread(
+            Types::ScriptThread* thread,
+            const std::vector<std::uint64_t>& args,
+            void* returnValue,
+            std::uint32_t returnSize);
 
         std::uint32_t m_ScriptHash{};
         ScriptPointer m_Pointer;
