@@ -2,6 +2,7 @@
 
 #include "V11Description.hpp"
 #include "V11Theme.hpp"
+#include "../features/network/RequestServicesRuntime.hpp"
 #include "../features/vehicle/DlcVehicleRuntime.hpp"
 #include "../features/vehicle/VehicleModificationRuntime.hpp"
 
@@ -17,7 +18,7 @@ namespace Tutones::UI
     namespace VehicleMenuV2Detail
     {
         inline int g_CustomizeMode{}; // 0 = paint, 1 = workshop
-        inline int g_GarageMode{};    // 0 = Rockstar, 1 = Tutones saved
+        inline int g_GarageMode{};    // 0 = Rockstar, 1 = Tutones saved, 2 = service vehicles
 
         inline char g_PresetName[48] = "my_vehicle";
         inline bool g_LoadPresetInside{true};
@@ -138,10 +139,10 @@ namespace Tutones::UI
             ImGui::PushStyleColor(ImGuiCol_ChildBg, V11Theme::PanelBg);
             ImGui::PushStyleColor(ImGuiCol_Border, V11Theme::PanelBorder);
 
-            if (ImGui::BeginChild("##vehicle_garage_selector", ImVec2(284.0f, 168.0f), true))
+            if (ImGui::BeginChild("##vehicle_garage_selector", ImVec2(284.0f, 214.0f), true))
             {
                 ImGui::TextColored(V11Theme::Accent, "GARAGE");
-                ImGui::TextDisabled("All stored vehicles stay here");
+                ImGui::TextDisabled("Stored and requested vehicles");
                 ImGui::Separator();
 
                 if (SectionButton("Rockstar Personal Garage", g_GarageMode == 0, ImVec2(-1.0f, 31.0f)))
@@ -152,8 +153,12 @@ namespace Tutones::UI
                     g_GarageMode = 1;
                 DescribeLastV11Item("Manage local Tutones full-vehicle presets without mixing them into current-vehicle or customization controls.");
 
+                if (SectionButton("Service Vehicles", g_GarageMode == 2, ImVec2(-1.0f, 31.0f)))
+                    g_GarageMode = 2;
+                DescribeLastV11Item("Request Enhanced service vehicles through the Freemode Global_2733326 request states verified in the current decompiled scripts.");
+
                 ImGui::Spacing();
-                ImGui::TextDisabled("Garage features never leave this page.");
+                ImGui::TextDisabled("Garage and vehicle-delivery features stay here.");
             }
 
             ImGui::EndChild();
@@ -248,6 +253,77 @@ namespace Tutones::UI
             ImGui::PopStyleColor(2);
             ImGui::PopStyleVar(2);
         }
+
+        inline void RenderServiceVehiclesPanel() noexcept
+        {
+            using Game::NetworkFeatures::RequestService;
+            using Game::NetworkFeatures::RequestServicesRuntime;
+
+            auto& runtime = RequestServicesRuntime::Get();
+            const auto snapshot = runtime.Snapshot();
+
+            ImGui::SetCursorPos(ImVec2(226.0f, 16.0f));
+            ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(14.0f, 12.0f));
+            ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 3.0f);
+            ImGui::PushStyleColor(ImGuiCol_ChildBg, V11Theme::PanelBg);
+            ImGui::PushStyleColor(ImGuiCol_Border, V11Theme::PanelBorder);
+
+            if (ImGui::BeginChild("##vehicle_service_garage_v2", ImVec2(490.0f, 430.0f), true))
+            {
+                ImGui::TextColored(V11Theme::Accent, "Service Vehicles");
+                ImGui::SameLine();
+                ImGui::TextDisabled("Enhanced Freemode requests");
+                ImGui::Separator();
+                ImGui::TextWrapped("These requests use Global_2733326 states consumed by the current Enhanced freemode script. They stay in Garage because they deliver or manage vehicles rather than general Online services.");
+
+                struct ServiceButton final
+                {
+                    const char* label;
+                    RequestService service;
+                    const char* source;
+                };
+
+                constexpr ServiceButton services[] = {
+                    {"Request MOC", RequestService::MOC, "Decompile: Global_2733326.f_577"},
+                    {"Request Avenger", RequestService::Avenger, "Decompile: Global_2733326.f_585"},
+                    {"Request Terrorbyte", RequestService::Terrorbyte, "Decompile: Global_2733326.f_591"},
+                    {"Request Kosatka", RequestService::Kosatka, "Decompile: Global_2733326.f_613"},
+                    {"Request Dinghy", RequestService::Dinghy, "Decompile: Global_2733326.f_626"},
+                    {"Request Acid Lab", RequestService::AcidLab, "Decompile: Global_2733326.f_592"},
+                    {"Request Acid Lab Bike", RequestService::AcidLabBike, "Decompile: Global_2733326.f_648"},
+                    {"Request Bail Transporter", RequestService::BailOfficeTransporter, "Enhanced request state: Global_2733326.f_362"},
+                };
+
+                ImGui::SeparatorText("Owned / Service Vehicle Delivery");
+                ImGui::BeginDisabled(snapshot.pending);
+                if (ImGui::BeginTable("##service_vehicle_requests", 2, ImGuiTableFlags_SizingStretchSame))
+                {
+                    for (std::size_t i = 0; i < std::size(services); ++i)
+                    {
+                        if ((i % 2) == 0)
+                            ImGui::TableNextRow();
+                        ImGui::TableSetColumnIndex(static_cast<int>(i % 2));
+                        ImGui::PushID(static_cast<int>(i));
+                        if (ImGui::Button(services[i].label, ImVec2(-1.0f, 30.0f)))
+                            static_cast<void>(runtime.QueueRequest(services[i].service));
+                        DescribeLastV11Item(services[i].source);
+                        ImGui::PopID();
+                    }
+                    ImGui::EndTable();
+                }
+                ImGui::EndDisabled();
+
+                ImGui::SeparatorText("Script Status");
+                ImGui::Text("Action: %s", snapshot.pending ? "PENDING" : (snapshot.haveResult ? (snapshot.lastSucceeded ? "SUCCESS" : "FAILED") : "READY"));
+                ImGui::TextWrapped("%s", snapshot.message.c_str());
+                ImGui::Spacing();
+                ImGui::TextDisabled("Freemode decompile verifies the MOC / Avenger / Terrorbyte / Kosatka / Dinghy / Acid Lab request-state family.");
+            }
+
+            ImGui::EndChild();
+            ImGui::PopStyleColor(2);
+            ImGui::PopStyleVar(2);
+        }
     }
 
     inline void RenderVehicleHubV2() noexcept
@@ -277,13 +353,24 @@ namespace Tutones::UI
         using namespace VehicleMenuV2Detail;
         if (g_GarageMode == 0)
             RenderV12PersonalVehiclePanel();
-        else
+        else if (g_GarageMode == 1)
             RenderV12PageSurface([] { RenderSavedGaragePanel(); });
+        else
+            RenderV12PageSurface([] { RenderServiceVehiclesPanel(); });
 
         DrawGarageSelector();
 
-        SetV11Description(g_GarageMode == 0
-            ? "Vehicle Garage - Rockstar MPSV/Freemode-backed personal vehicles, request, return-to-storage, repair-all, save-current and teleport actions stay together here."
-            : "Vehicle Garage - local Tutones saved vehicle presets stay with the rest of the garage tools instead of being mixed into the current-vehicle page.");
+        if (g_GarageMode == 0)
+        {
+            SetV11Description("Vehicle Garage - Rockstar MPSV/Freemode-backed personal vehicles, request, return-to-storage, repair-all, save-current and teleport actions stay together here.");
+        }
+        else if (g_GarageMode == 1)
+        {
+            SetV11Description("Vehicle Garage - local Tutones saved vehicle presets stay with the rest of the garage tools instead of being mixed into the current-vehicle page.");
+        }
+        else
+        {
+            SetV11Description("Vehicle Garage - decompile-backed Enhanced Freemode service-vehicle requests for MOC, Avenger, Terrorbyte, Kosatka, Dinghy, Acid Lab, Acid Lab Bike and Bail Office Transporter.");
+        }
     }
 }
