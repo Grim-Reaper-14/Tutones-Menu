@@ -15,33 +15,55 @@ namespace Tutones::UI
 {
     namespace
     {
+        // Navigation is intentionally organized by what the user is trying to do,
+        // not by which backend happens to implement the feature. This keeps Online,
+        // Businesses, Recovery and Utilities from being scattered across Game,
+        // Network and Misc pages.
         constexpr std::array<CategoryEntry, 11> Categories{{
-            BaseCategories[0],
-            BaseCategories[1],
-            BaseCategories[2],
-            BaseCategories[3],
+            {"P", "SELF",
+                {{"General", "Online", "Movement", "Appearance"}},
+                {{"X", "O", "M", "A"}},
+                {{"Health, wanted level, invincibility and local-player state.", "Online-only local-player controls backed by verified Freemode globals.", "Run, swim, stamina and movement modifiers.", "Model and component appearance controls."}}, 4, true},
+            {"W", "WEAPONS",
+                {{"General", "Ammo", "Aimbot", "Bullet Effects"}},
+                {{"X", "B", "X", "E"}},
+                {{"Weapon runtime capabilities and general weapon controls.", "Infinite ammo and infinite clip controls.", "Assisted-aim controls and target handling.", "Impact-driven bullet-effect configuration."}}, 4, true},
+            {"V", "VEHICLES",
+                {{"Current Vehicle", "Paint", "Modifications", "Personal Vehicles"}},
+                {{"V", "T", "R", "V"}},
+                {{"Spawner, current vehicle, clone and saved vehicle tools.", "Vehicle color, custom RGB and finish controls.", "LSC modifications, wheels, lights, neon and tire settings.", "Rockstar personal vehicles, garage slots, request, repair and saved vehicle state."}}, 4, true},
+            {"O", "ONLINE",
+                {{"Session", "Players", "Services", "Player State"}},
+                {{"G", "P", "N", "S"}},
+                {{"Join or leave GTA Online sessions from one place.", "Live 32-slot Online roster with vitals, position and connection telemetry.", "Enhanced decompile-backed Online services.", "Verified local-player network state and Off Radar controls."}}, 4, true},
             {"O", "WORLD",
-                {{"General", "Time & Weather", "Teleport", "Entities"}},
+                {{"Population", "Time & Weather", "Teleport", "Entities"}},
                 {{"O", "Q", "L", "E"}},
-                {{"Pedestrian, scenario, traffic and parked-vehicle population density controls.", "Verified Enhanced local clock, freeze-time, weather and blackout controls.", "Waypoint and map-destination teleport tools with ground-height resolution.", "Local entity cleanup plus a live crosshair inspector for model, transform, health, material, vehicle and ped debug data."}}, 4, true},
+                {{"Pedestrian, scenario, traffic and parked-vehicle population controls.", "Local clock, freeze-time, weather and blackout controls.", "Waypoint and map-destination teleport tools with ground-height resolution.", "Local entity cleanup and live crosshair entity inspection."}}, 4, true},
+            {"C", "BUSINESSES",
+                {{"Business Hub", nullptr, nullptr, nullptr}},
+                {{"C", nullptr, nullptr, nullptr}},
+                {{"All business tools in one hub: Nightclub, Special Cargo, Bunker, Motorcycle Club, Acid Lab, Hangar and Vehicle Cargo."}}, 1, true},
             {"D", "RECOVERY",
-                {{"Overview", "RP Multiplier", "Unlocks", "Casino"}},
-                {{"D", "H", "U", "C"}},
-                {{"Live Enhanced Recovery capability and character-state overview, including the Good Behavior Bonus reward trigger.", "Override the current Enhanced XP multiplier while enabled, restoring the prior value when disabled.", "Enhanced DLC clothing unlock groups with packed-stat read-back verification.", "Enhanced Casino tools including Lucky Wheel globals/local inspection and Rig Slot Machines runtime controls."}}, 4, true},
-            BaseCategories[6],
+                {{"Overview", "Casino", "Unlocks", "RP"}},
+                {{"D", "C", "U", "H"}},
+                {{"Recovery status and reward controls, including Good Behavior Bonus.", "Lucky Wheel prize selection and direct read/write slot-machine controls.", "Enhanced DLC clothing unlock groups with packed-stat read-back verification.", "Override the current Enhanced XP multiplier while enabled and restore it when disabled."}}, 4, true},
             {"S", "PROTECTIONS",
                 {{"Overview", "Network Events", "Script Events", nullptr}},
                 {{"S", "N", "K", nullptr}},
-                {{"Live Enhanced packet-hook status, counters and last blocked event.", "Yim-style PackedEvents filters for malformed traffic, sound, explosion, fire, weapon damage, ragdoll, clear-task and PTFX events.", "Malformed CScriptedGameEvent validation plus an optional full scripted-event block mode.", nullptr}}, 3, true},
-            BaseCategories[8],
-            {"M", "MISC",
-                {{"General", "HUD", "Businesses", "Camera & Utilities"}},
-                {{"M", "H", "B", "C"}},
-                {{"Gameplay convenience actions and shared quality-of-life controls.", "Always-on coordinates, heading, FPS and Online session overlays.", "Central business hub for Nightclub, Special Cargo, Bunker, Motorcycle Club, Acid Lab, Hangar/Air Freight and Vehicle Cargo, with validated Enhanced globals and script runtime guards.", "Gameplay camera telemetry/shake suppression plus player cleanup, parachute and underwater utilities."}}, 4, true},
-            {"T", "NATIVE TOOLS",
+                {{"Live protection runtime and packet-hook status.", "Packed-event filters for malformed or unwanted network traffic.", "Malformed scripted-event validation and scripted-event blocking controls.", nullptr}}, 3, true},
+            {"C", "SETTINGS",
+                {{"General", "Theme", "Controls", nullptr}},
+                {{"C", "T", "C", nullptr}},
+                {{"Save, load and reload persistent menu settings.", "Named themes, banner/background images and Windows font selection.", "Menu input and resource refresh controls.", nullptr}}, 3, true},
+            {"M", "UTILITIES",
+                {{"General", "HUD", "Camera & Player", nullptr}},
+                {{"M", "H", "C", nullptr}},
+                {{"Gameplay convenience actions and shared quality-of-life controls.", "Coordinates, heading, FPS and Online-session overlays.", "Camera-shake, player cleanup, parachute and underwater utility controls.", nullptr}}, 3, true},
+            {"T", "TOOLS",
                 {{"Workshop", "Vehicle & Camera", "World Tools", "Diagnostics"}},
                 {{"W", "C", "O", "K"}},
-                {{"Enhanced weapon components/tints, player props, full outfit presets and animation playback.", "Scripted freecam plus native vehicle doors, windows, engine, lights, top-speed, torque and grip controls.", "Custom blips, particle effects, bodyguards, IPL streaming and interior entity-set controls.", "Resolve current Enhanced native hashes to executable handler addresses without invoking them."}}, 4, true},
+                {{"Weapon components/tints, player props, outfits and animation playback.", "Scripted freecam plus advanced vehicle native controls.", "Custom blips, particle effects, bodyguards, IPL streaming and interior tools.", "Resolve current Enhanced native hashes to executable handler addresses without invoking them."}}, 4, true},
         }};
 
         void RenderTutonesRuntimeOverlays() noexcept
@@ -54,24 +76,54 @@ namespace Tutones::UI
             RenderMiscOverlay();
         }
 
+        void RenderOnlineNavigationPanel(std::size_t index) noexcept
+        {
+            switch (index)
+            {
+            case 0:
+                RenderGamePanel(0); // Session
+                break;
+            case 1:
+                RenderNetworkPanel(2); // Players
+                break;
+            case 2:
+                RenderNetworkPanel(0); // Services
+                break;
+            default:
+                RenderNetworkPanel(3); // Player State
+                break;
+            }
+        }
+
+        void RenderBusinessNavigationPanel(std::size_t) noexcept
+        {
+            RenderBusinessPanel();
+        }
+
         void RenderRecoveryNavigationPanel(std::size_t index) noexcept
         {
-            if (index == 3)
+            switch (index)
             {
-                RenderCasinoLuckyWheelPanel();
-                return;
-            }
-
-            // Recovery navigation exposes Overview / RP Multiplier / Unlocks.
-            // The legacy business renderer remains at internal index 2 so the Misc
-            // business hub can reuse it; visible Unlocks therefore maps to index 3.
-            RenderRecoveryPanel(index == 2 ? 3 : index);
-
-            // Good Behavior Bonus is a Recovery reward, not a business feature.
-            // Render it after the Overview panel so the control stays visible above
-            // the full-size Recovery child and actually participates in the menu UI.
-            if (index == 0)
+            case 0:
+                RenderRecoveryPanel(0);
                 RenderGoodBehaviorBonusControl();
+                break;
+            case 1:
+                RenderCasinoLuckyWheelPanel();
+                break;
+            case 2:
+                RenderRecoveryPanel(3); // Unlocks
+                break;
+            default:
+                RenderRecoveryPanel(1); // RP multiplier
+                break;
+            }
+        }
+
+        void RenderUtilitiesNavigationPanel(std::size_t index) noexcept
+        {
+            // part03 maps visible utility index 2 to the legacy Misc index 3.
+            RenderMiscPanel(index);
         }
     }
 }
@@ -79,10 +131,14 @@ namespace Tutones::UI
 #include "TutonesMenu.part01.inc"
 #define DrawPanel(...) RenderProtectionPanel(m_Item)
 #define RenderMiscOverlay(...) RenderTutonesRuntimeOverlays()
-#define RenderRecoveryPanel(index) RenderRecoveryNavigationPanel(index)
-#define RenderMiscPanel(index) ((m_Item == 2) ? RenderBusinessPanel() : ::Tutones::UI::RenderMiscPanel(index))
+#define RenderGamePanel(index) RenderOnlineNavigationPanel(index)
+#define RenderRecoveryPanel(index) RenderBusinessNavigationPanel(index)
+#define RenderNetworkPanel(index) RenderRecoveryNavigationPanel(index)
+#define RenderMiscPanel(index) RenderUtilitiesNavigationPanel(index)
 #include "TutonesMenu.part03.inc"
 #undef RenderMiscPanel
+#undef RenderNetworkPanel
 #undef RenderRecoveryPanel
+#undef RenderGamePanel
 #undef RenderMiscOverlay
 #undef DrawPanel
