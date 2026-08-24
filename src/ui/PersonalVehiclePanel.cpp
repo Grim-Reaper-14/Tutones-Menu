@@ -5,6 +5,7 @@
 #include "V11Theme.hpp"
 #include "../features/vehicle/PersonalVehicleRuntime.hpp"
 #include "../features/vehicle/SavePersonalVehicleRuntime.hpp"
+#include "../features/vehicle/TeleportPersonalVehicleRuntime.hpp"
 
 #include <imgui.h>
 
@@ -21,6 +22,7 @@ namespace Tutones::UI
         using Game::PersonalVehicles::PersonalVehicleRuntime;
         using Game::PersonalVehicles::PersonalVehicleSnapshot;
         using Game::PersonalVehicles::SavePersonalVehicleRuntime;
+        using Game::PersonalVehicles::TeleportPersonalVehicleRuntime;
 
         int g_SelectedVehicleId{-1};
         std::string g_GarageFilter;
@@ -67,8 +69,10 @@ namespace Tutones::UI
     {
         auto& runtime = PersonalVehicleRuntime::Get();
         auto& saveRuntime = SavePersonalVehicleRuntime::Get();
+        auto& teleportRuntime = TeleportPersonalVehicleRuntime::Get();
         const PersonalVehicleSnapshot snapshot = runtime.Snapshot();
         const auto saveSnapshot = saveRuntime.Snapshot();
+        const auto teleportSnapshot = teleportRuntime.Snapshot();
         ValidateSelection(snapshot);
 
         ImGui::SetCursorPos(ImVec2(226.0f, 16.0f));
@@ -113,6 +117,21 @@ namespace Tutones::UI
                 ImGui::TextDisabled("Save Personal Vehicle requires an active GTA Online session.");
             else
                 ImGui::TextDisabled("Tutones releases input while GTA's garage selector is active; reopen with F4 after choosing or backing out.");
+
+            ImGui::Spacing();
+            ImGui::TextColored(V11Theme::Accent, "Quick Personal Vehicle Action");
+            ImGui::BeginDisabled(teleportSnapshot.pending || !snapshot.sessionStarted || !snapshot.scriptGlobalsReady);
+            if (ImGui::Button(teleportSnapshot.pending ? "Teleporting..." : "Teleport Into Personal Vehicle", ImVec2(-1.0f, 0.0f)))
+                g_Message = teleportRuntime.QueueTeleport() ? "Personal vehicle teleport queued" : "Personal vehicle teleport rejected";
+            ImGui::EndDisabled();
+            DescribeLastV11Item("Enhanced 1.73 b1158.13: set Global_2640101.f_8 = 1 on the GTA script thread to teleport into the currently active personal vehicle.");
+
+            if (teleportSnapshot.pending)
+                ImGui::TextDisabled("Teleport request is running on the GTA script thread...");
+            else if (teleportSnapshot.haveResult)
+                ImGui::TextDisabled("Teleport result: %s - %s", teleportSnapshot.lastSucceeded ? "success" : "failed", teleportSnapshot.message.c_str());
+            else
+                ImGui::TextDisabled("Targets GTA Online's currently active personal vehicle.");
 
             ImGui::Separator();
 
