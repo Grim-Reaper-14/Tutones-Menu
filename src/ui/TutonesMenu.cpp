@@ -1,3 +1,4 @@
+#include "BusinessPanel.hpp"
 #include "MiscPanel.hpp"
 #include "NativeToolsPanel.hpp"
 #include "NightclubPanel.hpp"
@@ -21,7 +22,10 @@ namespace Tutones::UI
                 {{"General", "Time & Weather", "Teleport", "Entities"}},
                 {{"O", "Q", "L", "E"}},
                 {{"Pedestrian, scenario, traffic and parked-vehicle population density controls.", "Verified Enhanced local clock, freeze-time, weather and blackout controls.", "Waypoint and map-destination teleport tools with ground-height resolution.", "Local entity cleanup plus a live crosshair inspector for model, transform, health, material, vehicle and ped debug data."}}, 4, true},
-            BaseCategories[5],
+            {"D", "RECOVERY",
+                {{"Overview", "RP Multiplier", "Unlocks", nullptr}},
+                {{"D", "H", "U", nullptr}},
+                {{"Live Enhanced Recovery capability and character-state overview.", "Override the current Enhanced XP multiplier while enabled, restoring the prior value when disabled.", "Enhanced DLC clothing unlock groups with packed-stat read-back verification.", nullptr}}, 3, true},
             BaseCategories[6],
             {"S", "PROTECTIONS",
                 {{"Overview", "Network Events", "Script Events", nullptr}},
@@ -29,9 +33,9 @@ namespace Tutones::UI
                 {{"Live Enhanced packet-hook status, counters and last blocked event.", "Yim-style PackedEvents filters for malformed traffic, sound, explosion, fire, weapon damage, ragdoll, clear-task and PTFX events.", "Malformed CScriptedGameEvent validation plus an optional full scripted-event block mode.", nullptr}}, 3, true},
             BaseCategories[8],
             {"M", "MISC",
-                {{"General", "HUD", "Nightclub", "Camera & Utilities"}},
-                {{"M", "H", "N", "C"}},
-                {{"Gameplay convenience actions and shared quality-of-life controls.", "Always-on coordinates, heading, FPS and Online session overlays.", "Enhanced 1.73 Nightclub warehouse values, cooldowns, capacity, production tuning and popularity income globals. Values are written only when you press an Apply button.", "Gameplay camera telemetry/shake suppression plus player cleanup, parachute and underwater utilities."}}, 4, true},
+                {{"General", "HUD", "Businesses", "Camera & Utilities"}},
+                {{"M", "H", "B", "C"}},
+                {{"Gameplay convenience actions and shared quality-of-life controls.", "Always-on coordinates, heading, FPS and Online session overlays.", "Central business hub for Nightclub, Special Cargo, Lupe sourcing, warehouse controls, Bunker stock, cooldowns, mission locals, crate prices and special cargo globals.", "Gameplay camera telemetry/shake suppression plus player cleanup, parachute and underwater utilities."}}, 4, true},
             {"T", "NATIVE TOOLS",
                 {{"Workshop", "Vehicle & Camera", "World Tools", "Diagnostics"}},
                 {{"W", "C", "O", "K"}},
@@ -46,14 +50,24 @@ namespace Tutones::UI
             static_cast<void>(Game::Protections::ProtectionRuntime::Get().Start());
             RenderMiscOverlay();
         }
+
+        void RenderRecoveryNavigationPanel(std::size_t index) noexcept
+        {
+            // Recovery navigation now exposes Overview / RP Multiplier / Unlocks.
+            // The legacy business renderer remains at internal index 2 so the Misc
+            // business hub can reuse it; visible Unlocks therefore maps to index 3.
+            RenderRecoveryPanel(index == 2 ? 3 : index);
+        }
     }
 }
 
 #include "TutonesMenu.part01.inc"
 #define DrawPanel(...) RenderProtectionPanel(m_Item)
 #define RenderMiscOverlay(...) RenderTutonesRuntimeOverlays()
-#define RenderMiscPanel(index) ((m_Item == 2) ? RenderNightclubPanel() : ::Tutones::UI::RenderMiscPanel(index))
+#define RenderRecoveryPanel(index) RenderRecoveryNavigationPanel(index)
+#define RenderMiscPanel(index) ((m_Item == 2) ? RenderBusinessPanel() : ::Tutones::UI::RenderMiscPanel(index))
 #include "TutonesMenu.part03.inc"
 #undef RenderMiscPanel
+#undef RenderRecoveryPanel
 #undef RenderMiscOverlay
 #undef DrawPanel
