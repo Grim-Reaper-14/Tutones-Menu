@@ -10,6 +10,7 @@
 #include <MinHook.h>
 #include <Windows.h>
 
+#include <algorithm>
 #include <array>
 #include <chrono>
 #include <cstddef>
@@ -48,6 +49,8 @@ namespace Tutones::Runtime
             Joaat("startup"),
         };
 
+        constexpr std::size_t MaxQueuedTasks = 1024;
+        constexpr std::size_t MaxTasksPerTick = 64;
         constexpr std::uint8_t EntityTypePed = 4;
         constexpr std::ptrdiff_t EntityTypeOffset = 0x28;
         constexpr std::ptrdiff_t AssistedAimTargetOffset = 0x38;
@@ -322,7 +325,7 @@ namespace Tutones::Runtime
             return false;
 
         std::scoped_lock lock(m_TaskMutex);
-        if (m_Tasks.size() >= 256)
+        if (m_Tasks.size() >= MaxQueuedTasks)
         {
             TUTONES_LOG_WARN("runtime.game", "Game-thread task queue is full; rejected task");
             return false;
@@ -520,47 +523,56 @@ namespace Tutones::Runtime
 
     void GameRuntime::DrainTasks() noexcept
     {
-        std::function<void()> task;
-        std::size_t remaining{};
-        std::uint64_t sequence{};
+        std::size_t taskBudget{};
         {
             std::scoped_lock lock(m_TaskMutex);
-            if (m_Tasks.empty())
-                return;
-
-            task = std::move(m_Tasks.front());
-            m_Tasks.pop_front();
-            remaining = m_Tasks.size();
-            sequence = ++m_TaskSequence;
+            taskBudget = std::min(m_Tasks.size(), MaxTasksPerTick);
         }
 
-        TUTONES_LOG_INFO(
-            "runtime.game",
-            std::string("Executing one GTA script-thread task #") + std::to_string(sequence)
-                + "; queued-after-pop=" + std::to_string(remaining));
-        Core::Logging::Logger::Get().Flush();
+        if (taskBudget == 0)
+            return;
 
-        try
+        // Process only the tasks that were already queued when this scheduler tick
+        // began. Persistent runtimes that requeue themselves append to the back and
+        // are deferred until the next tick, preventing a single loop from monopolizing
+        // the dispatcher while still allowing many independent features to run per tick.
+        for (std::size_t taskIndex = 0; taskIndex < taskBudget; ++taskIndex)
         {
-            task();
-            TUTONES_LOG_DEBUG("runtime.game", std::string("Completed GTA script-thread task #") + std::to_string(sequence));
-            Core::Logging::Logger::Get().Flush();
-        }
-        catch (const std::exception& exception)
-        {
-            TUTONES_LOG_ERROR(
-                "runtime.game",
-                std::string("Game-thread task #") + std::to_string(sequence)
-                    + " threw exception: " + exception.what());
-            Core::Logging::Logger::Get().Flush();
-        }
-        catch (...)
-        {
-            TUTONES_LOG_ERROR(
-                "runtime.game",
-                std::string("Game-thread task #") + std::to_string(sequence)
-                    + " threw an unknown exception");
-            Core::Logging::Logger::Get().Flush();
+            std::function<void()> task;
+            std::uint64_t sequence{};
+            {
+                std::scoped_lock lock(m_TaskMutex);
+                if (m_Tasks.empty())
+                    break;
+
+                task = std::move(m_Tasks.front());
+                m_Tasks.pop_front();
+                sequence = ++m_TaskSequence;
+            }
+
+            try
+            {
+                task();
+                TUTONES_LOG_TRACE(
+                    "runtime.game",
+                    std::string("Completed GTA script-thread task #") + std::to_string(sequence));
+            }
+            catch (const std::exception& exception)
+            {
+                TUTONES_LOG_ERROR(
+                    "runtime.game",
+                    std::string("Game-thread task #") + std::to_string(sequence)
+                        + " threw exception: " + exception.what());
+                Core::Logging::Logger::Get().Flush();
+            }
+            catch (...)
+            {
+                TUTONES_LOG_ERROR(
+                    "runtime.game",
+                    std::string("Game-thread task #") + std::to_string(sequence)
+                        + " threw an unknown exception");
+                Core::Logging::Logger::Get().Flush();
+            }
         }
     }
 
