@@ -34,6 +34,23 @@ namespace Tutones::UI
 
             if (page == 0)
             {
+                auto& uiSettings = Core::Config::MenuSettingsService::Get().Current().ui;
+
+                ImGui::SeparatorText("Window");
+                if (ImGui::Checkbox("Resizable Window", &uiSettings.resizable))
+                    message = uiSettings.resizable ? "Window resizing enabled" : "Window resizing locked";
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Enable the lower-right ImGui resize grip. The last safe window size is saved with Menu Settings.");
+
+                if (ImGui::Checkbox("Anchor Top Left", &uiSettings.anchorTopLeft))
+                    message = uiSettings.anchorTopLeft ? "Menu anchored to the top-left" : "Top-left anchor disabled";
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Keep Tutones at the top-left of the GTA viewport with a small screen-edge margin.");
+
+                ImGui::TextDisabled("Window size: %.0f x %.0f", uiSettings.menuWidth, uiSettings.menuHeight);
+                ImGui::TextDisabled("Resize from the lower-right corner when Resizable Window is enabled.");
+
+                ImGui::SeparatorText("Persistence");
                 ImGui::TextWrapped(
                     "Persistent state is stored in menu_settings.json. Loading never executes one-shot commands such as Heal, Spawn, Clone, Join Session or Save Personal Vehicle.");
 
