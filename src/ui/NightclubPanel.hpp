@@ -141,13 +141,13 @@ namespace Tutones::UI
         auto& runtime = NightclubRuntime::Get();
         const auto snapshot = runtime.Snapshot();
 
-        ImGui::SetCursorPos(ImVec2(226.0f, 16.0f));
+        ImGui::SetCursorPos(ImVec2(226.0f, 52.0f));
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(14.0f, 12.0f));
         ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 3.0f);
         ImGui::PushStyleColor(ImGuiCol_ChildBg, V11Theme::PanelBg);
         ImGui::PushStyleColor(ImGuiCol_Border, V11Theme::PanelBorder);
 
-        if (ImGui::BeginChild("##nightclub_panel", ImVec2(490.0f, 430.0f), true))
+        if (ImGui::BeginChild("##nightclub_panel", ImVec2(490.0f, 394.0f), true))
         {
             ImGui::TextColored(V11Theme::Accent, "Nightclub Globals");
             ImGui::SameLine();
