@@ -10,6 +10,7 @@
 
 #include <Windows.h>
 
+#include <algorithm>
 #include <array>
 #include <atomic>
 #include <chrono>
@@ -45,6 +46,38 @@ namespace Tutones::Game::Tunables
         hash += hash << 15;
         return hash;
     }
+
+    enum class TunableValueType : std::uint8_t
+    {
+        Unknown,
+        Int,
+        Bool,
+        Float,
+    };
+
+    [[nodiscard]] constexpr const char* TunableValueTypeName(TunableValueType type) noexcept
+    {
+        switch (type)
+        {
+        case TunableValueType::Int: return "INT";
+        case TunableValueType::Bool: return "BOOL";
+        case TunableValueType::Float: return "FLOAT";
+        case TunableValueType::Unknown: break;
+        }
+        return "RAW";
+    }
+
+    struct TunableEntrySnapshot final
+    {
+        std::uint32_t hash{};
+        std::size_t globalIndex{};
+        std::size_t offset{};
+        TunableValueType type{TunableValueType::Unknown};
+        std::int64_t currentRawValue{};
+        std::int64_t originalRawValue{};
+        bool readable{};
+        std::string name;
+    };
 
     struct TunableRegistrySnapshot final
     {
@@ -163,18 +196,39 @@ namespace Tutones::Game::Tunables
         [[nodiscard]] bool RegisterGlobal(
             std::uint32_t hash,
             std::size_t globalIndex,
-            std::string_view name = {}) noexcept
+            std::string_view name = {},
+            TunableValueType type = TunableValueType::Unknown) noexcept
         {
             if (hash == 0 || globalIndex < BaseGlobal)
                 return false;
 
+            std::int64_t original{};
+            if (auto** globals = Script::ScriptRuntime::Get().Globals())
+            {
+                if (const auto* value = Script::ScriptGlobal(globalIndex).As<std::int64_t>(globals))
+                    original = *value;
+            }
+
             std::scoped_lock lock(m_Mutex);
-            Entry entry{};
-            entry.globalIndex = globalIndex;
-            entry.name = name.empty() ? std::string{} : std::string{name};
-            const auto [it, inserted] = m_Entries.insert_or_assign(hash, std::move(entry));
-            static_cast<void>(it);
-            static_cast<void>(inserted);
+            auto found = m_Entries.find(hash);
+            if (found == m_Entries.end())
+            {
+                Entry entry{};
+                entry.globalIndex = globalIndex;
+                entry.name = name.empty() ? std::string{} : std::string{name};
+                entry.type = type;
+                entry.originalRaw = original;
+                m_Entries.emplace(hash, std::move(entry));
+            }
+            else
+            {
+                found->second.globalIndex = globalIndex;
+                if (!name.empty())
+                    found->second.name = std::string{name};
+                if (type != TunableValueType::Unknown)
+                    found->second.type = type;
+            }
+
             m_Revision.fetch_add(1, std::memory_order_acq_rel);
             return true;
         }
@@ -191,6 +245,92 @@ namespace Tutones::Game::Tunables
         [[nodiscard]] std::optional<Script::ScriptGlobal> Resolve(std::string_view name) const noexcept
         {
             return Resolve(Joaat(name));
+        }
+
+        [[nodiscard]] std::vector<TunableEntrySnapshot> EntriesSnapshot() const
+        {
+            std::vector<std::pair<std::uint32_t, Entry>> entries;
+            {
+                std::scoped_lock lock(m_Mutex);
+                entries.reserve(m_Entries.size());
+                for (const auto& [hash, entry] : m_Entries)
+                    entries.emplace_back(hash, entry);
+            }
+
+            auto** globals = Script::ScriptRuntime::Get().Globals();
+            std::vector<TunableEntrySnapshot> result;
+            result.reserve(entries.size());
+            for (const auto& [hash, entry] : entries)
+            {
+                TunableEntrySnapshot snapshot{};
+                snapshot.hash = hash;
+                snapshot.globalIndex = entry.globalIndex;
+                snapshot.offset = entry.globalIndex >= BaseGlobal ? entry.globalIndex - BaseGlobal : 0;
+                snapshot.type = entry.type;
+                snapshot.originalRawValue = entry.originalRaw;
+                snapshot.name = entry.name;
+                if (globals)
+                {
+                    if (const auto* value = Script::ScriptGlobal(entry.globalIndex).As<std::int64_t>(globals))
+                    {
+                        snapshot.currentRawValue = *value;
+                        snapshot.readable = true;
+                    }
+                }
+                result.push_back(std::move(snapshot));
+            }
+
+            std::sort(result.begin(), result.end(), [](const auto& left, const auto& right) {
+                return left.globalIndex < right.globalIndex;
+            });
+            return result;
+        }
+
+        bool QueueSetInt(std::uint32_t hash, std::int32_t value) noexcept
+        {
+            return QueueWriteTyped(hash, value, "INT");
+        }
+
+        bool QueueSetBool(std::uint32_t hash, bool value) noexcept
+        {
+            return QueueWriteTyped(hash, static_cast<std::int32_t>(value ? 1 : 0), "BOOL");
+        }
+
+        bool QueueSetFloat(std::uint32_t hash, float value) noexcept
+        {
+            return QueueWriteTyped(hash, value, "FLOAT");
+        }
+
+        bool QueueSetRaw(std::uint32_t hash, std::int64_t value) noexcept
+        {
+            return QueueWriteTyped(hash, value, "RAW");
+        }
+
+        bool QueueRestore(std::uint32_t hash) noexcept
+        {
+            std::size_t globalIndex{};
+            std::int64_t original{};
+            {
+                std::scoped_lock lock(m_Mutex);
+                const auto found = m_Entries.find(hash);
+                if (found == m_Entries.end())
+                    return false;
+                globalIndex = found->second.globalIndex;
+                original = found->second.originalRaw;
+            }
+
+            return Runtime::GameRuntime::Get().Enqueue([this, hash, globalIndex, original] {
+                auto** globals = Script::ScriptRuntime::Get().Globals();
+                auto* target = globals ? Script::ScriptGlobal(globalIndex).As<std::int64_t>(globals) : nullptr;
+                const bool success = target != nullptr;
+                if (target)
+                    *target = original;
+
+                SetMessage(success
+                    ? std::string("Restored tunable 0x") + HexHash(hash) + " to its registration-time value"
+                    : std::string("Could not restore tunable 0x") + HexHash(hash));
+                m_Revision.fetch_add(1, std::memory_order_acq_rel);
+            });
         }
 
         [[nodiscard]] TunableRegistrySnapshot Snapshot() const
@@ -261,6 +401,14 @@ namespace Tutones::Game::Tunables
         {
             std::size_t globalIndex{};
             std::string name;
+            TunableValueType type{TunableValueType::Unknown};
+            std::int64_t originalRaw{};
+        };
+
+        struct CapturedRegistration final
+        {
+            std::uint32_t hash{};
+            TunableValueType type{TunableValueType::Unknown};
         };
 
         struct PatchedSlot final
@@ -291,6 +439,48 @@ namespace Tutones::Game::Tunables
         }};
 
         TunableRegistry() = default;
+
+        [[nodiscard]] static std::string HexHash(std::uint32_t hash)
+        {
+            constexpr char digits[] = "0123456789ABCDEF";
+            std::string result(8, '0');
+            for (int index = 7; index >= 0; --index)
+            {
+                result[static_cast<std::size_t>(index)] = digits[hash & 0xFu];
+                hash >>= 4;
+            }
+            return result;
+        }
+
+        template<typename T>
+        bool QueueWriteTyped(std::uint32_t hash, T value, const char* label) noexcept
+        {
+            std::size_t globalIndex{};
+            {
+                std::scoped_lock lock(m_Mutex);
+                const auto found = m_Entries.find(hash);
+                if (found == m_Entries.end())
+                    return false;
+                globalIndex = found->second.globalIndex;
+            }
+
+            const std::string typeLabel = label ? label : "VALUE";
+            return Runtime::GameRuntime::Get().Enqueue([this, hash, globalIndex, value, typeLabel] {
+                auto** globals = Script::ScriptRuntime::Get().Globals();
+                auto* target = globals ? Script::ScriptGlobal(globalIndex).As<T>(globals) : nullptr;
+                bool success = target != nullptr;
+                if (target)
+                {
+                    *target = value;
+                    success = *target == value;
+                }
+
+                SetMessage(success
+                    ? std::string("Applied ") + typeLabel + " edit to tunable 0x" + HexHash(hash)
+                    : std::string("Failed ") + typeLabel + " edit for tunable 0x" + HexHash(hash));
+                m_Revision.fetch_add(1, std::memory_order_acq_rel);
+            });
+        }
 
         [[nodiscard]] static bool IsExecutableAddress(std::uintptr_t address) noexcept
         {
@@ -693,7 +883,7 @@ namespace Tutones::Game::Tunables
                 return;
             }
 
-            std::unordered_map<int, std::uint32_t> junkValues;
+            std::unordered_map<int, CapturedRegistration> junkValues;
             {
                 std::scoped_lock lock(m_CacheMutex);
                 junkValues = m_JunkValues;
@@ -708,7 +898,12 @@ namespace Tutones::Game::Tunables
                 const auto found = junkValues.find(value);
                 if (found == junkValues.end())
                     continue;
-                registered.emplace(found->second, Entry{BaseGlobal + offset, {}});
+
+                Entry entry{};
+                entry.globalIndex = BaseGlobal + offset;
+                entry.type = found->second.type;
+                entry.originalRaw = m_TunablesBackup[offset];
+                registered.emplace(found->second.hash, std::move(entry));
             }
 
             std::copy(m_TunablesBackup.begin(), m_TunablesBackup.end(), base);
@@ -810,22 +1005,25 @@ namespace Tutones::Game::Tunables
         static void RegistrationIntHook(Native::NativeCallContext* context) noexcept
         {
             auto& self = Get();
-            self.CaptureRegistration(context, self.m_IntSlot.original);
+            self.CaptureRegistration(context, self.m_IntSlot.original, TunableValueType::Int);
         }
 
         static void RegistrationBoolHook(Native::NativeCallContext* context) noexcept
         {
             auto& self = Get();
-            self.CaptureRegistration(context, self.m_BoolSlot.original);
+            self.CaptureRegistration(context, self.m_BoolSlot.original, TunableValueType::Bool);
         }
 
         static void RegistrationFloatHook(Native::NativeCallContext* context) noexcept
         {
             auto& self = Get();
-            self.CaptureRegistration(context, self.m_FloatSlot.original);
+            self.CaptureRegistration(context, self.m_FloatSlot.original, TunableValueType::Float);
         }
 
-        void CaptureRegistration(Native::NativeCallContext* context, Native::NativeHandler original) noexcept
+        void CaptureRegistration(
+            Native::NativeCallContext* context,
+            Native::NativeHandler original,
+            TunableValueType type) noexcept
         {
             if (!context)
                 return;
@@ -841,10 +1039,10 @@ namespace Tutones::Game::Tunables
             {
                 std::scoped_lock lock(m_CacheMutex);
                 junk = m_CurrentJunkValue++;
-                m_JunkValues.emplace(junk, hash);
+                m_JunkValues.emplace(junk, CapturedRegistration{hash, type});
             }
 
-            // Write the sentinel bits directly for INT/BOOL/FLOAT alike. The registration
+            // Write sentinel bits directly for INT/BOOL/FLOAT alike. The registration
             // script stores those bits in the tunable global, letting us recover the exact
             // hash-to-slot relationship after the script exits.
             context->SetReturnValue<int>(junk);
@@ -869,7 +1067,7 @@ namespace Tutones::Game::Tunables
         std::vector<std::int64_t> m_TunablesBackup;
 
         mutable std::mutex m_CacheMutex;
-        std::unordered_map<int, std::uint32_t> m_JunkValues;
+        std::unordered_map<int, CapturedRegistration> m_JunkValues;
         int m_CurrentJunkValue{FirstJunkValue};
 
         mutable std::mutex m_Mutex;
