@@ -45,6 +45,10 @@ add_library(TutonesMenu SHARED
     src/app/DllMain.cpp
     src/app/Application.cpp
 
+    src/backend/BackendHub.cpp
+    src/backend/CapabilityRegistry.cpp
+    src/backend/FeatureRegistry.cpp
+
     src/core/CoreServices.cpp
     src/core/config/Config.cpp
     src/core/config/MenuSettings.cpp
@@ -149,6 +153,16 @@ source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR}/src PREFIX "Source" FILES
     src/app/DllMain.cpp
     src/app/Application.cpp
     src/app/Application.hpp
+
+    src/backend/BackendHub.cpp
+    src/backend/BackendHub.hpp
+    src/backend/BackendTypes.hpp
+    src/backend/CapabilityRegistry.cpp
+    src/backend/CapabilityRegistry.hpp
+    src/backend/FeatureRegistry.cpp
+    src/backend/FeatureRegistry.hpp
+    src/backend/ScriptGateway.hpp
+
     src/core/CoreServices.cpp
     src/core/CoreServices.hpp
     src/core/config/Config.cpp
@@ -239,6 +253,7 @@ source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR}/src PREFIX "Source" FILES
     src/render/d3d12/FrameContext.hpp
     src/runtime/GameRuntime.cpp
     src/runtime/GameRuntime.hpp
+    src/runtime/RuntimeStartup.hpp
     src/ui/GamePanel.cpp
     src/ui/GamePanel.hpp
     src/ui/Input.cpp
