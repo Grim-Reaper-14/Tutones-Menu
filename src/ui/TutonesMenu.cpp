@@ -22,6 +22,24 @@ namespace ImGui
     namespace
     {
         bool g_TutonesV12OverlayItemHovered{};
+        ImVec2 g_TutonesV12OverlayCursor{};
+    }
+
+    // V12 navigation is drawn in a NoMouseInputs overlay child. Keep a virtual
+    // cursor for its manually hit-tested controls rather than mutating ImGui's
+    // real cursor. ImGui 1.92 asserts when SetCursorPos extends window bounds
+    // without a submitted item afterwards.
+    inline void TutonesV12OverlaySetCursorPos(const ImVec2& localPos) noexcept
+    {
+        const ImVec2 windowPos = GetWindowPos();
+        g_TutonesV12OverlayCursor = ImVec2(
+            windowPos.x + localPos.x - GetScrollX(),
+            windowPos.y + localPos.y - GetScrollY());
+    }
+
+    inline ImVec2 TutonesV12OverlayGetCursorScreenPos() noexcept
+    {
+        return g_TutonesV12OverlayCursor;
     }
 
     // The V12 rail is rendered inside a transparent overlay child so it can sit
@@ -33,7 +51,7 @@ namespace ImGui
         const ImVec2& size,
         ImGuiButtonFlags = 0) noexcept
     {
-        const ImVec2 min = GetCursorScreenPos();
+        const ImVec2 min = g_TutonesV12OverlayCursor;
         const ImVec2 max{min.x + size.x, min.y + size.y};
         g_TutonesV12OverlayItemHovered = IsMouseHoveringRect(min, max, false);
         return g_TutonesV12OverlayItemHovered && IsMouseClicked(ImGuiMouseButton_Left);
@@ -120,11 +138,15 @@ namespace Tutones::UI
 
 #include "TutonesMenu.part01.inc"
 #include "TutonesMenu.v12style.inc"
+#define SetCursorPos TutonesV12OverlaySetCursorPos
+#define GetCursorScreenPos TutonesV12OverlayGetCursorScreenPos
 #define InvisibleButton TutonesV12OverlayInvisibleButton
 #define IsItemHovered TutonesV12OverlayIsItemHovered
 #include "TutonesMenu.v12.inc"
 #undef IsItemHovered
 #undef InvisibleButton
+#undef GetCursorScreenPos
+#undef SetCursorPos
 #include "TutonesMenu.v12pages.inc"
 #include "TutonesMenu.v12tools.inc"
 
