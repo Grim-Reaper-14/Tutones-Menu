@@ -11,7 +11,6 @@
 
 #include <algorithm>
 #include <array>
-#include <cstdio>
 
 namespace Tutones::UI
 {
@@ -53,6 +52,7 @@ namespace Tutones::UI
 
         inline void ReadOnlyMoneyRow(const char* label) noexcept
         {
+            ImGui::PushID(label);
             ImGui::TextUnformatted(label);
             ImGui::SameLine(105.0f);
             ImGui::BeginDisabled();
@@ -60,6 +60,7 @@ namespace Tutones::UI
             char unavailable[] = "Transaction controlled";
             ImGui::InputText("##money", unavailable, sizeof(unavailable), ImGuiInputTextFlags_ReadOnly);
             ImGui::EndDisabled();
+            ImGui::PopID();
         }
     }
 
@@ -111,12 +112,10 @@ namespace Tutones::UI
         else if (!offRadar.enabled)
             offRadarMode = 0;
 
+        // Retry the first read until the GTA game/script runtime is actually ready.
+        // A failed early frame should not permanently leave the editor empty.
         if (!statsRequested && !stats.pending)
-        {
             statsRequested = statsRuntime.QueueRefresh();
-            if (!statsRequested)
-                statsRequested = true;
-        }
 
         if (!statsLoaded && stats.haveResult && stats.readable)
         {
@@ -257,8 +256,9 @@ namespace Tutones::UI
                     if (ImGui::Button("Refresh Current Stats", ImVec2(-1.0f, 28.0f)))
                     {
                         statsLoaded = false;
-                        statsRequested = true;
-                        actionMessage = statsRuntime.QueueRefresh() ? "Stat refresh queued" : "Stat refresh rejected";
+                        const bool queued = statsRuntime.QueueRefresh();
+                        statsRequested = queued;
+                        actionMessage = queued ? "Stat refresh queued" : "Stat refresh rejected";
                     }
 
                     if (stats.pending)
