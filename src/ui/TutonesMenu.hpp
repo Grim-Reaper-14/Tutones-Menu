@@ -24,6 +24,8 @@ namespace Tutones::UI
         void ProcessInput() noexcept;
         void RenderNavigationRail() noexcept;
         void RenderCategoryRail() noexcept;
+        void RenderV12NavigationRail() noexcept;
+        void RenderV12CategoryRail() noexcept;
         void RenderContent() noexcept;
 
         std::size_t m_Category{};
