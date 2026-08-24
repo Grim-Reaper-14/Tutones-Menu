@@ -51,14 +51,15 @@ namespace Tutones::Game::PersonalVehicles
         std::string message{"Ready"};
     };
 
-    // Clean vehicle-reward flow.
+    // AM_MP_VEHICLE_REWARD's GiveVehicleReward function is a multi-step script
+    // function. A false return means the script has more work to do after yielding;
+    // it is not an invocation failure. Tutones therefore continues the function at a
+    // controlled cadence until GTA explicitly reports ControlStatus == 3.
     //
-    // Important difference from the previous implementation:
-    // GiveVehicleReward is NOT reinvoked every scheduler tick. Re-entering the
-    // script function continuously can reopen/reinitialize GTA's garage frontend
-    // faster than the player can interact with it. We activate the flow once,
-    // observe AM_MP_VEHICLE_REWARD's locals, and only retry after a quiet delay if
-    // GTA never entered the selector state at all.
+    // Once ControlStatus reaches 3 the GTA garage selector owns the transaction. At
+    // that point Tutones stops re-entering GiveVehicleReward and only observes the
+    // reward locals. This preserves the continuation contract needed to open the UI
+    // without recreating the old rapid open/close loop while the player is choosing.
     class SavePersonalVehicleRuntime final
     {
     public:
@@ -105,8 +106,9 @@ namespace Tutones::Game::PersonalVehicles
         static constexpr std::size_t PersonalVehicleIndexOffset = 301;
 
         static constexpr auto FlowTimeout = std::chrono::seconds(60);
-        static constexpr auto ActivationRetryDelay = std::chrono::milliseconds(750);
-        static constexpr int MaxActivationAttempts = 3;
+        static constexpr auto ContinuationDelay = std::chrono::milliseconds(50);
+        static constexpr auto CompletedWithoutSelectorDelay = std::chrono::milliseconds(200);
+        static constexpr int MaxContinuationCalls = 120;
 
         static constexpr std::array<std::uint32_t, 7> BlacklistedModels{
             SavePersonalVehicleDetail::Joaat("rcbandito"),
@@ -180,8 +182,8 @@ namespace Tutones::Game::PersonalVehicles
             if (rewardData->controlStatus == 3)
                 return Finish(false, "GTA already has a vehicle-reward selector active");
 
-            // Clear stale values left by an earlier aborted attempt before beginning a
-            // brand-new transaction. Do this once, never while GTA owns the selector.
+            // Start from a clean reward transaction. These values are never cleared
+            // again until GTA has actually owned and closed the selector.
             rewardData->transactionStatus = 0;
             rewardData->garage = 0;
             rewardData->garageOffset = 0;
@@ -189,35 +191,68 @@ namespace Tutones::Game::PersonalVehicles
 
             m_Vehicle = state.vehicle;
             m_Deadline = Clock::now() + FlowTimeout;
+            m_NextCallAt = Clock::now();
 
             TUTONES_LOG_INFO(
                 "vehicle.savepv",
-                std::string("Starting clean AM_MP_VEHICLE_REWARD flow; threadId=")
+                std::string("Starting paced AM_MP_VEHICLE_REWARD flow; threadId=")
                     + std::to_string(m_Thread->context.threadId)
                     + " vehicle=" + std::to_string(m_Vehicle));
 
             SetPending("Opening GTA personal-garage selector...");
-            ActivateSelector();
+            ContinueRewardFlow();
         }
 
-        void ActivateSelector()
+        void ContinueRewardFlow()
         {
             if (!ValidateLiveFlow())
                 return;
-
-            if (m_ActivationAttempts >= MaxActivationAttempts)
-                return Finish(false, "GTA did not enter the personal-garage selector");
 
             auto* rewardData = Types::VehicleRewardData::Get(m_Thread);
             auto* vehicleMenuData = Script::ScriptLocal(m_Thread, 195).As<int>();
             if (!rewardData || !vehicleMenuData)
                 return Finish(false, "Vehicle-reward script locals are unavailable");
 
+            // ControlStatus == 3 is the only reliable signal that GTA's garage
+            // selector really opened. Transaction/Garage locals can become non-zero
+            // earlier while the script is only preparing the frontend.
+            if (rewardData->controlStatus == 3)
+            {
+                if (!m_SelectorObserved)
+                {
+                    m_SelectorObserved = true;
+                    TUTONES_LOG_INFO("vehicle.savepv", "GTA personal-garage selector entered ControlStatus 3");
+                }
+
+                LogState("selector", -1, rewardData);
+                SetPending("GTA garage selector active - choose a garage and slot");
+                return QueueContinueStep();
+            }
+
+            if (m_SelectorObserved)
+            {
+                // GTA previously owned the selector and has now left ControlStatus 3.
+                // Match the reward-script cleanup contract only after that transition.
+                LogState("complete", -1, rewardData);
+                rewardData->transactionStatus = 0;
+                rewardData->garage = 0;
+                rewardData->garageOffset = 0;
+                rewardData->controlStatus = 0;
+                return Finish(true, "GTA personal-garage selector closed cleanly");
+            }
+
+            const auto now = Clock::now();
+            if (now < m_NextCallAt)
+                return QueueContinueStep();
+
+            if (m_ContinuationCalls >= MaxContinuationCalls)
+                return Finish(false, "GTA did not enter the personal-garage selector");
+
             static Script::ScriptFunction giveVehicleReward(
                 VehicleRewardHash,
                 Script::ScriptPointer("GiveVehicleReward", "2D 0C 1E 00 00"));
 
-            ++m_ActivationAttempts;
+            ++m_ContinuationCalls;
             const auto callResult = giveVehicleReward.TryCallOnThread<bool>(
                 m_Thread,
                 m_Vehicle,
@@ -233,80 +268,32 @@ namespace Tutones::Game::PersonalVehicles
                 std::int32_t{0},
                 std::int32_t{-1});
 
+            // nullopt means the VM call itself could not be made. A contained false
+            // value is normal for this yielding script function and must continue.
             if (!callResult)
                 return Finish(false, "GiveVehicleReward script function could not be invoked");
 
-            LogState("activation", *callResult, rewardData);
-
-            // Latch ownership as soon as GTA exposes any transaction state. From this
-            // point forward we only observe locals; we never re-enter GiveVehicleReward.
-            if (SelectorStatePresent(*rewardData))
-            {
-                m_SelectorObserved = true;
-                SetPending("GTA garage selector active - choose a garage and slot");
-            }
-            else
-            {
-                m_NextActivationAttempt = Clock::now() + ActivationRetryDelay;
-                SetPending("Waiting for GTA garage selector...");
-            }
-
-            QueueObserveStep();
-        }
-
-        void ObserveSelector()
-        {
-            if (!ValidateLiveFlow())
-                return;
-
-            auto* rewardData = Types::VehicleRewardData::Get(m_Thread);
-            if (!rewardData)
-                return Finish(false, "Vehicle-reward script locals became unavailable");
-
-            LogState("observe", -1, rewardData);
+            LogState("continuation", *callResult, rewardData);
 
             if (rewardData->controlStatus == 3)
             {
                 m_SelectorObserved = true;
+                TUTONES_LOG_INFO("vehicle.savepv", "GTA personal-garage selector entered ControlStatus 3");
                 SetPending("GTA garage selector active - choose a garage and slot");
-                return QueueObserveStep();
+                return QueueContinueStep();
             }
 
-            if (!m_SelectorObserved && SelectorStatePresent(*rewardData))
-            {
-                m_SelectorObserved = true;
-                SetPending("GTA garage selector active - choose a garage and slot");
-                return QueueObserveStep();
-            }
+            // A true return before ControlStatus 3 is not treated as visible selector
+            // completion. Give GTA a quiet interval and continue until the selector is
+            // actually observed or the bounded startup budget expires.
+            m_NextCallAt = now + (*callResult ? CompletedWithoutSelectorDelay : ContinuationDelay);
 
-            if (m_SelectorObserved)
-            {
-                // Once GTA has owned the selector, leaving ControlStatus 3 means the
-                // player either confirmed a garage/slot or backed out. Match Yim's
-                // cleanup contract, but do not call GiveVehicleReward again here.
-                rewardData->transactionStatus = 0;
-                rewardData->garage = 0;
-                rewardData->garageOffset = 0;
-                rewardData->controlStatus = 0;
-                return Finish(true, "GTA personal-garage selector closed cleanly");
-            }
+            if (RewardPreparationStatePresent(*rewardData))
+                SetPending("GTA vehicle-reward flow is preparing the garage selector...");
+            else
+                SetPending("Starting GTA personal-garage selector...");
 
-            if (Clock::now() >= m_NextActivationAttempt)
-            {
-                if (m_ActivationAttempts >= MaxActivationAttempts)
-                    return Finish(false, "GTA did not enter the personal-garage selector");
-
-                // Retry only after a quiet interval and only when no selector/transaction
-                // state was ever observed. This avoids the old rapid open/close loop.
-                TUTONES_LOG_WARN(
-                    "vehicle.savepv",
-                    std::string("Selector did not start; controlled activation retry ")
-                        + std::to_string(m_ActivationAttempts + 1)
-                        + "/" + std::to_string(MaxActivationAttempts));
-                return ActivateSelector();
-            }
-
-            QueueObserveStep();
+            QueueContinueStep();
         }
 
         [[nodiscard]] bool ValidateLiveFlow()
@@ -350,7 +337,9 @@ namespace Tutones::Game::PersonalVehicles
 
             if (liveReward != m_Thread)
             {
-                TUTONES_LOG_WARN("vehicle.savepv", "AM_MP_VEHICLE_REWARD thread identity changed during garage selector");
+                TUTONES_LOG_WARN(
+                    "vehicle.savepv",
+                    "AM_MP_VEHICLE_REWARD thread identity changed during garage selector");
                 Finish(false, "GTA replaced the vehicle-reward thread during garage save");
                 return false;
             }
@@ -358,20 +347,22 @@ namespace Tutones::Game::PersonalVehicles
             return true;
         }
 
-        [[nodiscard]] static bool SelectorStatePresent(const Types::VehicleRewardData& data) noexcept
+        [[nodiscard]] static bool RewardPreparationStatePresent(const Types::VehicleRewardData& data) noexcept
         {
-            return data.controlStatus == 3
-                || data.transactionStatus != 0
+            return data.transactionStatus != 0
                 || data.garage != 0
                 || data.garageOffset != 0;
         }
 
-        void QueueObserveStep()
+        void QueueContinueStep()
         {
             if (!m_Pending.load(std::memory_order_acquire))
                 return;
 
-            if (!Runtime::GameRuntime::Get().Enqueue([this] { ObserveSelector(); }))
+            // GameRuntime processes only the queue generation that existed when the
+            // scheduler tick began, so this requeue is guaranteed to wait for a later
+            // scheduler generation instead of recursively spinning in this callback.
+            if (!Runtime::GameRuntime::Get().Enqueue([this] { ContinueRewardFlow(); }))
                 Finish(false, "Lost game-thread scheduling during garage save");
         }
 
@@ -405,7 +396,7 @@ namespace Tutones::Game::PersonalVehicles
                     + " garage=" + std::to_string(data->garage)
                     + " garageOffset=" + std::to_string(data->garageOffset)
                     + " control=" + std::to_string(data->controlStatus)
-                    + " activation=" + std::to_string(m_ActivationAttempts));
+                    + " continuation=" + std::to_string(m_ContinuationCalls));
         }
 
         void ResetFlowState() noexcept
@@ -413,9 +404,9 @@ namespace Tutones::Game::PersonalVehicles
             m_Thread = nullptr;
             m_Vehicle = 0;
             m_Deadline = {};
-            m_NextActivationAttempt = {};
+            m_NextCallAt = {};
             m_SelectorObserved = false;
-            m_ActivationAttempts = 0;
+            m_ContinuationCalls = 0;
             m_HaveLoggedState = false;
             m_LastCallResult = -2;
             m_LastTransactionStatus = 0;
@@ -460,9 +451,9 @@ namespace Tutones::Game::PersonalVehicles
         Types::ScriptThread* m_Thread{};
         Vehicle m_Vehicle{};
         Clock::time_point m_Deadline{};
-        Clock::time_point m_NextActivationAttempt{};
+        Clock::time_point m_NextCallAt{};
         bool m_SelectorObserved{};
-        int m_ActivationAttempts{};
+        int m_ContinuationCalls{};
 
         bool m_HaveLoggedState{};
         int m_LastCallResult{-2};
