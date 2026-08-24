@@ -29,11 +29,9 @@ namespace Tutones::UI
             if (m_Item == 0)
                 RenderVehicleGeneralPanel();
             else if (m_Item == 1)
-                RenderVehiclePaintPanel();
-            else if (m_Item == 2)
-                RenderVehicleModificationPanel();
+                RenderVehicleCustomizeV2();
             else
-                RenderPersonalVehiclePanel();
+                RenderVehicleGarageV2();
             break;
 
         case 3:
