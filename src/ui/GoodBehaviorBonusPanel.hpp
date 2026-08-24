@@ -13,34 +13,38 @@ namespace Tutones::UI
         auto& runtime = Game::Recovery::GoodBehaviorBonusRuntime::Get();
         const auto state = runtime.Snapshot();
 
-        ImGui::SetCursorPos(ImVec2(226.0f, 365.0f));
+        // V12 gives this reward its own card below the Recovery overview instead
+        // of drawing it over the bottom of the legacy Recovery panel.
+        ImGui::SetCursorPos(ImVec2(226.0f, 458.0f));
         ImGui::PushStyleColor(ImGuiCol_ChildBg, V11Theme::PanelBg);
         ImGui::PushStyleColor(ImGuiCol_Border, V11Theme::PanelBorder);
-        ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 3.0f);
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(10.0f, 8.0f));
+        ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 7.0f);
+        ImGui::PushStyleVar(ImGuiStyleVar_ChildBorderSize, 1.0f);
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(14.0f, 10.0f));
 
-        if (ImGui::BeginChild("##good_behavior_bonus", ImVec2(490.0f, 81.0f), true))
+        if (ImGui::BeginChild("##good_behavior_bonus_v12", ImVec2(780.0f, 92.0f), true))
         {
-            ImGui::TextColored(V11Theme::Accent, "Good Behavior Bonus");
+            ImGui::TextColored(V11Theme::Accent, "GOOD BEHAVIOR BONUS");
             ImGui::SameLine();
-            ImGui::TextDisabled("$2,000");
+            ImGui::TextDisabled("ONE-SHOT REWARD  /  $2,000");
 
             ImGui::BeginDisabled(state.pending);
-            if (ImGui::Button(state.pending ? "Applying..." : "Trigger Good Behavior Bonus", ImVec2(-1.0f, 0.0f)))
+            if (ImGui::Button(state.pending ? "APPLYING..." : "TRIGGER GOOD BEHAVIOR BONUS", ImVec2(300.0f, 34.0f)))
                 runtime.QueueTrigger();
             ImGui::EndDisabled();
             DescribeLastV11Item("Enhanced 1.73 b1158.13: write Global_2697091 = 2000 first, then Global_2697090 = 1 to trigger the one-shot Good Behavior Bonus.");
 
+            ImGui::SameLine();
             if (state.pending)
-                ImGui::TextDisabled("Queued on the GTA script thread...");
+                ImGui::TextDisabled("Queued on GTA script thread...");
             else if (state.haveResult)
                 ImGui::TextDisabled("%s", state.message.c_str());
             else
-                ImGui::TextDisabled("One-shot Enhanced reward trigger.");
+                ImGui::TextDisabled("Ready");
         }
 
         ImGui::EndChild();
-        ImGui::PopStyleVar(2);
+        ImGui::PopStyleVar(3);
         ImGui::PopStyleColor(2);
     }
 }
