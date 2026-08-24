@@ -65,6 +65,7 @@ add_library(TutonesMenu SHARED
     src/features/recovery/RecoveryRuntime.cpp
     src/features/vehicle/LscBypassRuntime.cpp
     src/features/vehicle/PersonalVehicleRuntime.cpp
+    src/features/vehicle/PersonalVehicleScriptActions.cpp
     src/features/vehicle/VehicleModificationRuntime.cpp
     src/features/vehicle/VehiclePaintRuntime.cpp
     src/features/vehicle/VehiclePaintService.cpp
@@ -192,10 +193,12 @@ source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR}/src PREFIX "Source" FILES
     src/features/player/PlayerRuntimeState.cpp
     src/features/recovery/RecoveryRuntime.cpp
     src/features/recovery/RecoveryRuntime.hpp
+    src/features/vehicle/DlcVehicleRuntime.hpp
     src/features/vehicle/LscBypassRuntime.cpp
     src/features/vehicle/LscBypassRuntime.hpp
     src/features/vehicle/PersonalVehicleRuntime.cpp
     src/features/vehicle/PersonalVehicleRuntime.hpp
+    src/features/vehicle/PersonalVehicleScriptActions.cpp
     src/features/vehicle/VehicleModificationRuntime.cpp
     src/features/vehicle/VehicleModificationRuntime.hpp
     src/features/vehicle/VehicleWorkshopRuntime.hpp
