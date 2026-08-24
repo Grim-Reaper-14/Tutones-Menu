@@ -12,6 +12,7 @@
 #include <cstdint>
 #include <mutex>
 #include <string>
+#include <utility>
 
 namespace Tutones::Game::Recovery
 {
@@ -55,8 +56,11 @@ namespace Tutones::Game::Recovery
         bool safeSpinState{};
         bool haveResult{};
         bool lastSucceeded{};
+        bool tableReadable{};
         int spinState{-1};
         std::size_t lastWriteCount{};
+        std::size_t tableEntryCount{};
+        std::size_t forcedWinCount{};
         std::string message{"Ready"};
     };
 
@@ -89,13 +93,141 @@ namespace Tutones::Game::Recovery
             m_LastSucceeded = false;
             m_LastWriteCount = 0;
             m_Message = enabled
-                ? "Slot rig armed; waiting for casino_slots and a safe spin state"
-                : "Slot rig disabled; safe result-table reset requested";
+                ? "Continuous slot rig enabled; win table will be rewritten while casino_slots is active"
+                : "Continuous slot rig disabled; result-table reset queued";
         }
 
         [[nodiscard]] bool Enabled() const noexcept
         {
             return m_Enabled.load(std::memory_order_acquire);
+        }
+
+        bool QueueReadResults()
+        {
+            return QueueAction("Reading casino_slots result table", [this] {
+                Types::ScriptThread* thread{};
+                int spinState{-1};
+                bool safeSpinState{};
+                std::string error;
+                if (!ResolveContext(thread, spinState, safeSpinState, error))
+                {
+                    Finish(false, false, false, spinState, 0, 0, 0, std::move(error));
+                    return;
+                }
+
+                std::size_t total{};
+                std::size_t forcedWins{};
+                if (!ReadResultTable(thread, total, forcedWins))
+                {
+                    Finish(false, true, false, spinState, 0, 0, 0, "Could not read the full casino_slots result table");
+                    return;
+                }
+
+                Finish(
+                    true,
+                    true,
+                    safeSpinState,
+                    spinState,
+                    0,
+                    total,
+                    forcedWins,
+                    std::string("Read casino_slots table: ") + std::to_string(forcedWins)
+                        + "/" + std::to_string(total) + " entries currently equal win result 6");
+            });
+        }
+
+        bool QueueWriteWinResults()
+        {
+            return QueueAction("Writing forced-win casino_slots result table", [this] {
+                Types::ScriptThread* thread{};
+                int spinState{-1};
+                bool safeSpinState{};
+                std::string error;
+                if (!ResolveContext(thread, spinState, safeSpinState, error))
+                {
+                    Finish(false, false, false, spinState, 0, 0, 0, std::move(error));
+                    return;
+                }
+
+                std::size_t writes{};
+                if (!WriteWinTable(thread, writes))
+                {
+                    Finish(false, true, safeSpinState, spinState, writes, 0, 0, "Forced-win table write failed");
+                    return;
+                }
+
+                std::size_t total{};
+                std::size_t forcedWins{};
+                const bool readable = ReadResultTable(thread, total, forcedWins);
+                const bool success = readable && total != 0 && forcedWins == total;
+
+                if (success)
+                {
+                    TUTONES_LOG_INFO(
+                        "recovery.casino",
+                        std::string("Forced casino_slots win table: writes=") + std::to_string(writes)
+                            + " verified=" + std::to_string(forcedWins)
+                            + "/" + std::to_string(total)
+                            + " spinState=" + std::to_string(spinState));
+                }
+
+                Finish(
+                    success,
+                    true,
+                    safeSpinState,
+                    spinState,
+                    writes,
+                    total,
+                    forcedWins,
+                    success
+                        ? "Forced-win table written and read-back verified"
+                        : "Forced-win table did not survive read-back verification");
+            });
+        }
+
+        bool QueueResetResults()
+        {
+            return QueueAction("Resetting casino_slots result table", [this] {
+                Types::ScriptThread* thread{};
+                int spinState{-1};
+                bool safeSpinState{};
+                std::string error;
+                if (!ResolveContext(thread, spinState, safeSpinState, error))
+                {
+                    Finish(false, false, false, spinState, 0, 0, 0, std::move(error));
+                    return;
+                }
+
+                std::size_t writes{};
+                if (!ResetResultTable(thread, writes))
+                {
+                    Finish(false, true, safeSpinState, spinState, writes, 0, 0, "Result-table reset failed");
+                    return;
+                }
+
+                m_Enabled.store(false, std::memory_order_release);
+                m_RestoreRequested.store(false, std::memory_order_release);
+
+                std::size_t total{};
+                std::size_t forcedWins{};
+                const bool readable = ReadResultTable(thread, total, forcedWins);
+
+                TUTONES_LOG_INFO(
+                    "recovery.casino",
+                    std::string("Reset casino_slots result table: writes=") + std::to_string(writes)
+                        + " remainingResult6=" + std::to_string(forcedWins)
+                        + "/" + std::to_string(total));
+
+                Finish(
+                    readable,
+                    true,
+                    safeSpinState,
+                    spinState,
+                    writes,
+                    total,
+                    forcedWins,
+                    readable ? "Slot result table reset to normal 3-9 values" : "Slot table reset completed but read-back failed");
+            });
         }
 
         void Tick()
@@ -119,7 +251,7 @@ namespace Tutones::Game::Recovery
             }
 
             m_TaskQueued.store(false, std::memory_order_release);
-            UpdateState(false, false, false, -1, 0, false, "Game-thread queue unavailable");
+            Finish(false, false, false, -1, 0, 0, 0, "Game-thread queue unavailable");
         }
 
         [[nodiscard]] CasinoSlotMachineSnapshot Snapshot() const
@@ -134,8 +266,11 @@ namespace Tutones::Game::Recovery
             snapshot.safeSpinState = m_SafeSpinState;
             snapshot.haveResult = m_HaveResult;
             snapshot.lastSucceeded = m_LastSucceeded;
+            snapshot.tableReadable = m_TableReadable;
             snapshot.spinState = m_SpinState;
             snapshot.lastWriteCount = m_LastWriteCount;
+            snapshot.tableEntryCount = m_TableEntryCount;
+            snapshot.forcedWinCount = m_ForcedWinCount;
             snapshot.message = m_Message;
             return snapshot;
         }
@@ -152,111 +287,113 @@ namespace Tutones::Game::Recovery
             return index < slotCount;
         }
 
-        void ProcessTick()
+        [[nodiscard]] bool ResolveContext(
+            Types::ScriptThread*& thread,
+            int& spinState,
+            bool& safeSpinState,
+            std::string& error)
         {
             bool* sessionStarted = GamePointers::Get().IsSessionStarted();
             if (!sessionStarted || !*sessionStarted)
             {
-                m_RestoreRequested.store(false, std::memory_order_release);
-                UpdateState(false, false, false, -1, 0, false, "Join GTA Online before using Rig Slot Machines");
-                return;
+                error = "Join GTA Online before using Rig Slot Machines";
+                return false;
             }
 
             auto& scripts = Script::ScriptRuntime::Get();
             if (!scripts.IsReady())
             {
-                UpdateState(false, false, false, -1, 0, false, "Shared Enhanced script runtime is unavailable");
-                return;
+                error = "Shared Enhanced script runtime is unavailable";
+                return false;
             }
 
-            auto* thread = scripts.FindThread(SlotsScriptHash);
+            thread = scripts.FindThread(SlotsScriptHash);
             if (!thread || !thread->stack)
             {
-                // A destroyed casino_slots stack cannot retain our local writes, so
-                // there is nothing to restore when the script is no longer running.
-                if (!m_Enabled.load(std::memory_order_acquire))
-                    m_RestoreRequested.store(false, std::memory_order_release);
-
-                UpdateState(false, false, false, -1, 0, false, "casino_slots is not active; enter the casino and use a slot machine");
-                return;
+                error = "casino_slots is not active; sit at/use a casino slot machine first";
+                return false;
             }
 
             const std::size_t lastResultLocal = RandomResultsTable + static_cast<std::size_t>(RandomResultsLast);
             if (!LocalAvailable(thread, SpinStateLocal) || !LocalAvailable(thread, lastResultLocal))
             {
-                UpdateState(true, false, false, -1, 0, false, "casino_slots locals are outside the active script stack");
-                return;
+                error = "casino_slots locals are outside the active script stack";
+                return false;
             }
 
             int* spinStateValue = Script::ScriptLocal(thread, SpinStateLocal).As<int>();
             if (!spinStateValue)
             {
-                UpdateState(true, false, false, -1, 0, false, "casino_slots spin-state local is unavailable");
-                return;
+                error = "casino_slots spin-state local is unavailable";
+                return false;
             }
 
-            const int spinState = *spinStateValue;
-            const bool safeSpinState = CasinoSlotMachineDetail::IsSafeSpinState(spinState);
+            spinState = *spinStateValue;
+            safeSpinState = CasinoSlotMachineDetail::IsSafeSpinState(spinState);
+            return true;
+        }
 
-            if (m_Enabled.load(std::memory_order_acquire))
+        [[nodiscard]] static bool ReadResultTable(
+            Types::ScriptThread* thread,
+            std::size_t& total,
+            std::size_t& forcedWins) noexcept
+        {
+            total = 0;
+            forcedWins = 0;
+            if (!thread || !thread->stack)
+                return false;
+
+            for (int resultIndex = RandomResultsFirst; resultIndex <= RandomResultsLast; ++resultIndex)
             {
-                if (!safeSpinState)
-                {
-                    UpdateState(true, false, true, spinState, 0, false, "Slot rig armed; waiting for safe spin state 8 or 14");
-                    return;
-                }
+                if (CasinoSlotMachineDetail::IsBlacklistedResultIndex(resultIndex))
+                    continue;
 
-                std::size_t writes{};
-                bool verified = true;
-                for (int resultIndex = RandomResultsFirst; resultIndex <= RandomResultsLast; ++resultIndex)
-                {
-                    if (CasinoSlotMachineDetail::IsBlacklistedResultIndex(resultIndex))
-                        continue;
+                int* result = Script::ScriptLocal(
+                    thread,
+                    RandomResultsTable + static_cast<std::size_t>(resultIndex)).As<int>();
+                if (!result)
+                    return false;
 
-                    int* result = Script::ScriptLocal(thread, RandomResultsTable + static_cast<std::size_t>(resultIndex)).As<int>();
-                    if (!result)
-                    {
-                        verified = false;
-                        break;
-                    }
-
-                    if (*result != ForcedWinResult)
-                    {
-                        *result = ForcedWinResult;
-                        ++writes;
-                    }
-
-                    if (*result != ForcedWinResult)
-                    {
-                        verified = false;
-                        break;
-                    }
-                }
-
-                if (verified)
-                {
-                    if (writes != 0)
-                        TUTONES_LOG_DEBUG("recovery.casino", std::string("Rig Slot Machines forced ") + std::to_string(writes) + " casino_slots results to 6");
-                    UpdateState(true, true, true, spinState, writes, true, writes != 0 ? "Rig Slot Machines applied" : "Rig Slot Machines active");
-                }
-                else
-                {
-                    UpdateState(true, true, true, spinState, writes, false, "Rig Slot Machines failed result read-back verification");
-                }
-                return;
+                ++total;
+                if (*result == ForcedWinResult)
+                    ++forcedWins;
             }
 
-            if (!m_RestoreRequested.load(std::memory_order_acquire))
+            return total != 0;
+        }
+
+        [[nodiscard]] static bool WriteWinTable(Types::ScriptThread* thread, std::size_t& writes) noexcept
+        {
+            writes = 0;
+            if (!thread || !thread->stack)
+                return false;
+
+            for (int resultIndex = RandomResultsFirst; resultIndex <= RandomResultsLast; ++resultIndex)
             {
-                UpdateState(true, safeSpinState, false, spinState, 0, true, "Rig Slot Machines disabled");
-                return;
+                if (CasinoSlotMachineDetail::IsBlacklistedResultIndex(resultIndex))
+                    continue;
+
+                int* result = Script::ScriptLocal(
+                    thread,
+                    RandomResultsTable + static_cast<std::size_t>(resultIndex)).As<int>();
+                if (!result)
+                    return false;
+
+                if (*result != ForcedWinResult)
+                {
+                    *result = ForcedWinResult;
+                    ++writes;
+                }
             }
 
-            if (!safeSpinState)
-            {
-                UpdateState(true, false, true, spinState, 0, false, "Rig disabled; waiting for safe spin state before resetting results");
-                return;
-            }
+            return true;
+        }
+
+        [[nodiscard]] static bool ResetResultTable(Types::ScriptThread* thread, std::size_t& writes) noexcept
+        {
+            writes = 0;
+            if (!thread || !thread->stack)
+                return false;
 
             std::uint32_t seed = static_cast<std::uint32_t>(
                 std::chrono::steady_clock::now().time_since_epoch().count());
@@ -266,44 +403,139 @@ namespace Tutones::Game::Recovery
                 return 3 + static_cast<int>(seed % 7u);
             };
 
-            std::size_t writes{};
             for (int resultIndex = RandomResultsFirst; resultIndex <= RandomResultsLast; ++resultIndex)
             {
                 if (CasinoSlotMachineDetail::IsBlacklistedResultIndex(resultIndex))
                     continue;
 
-                int* result = Script::ScriptLocal(thread, RandomResultsTable + static_cast<std::size_t>(resultIndex)).As<int>();
+                int* result = Script::ScriptLocal(
+                    thread,
+                    RandomResultsTable + static_cast<std::size_t>(resultIndex)).As<int>();
                 if (!result)
-                {
-                    UpdateState(true, true, true, spinState, writes, false, "Slot result reset stopped because a local became unavailable");
-                    return;
-                }
+                    return false;
 
                 *result = nextResetResult();
                 ++writes;
             }
 
-            m_RestoreRequested.store(false, std::memory_order_release);
-            TUTONES_LOG_DEBUG("recovery.casino", std::string("Rig Slot Machines reset ") + std::to_string(writes) + " casino_slots result locals");
-            UpdateState(true, true, true, spinState, writes, true, "Rig Slot Machines disabled and result table reset");
+            return true;
         }
 
-        void UpdateState(
+        void ProcessTick()
+        {
+            Types::ScriptThread* thread{};
+            int spinState{-1};
+            bool safeSpinState{};
+            std::string error;
+            if (!ResolveContext(thread, spinState, safeSpinState, error))
+            {
+                if (!m_Enabled.load(std::memory_order_acquire))
+                    m_RestoreRequested.store(false, std::memory_order_release);
+                Finish(false, false, false, spinState, 0, 0, 0, std::move(error));
+                return;
+            }
+
+            if (m_Enabled.load(std::memory_order_acquire))
+            {
+                // Continuous mode intentionally rewrites the table whenever the game
+                // changes it. The former 8/14-only gate made the option look dead
+                // outside a very small state window.
+                std::size_t writes{};
+                if (!WriteWinTable(thread, writes))
+                {
+                    Finish(false, true, safeSpinState, spinState, writes, 0, 0, "Continuous slot rig write failed");
+                    return;
+                }
+
+                std::size_t total{};
+                std::size_t forcedWins{};
+                const bool readable = ReadResultTable(thread, total, forcedWins);
+                const bool success = readable && total != 0 && forcedWins == total;
+                Finish(
+                    success,
+                    true,
+                    safeSpinState,
+                    spinState,
+                    writes,
+                    total,
+                    forcedWins,
+                    success ? "Continuous Rig Slot Machines active" : "Continuous slot rig failed read-back verification");
+                return;
+            }
+
+            if (!m_RestoreRequested.load(std::memory_order_acquire))
+                return;
+
+            std::size_t writes{};
+            if (!ResetResultTable(thread, writes))
+            {
+                Finish(false, true, safeSpinState, spinState, writes, 0, 0, "Automatic slot result reset failed");
+                return;
+            }
+
+            m_RestoreRequested.store(false, std::memory_order_release);
+
+            std::size_t total{};
+            std::size_t forcedWins{};
+            const bool readable = ReadResultTable(thread, total, forcedWins);
+            Finish(
+                readable,
+                true,
+                safeSpinState,
+                spinState,
+                writes,
+                total,
+                forcedWins,
+                readable ? "Continuous rig disabled and result table reset" : "Continuous rig reset completed but read-back failed");
+        }
+
+        template<typename Callback>
+        bool QueueAction(std::string pendingMessage, Callback&& callback)
+        {
+            bool expected = false;
+            if (!m_TaskQueued.compare_exchange_strong(expected, true, std::memory_order_acq_rel))
+                return false;
+
+            {
+                std::scoped_lock lock(m_Mutex);
+                m_HaveResult = false;
+                m_LastSucceeded = false;
+                m_Message = std::move(pendingMessage);
+            }
+
+            if (Runtime::GameRuntime::Get().Enqueue([this, callback = std::forward<Callback>(callback)]() mutable {
+                    callback();
+                    m_TaskQueued.store(false, std::memory_order_release);
+                }))
+            {
+                return true;
+            }
+
+            m_TaskQueued.store(false, std::memory_order_release);
+            Finish(false, false, false, -1, 0, 0, 0, "Game-thread queue unavailable");
+            return false;
+        }
+
+        void Finish(
+            bool success,
             bool scriptActive,
             bool safeSpinState,
-            bool haveResult,
             int spinState,
             std::size_t writeCount,
-            bool success,
+            std::size_t tableEntryCount,
+            std::size_t forcedWinCount,
             std::string message)
         {
             std::scoped_lock lock(m_Mutex);
             m_ScriptActive = scriptActive;
             m_SafeSpinState = safeSpinState;
-            m_HaveResult = haveResult;
+            m_HaveResult = true;
             m_LastSucceeded = success;
+            m_TableReadable = tableEntryCount != 0;
             m_SpinState = spinState;
             m_LastWriteCount = writeCount;
+            m_TableEntryCount = tableEntryCount;
+            m_ForcedWinCount = forcedWinCount;
             m_Message = std::move(message);
         }
 
@@ -316,8 +548,11 @@ namespace Tutones::Game::Recovery
         bool m_SafeSpinState{};
         bool m_HaveResult{};
         bool m_LastSucceeded{};
+        bool m_TableReadable{};
         int m_SpinState{-1};
         std::size_t m_LastWriteCount{};
+        std::size_t m_TableEntryCount{};
+        std::size_t m_ForcedWinCount{};
         std::string m_Message{"Ready"};
     };
 }
