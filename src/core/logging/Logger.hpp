@@ -18,13 +18,39 @@ namespace Tutones::Core::Logging
     struct LoggerConfig final
     {
         LogLevel minimumLevel{LogLevel::Trace};
+
         bool consoleEnabled{true};
+        bool consoleAllocateWindow{true};
+        bool consoleUseColors{true};
+        bool consoleShowSourceOnWarning{true};
+        bool consoleDisableQuickEdit{true};
+        bool consoleDisableCloseButton{true};
+        std::wstring consoleTitle{L"Tutones Menu | Enhanced Runtime Diagnostics"};
+        std::uint16_t consoleBufferWidth{180};
+        std::uint16_t consoleBufferLines{5000};
+
         bool debuggerEnabled{true};
         bool fileEnabled{true};
         bool flushOnWarningOrHigher{true};
         std::filesystem::path filePath{};
         std::uintmax_t maxFileBytes{8 * 1024 * 1024};
         std::size_t maxFiles{5};
+    };
+
+    struct LoggerStats final
+    {
+        bool initialized{};
+        bool consoleAvailable{};
+        bool consoleOwned{};
+        std::uint64_t startedUnixMilliseconds{};
+        std::uint64_t total{};
+        std::uint64_t filtered{};
+        std::uint64_t trace{};
+        std::uint64_t debug{};
+        std::uint64_t info{};
+        std::uint64_t warning{};
+        std::uint64_t error{};
+        std::uint64_t critical{};
     };
 
     class Logger final
@@ -48,7 +74,13 @@ namespace Tutones::Core::Logging
             const std::source_location& location = std::source_location::current()) noexcept;
 
         void Flush() noexcept;
+
         [[nodiscard]] bool IsInitialized() const noexcept;
+        [[nodiscard]] bool ConsoleAvailable() const noexcept;
+        [[nodiscard]] LoggerStats SnapshotStats() const noexcept;
+
+        bool SetConsoleVisible(bool visible) noexcept;
+        bool SetConsoleTitle(std::wstring_view title) noexcept;
 
     private:
         Logger() = default;
@@ -56,10 +88,16 @@ namespace Tutones::Core::Logging
         Logger(const Logger&) = delete;
         Logger& operator=(const Logger&) = delete;
 
+        void CountRecord(LogLevel level) noexcept;
+        void ReleaseOwnedConsole() noexcept;
+
         mutable std::mutex m_Mutex;
         LoggerConfig m_Config{};
+        LoggerStats m_Stats{};
         std::vector<std::shared_ptr<ILogSink>> m_Sinks;
         bool m_Initialized{};
+        bool m_ConsoleAvailable{};
+        bool m_OwnsConsole{};
         std::uint64_t m_NextSequence{1};
     };
 
