@@ -2,6 +2,7 @@
 
 #include "V11Description.hpp"
 #include "V11Theme.hpp"
+#include "../features/vehicle/DlcVehicleRuntime.hpp"
 #include "../features/vehicle/VehicleModificationRuntime.hpp"
 
 #include <imgui.h>
@@ -55,6 +56,47 @@ namespace Tutones::UI
             return pressed;
         }
 
+        inline void DrawVehicleScriptFeatures() noexcept
+        {
+            auto& dlcRuntime = Game::VehicleFeatures::DlcVehicleRuntime::Get();
+            const auto state = dlcRuntime.Snapshot();
+
+            ImGui::SetCursorPos(ImVec2(724.0f, 330.0f));
+            ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(14.0f, 12.0f));
+            ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 7.0f);
+            ImGui::PushStyleColor(ImGuiCol_ChildBg, V11Theme::PanelBg);
+            ImGui::PushStyleColor(ImGuiCol_Border, V11Theme::PanelBorder);
+
+            if (ImGui::BeginChild("##vehicle_script_features", ImVec2(284.0f, 168.0f), true))
+            {
+                ImGui::TextColored(V11Theme::Accent, "DECOMPILED SCRIPTS");
+                ImGui::TextDisabled("Enhanced vehicle website flow");
+                ImGui::Separator();
+
+                bool enabled = state.enabled;
+                ImGui::BeginDisabled(!state.running);
+                if (ImGui::Checkbox("Enable All DLC Vehicles", &enabled))
+                    dlcRuntime.SetEnabled(enabled);
+                ImGui::EndDisabled();
+                DescribeLastV11Item("Patch the current Enhanced appinternet vehicle availability, price and purchase checks in the script shadow so supported DLC vehicles remain available on GTA's vehicle websites.");
+
+                const bool allSupported = state.vehicleAvailabilitySupported
+                    && state.priceGateSupported
+                    && state.purchaseGateSupported;
+                ImGui::TextDisabled("ScriptVM hook: %s", state.hookActive ? "READY" : "WAITING");
+                ImGui::TextDisabled("appinternet: %s", state.programLoaded ? "LOADED" : "OPEN A VEHICLE WEBSITE");
+                ImGui::TextDisabled("3 script checks: %s", allSupported ? "RESOLVED" : "WAITING");
+                ImGui::TextColored(
+                    state.applied ? ImVec4(0.20f, 0.86f, 0.38f, 1.0f) : V11Theme::MutedText,
+                    "State: %s",
+                    state.applied ? "APPLIED" : (state.enabled ? "ARMED" : "OFF"));
+            }
+
+            ImGui::EndChild();
+            ImGui::PopStyleColor(2);
+            ImGui::PopStyleVar(2);
+        }
+
         inline void DrawCustomizeSelector() noexcept
         {
             ImGui::SetCursorPos(ImVec2(724.0f, 330.0f));
@@ -104,7 +146,7 @@ namespace Tutones::UI
 
                 if (SectionButton("Rockstar Personal Garage", g_GarageMode == 0, ImVec2(-1.0f, 31.0f)))
                     g_GarageMode = 0;
-                DescribeLastV11Item("Browse owned GTA Online garage vehicles, request or repair them, save the current vehicle to a Rockstar garage, or teleport into the active personal vehicle.");
+                DescribeLastV11Item("Browse owned GTA Online garage vehicles, request or repair them, save the current vehicle to a Rockstar garage, return the active personal vehicle to storage, or teleport into it.");
 
                 if (SectionButton("Tutones Saved Vehicles", g_GarageMode == 1, ImVec2(-1.0f, 31.0f)))
                     g_GarageMode = 1;
@@ -208,6 +250,13 @@ namespace Tutones::UI
         }
     }
 
+    inline void RenderVehicleHubV2() noexcept
+    {
+        RenderV12VehicleGeneralPanel();
+        VehicleMenuV2Detail::DrawVehicleScriptFeatures();
+        SetV11Description("Vehicle Hub - spawn/current/clone controls plus verified Enhanced decompiled-script vehicle features. Website DLC availability is kept here, while paint stays in Customization and all stored-vehicle actions stay in Garage.");
+    }
+
     inline void RenderVehicleCustomizeV2() noexcept
     {
         using namespace VehicleMenuV2Detail;
@@ -234,7 +283,7 @@ namespace Tutones::UI
         DrawGarageSelector();
 
         SetV11Description(g_GarageMode == 0
-            ? "Vehicle Garage - Rockstar personal vehicles, owned garage slots, request, repair, save-current and teleport-to-personal-vehicle actions all stay together here."
+            ? "Vehicle Garage - Rockstar MPSV/Freemode-backed personal vehicles, request, return-to-storage, repair-all, save-current and teleport actions stay together here."
             : "Vehicle Garage - local Tutones saved vehicle presets stay with the rest of the garage tools instead of being mixed into the current-vehicle page.");
     }
 }
