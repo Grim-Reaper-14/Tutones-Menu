@@ -55,7 +55,7 @@ namespace Tutones::Game::SessionFeatures
                 m_Resolved.store(false, std::memory_order_release);
                 m_Globals = {};
                 m_Originals = {};
-                m_NextResolveAttempt = {};
+                m_NextResolveAttemptMs.store(0, std::memory_order_release);
                 EnsureTick();
             }
             else
@@ -87,7 +87,7 @@ namespace Tutones::Game::SessionFeatures
                 m_Resolved.store(false, std::memory_order_release);
                 m_Globals = {};
                 m_Originals = {};
-                m_NextResolveAttempt = {};
+                m_NextResolveAttemptMs.store(0, std::memory_order_release);
                 SetMessage("Off");
                 return;
             }
@@ -125,8 +125,6 @@ namespace Tutones::Game::SessionFeatures
         }
 
     private:
-        using Clock = std::chrono::steady_clock;
-
         // GTA's Online tunable block begins at Global_262145 (0x40001).
         // YimMenuV2 resolves names to addresses through its Tunables registry. Tutones
         // does not yet have that registry, so No Idle resolves only its eight known
@@ -134,7 +132,7 @@ namespace Tutones::Game::SessionFeatures
         // depending on tunables_registration remaining resident after startup.
         static constexpr std::size_t TunableBase = 0x40001;
         static constexpr std::size_t FallbackScanCount = 20000;
-        static constexpr auto ResolveRetryInterval = std::chrono::milliseconds{750};
+        static constexpr std::int64_t ResolveRetryMs = 750;
 
         static constexpr std::array<int, 4> IdleDefaults{
             120000, 300000, 600000, 900000,
@@ -219,7 +217,7 @@ namespace Tutones::Game::SessionFeatures
                 m_Resolved.store(false, std::memory_order_release);
                 m_Globals = {};
                 m_Originals = {};
-                m_NextResolveAttempt = {};
+                m_NextResolveAttemptMs.store(0, std::memory_order_release);
                 SetMessage("No Idle write verification failed - rescanning");
             }
 
@@ -312,10 +310,12 @@ namespace Tutones::Game::SessionFeatures
                 return false;
             }
 
-            const auto now = Clock::now();
-            if (m_NextResolveAttempt.time_since_epoch().count() != 0 && now < m_NextResolveAttempt)
+            const auto nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::steady_clock::now().time_since_epoch()).count();
+            const auto nextAttempt = m_NextResolveAttemptMs.load(std::memory_order_acquire);
+            if (nextAttempt != 0 && nowMs < nextAttempt)
                 return false;
-            m_NextResolveAttempt = now + ResolveRetryInterval;
+            m_NextResolveAttemptMs.store(nowMs + ResolveRetryMs, std::memory_order_release);
 
             std::optional<std::pair<std::size_t, std::size_t>> pair;
 
@@ -373,7 +373,7 @@ namespace Tutones::Game::SessionFeatures
 
             m_Originals = current;
             m_Resolved.store(true, std::memory_order_release);
-            m_NextResolveAttempt = {};
+            m_NextResolveAttemptMs.store(0, std::memory_order_release);
 
             TUTONES_LOG_INFO(
                 "game.noidle",
@@ -396,7 +396,7 @@ namespace Tutones::Game::SessionFeatures
             {
                 m_Globals = {};
                 m_Originals = {};
-                m_NextResolveAttempt = {};
+                m_NextResolveAttemptMs.store(0, std::memory_order_release);
                 SetMessage("Off");
                 return;
             }
@@ -419,7 +419,7 @@ namespace Tutones::Game::SessionFeatures
 
             m_Globals = {};
             m_Originals = {};
-            m_NextResolveAttempt = {};
+            m_NextResolveAttemptMs.store(0, std::memory_order_release);
             SetMessage(success ? "Off - original idle timers restored" : "Off - timer restore incomplete");
         }
 
@@ -432,9 +432,9 @@ namespace Tutones::Game::SessionFeatures
         std::atomic<bool> m_Enabled{false};
         std::atomic<bool> m_Resolved{false};
         std::atomic<bool> m_TickQueued{false};
+        std::atomic<std::int64_t> m_NextResolveAttemptMs{0};
         std::array<std::size_t, 8> m_Globals{};
         std::array<int, 8> m_Originals{};
-        Clock::time_point m_NextResolveAttempt{};
         mutable std::mutex m_Mutex;
         std::string m_Message{"Off"};
     };
