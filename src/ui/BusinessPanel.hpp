@@ -18,8 +18,7 @@ namespace Tutones::UI
     {
         inline void RenderBusinessTabs(int& selectedBusinessPage) noexcept
         {
-            // Keep every business isolated on its own page while fitting the
-            // complete selector inside the existing 730px content host.
+            // Business Hub keeps every business one click away with full names.
             ImGui::SetCursorPos(ImVec2(226.0f, 16.0f));
             ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(4.0f, 4.0f));
 
@@ -37,19 +36,19 @@ namespace Tutones::UI
                     selectedBusinessPage = page;
             };
 
-            tabButton("Nightclub", 0, 78.0f);
+            tabButton("Nightclub", 0, 76.0f);
             ImGui::SameLine();
-            tabButton("Special Cargo", 1, 106.0f);
+            tabButton("Special Cargo", 1, 102.0f);
             ImGui::SameLine();
-            tabButton("Bunker", 2, 68.0f);
+            tabButton("Bunker", 2, 62.0f);
             ImGui::SameLine();
-            tabButton("MC", 3, 44.0f);
+            tabButton("Motorcycle Club", 3, 100.0f);
             ImGui::SameLine();
-            tabButton("Acid Lab", 4, 72.0f);
+            tabButton("Acid Lab", 4, 66.0f);
             ImGui::SameLine();
-            tabButton("Hangar", 5, 68.0f);
+            tabButton("Hangar", 5, 62.0f);
             ImGui::SameLine();
-            tabButton("Vehicle Cargo", 6, 108.0f);
+            tabButton("Vehicle Cargo", 6, 104.0f);
 
             ImGui::PopStyleVar();
         }
