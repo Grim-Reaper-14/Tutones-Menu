@@ -188,8 +188,8 @@ namespace Tutones::UI
 
                 ImGui::TextColored(V11Theme::Accent, "RIG SLOT MACHINES");
                 ImGui::SameLine();
-                ImGui::TextDisabled("DIRECT READ / WRITE");
-                ImGui::TextDisabled("Use explicit table reads/writes or keep the win table continuously forced.");
+                ImGui::TextDisabled("YIM-STYLE SPIN LIFECYCLE");
+                ImGui::TextDisabled("Writes are armed continuously but only applied when casino_slots reaches spin state 8 or 14.");
                 ImGui::Separator();
 
                 if (ImGui::BeginTable("##slot_v2_columns", 2, ImGuiTableFlags_SizingStretchSame))
@@ -208,18 +208,18 @@ namespace Tutones::UI
 
                         if (ImGui::Button("WRITE WIN TABLE NOW", ImVec2(-1.0f, 36.0f)))
                             static_cast<void>(slotRuntime.QueueWriteWinResults());
-                        DescribeLastV11Item("Immediately write result 6 to every supported result entry and verify all values by reading the table back.");
+                        DescribeLastV11Item("Write result 6 only when casino_slots is in YimMenuV2's accepted spin state 8 or 14, then verify the full supported result table by reading it back.");
 
                         if (ImGui::Button("RESET RESULT TABLE", ImVec2(-1.0f, 36.0f)))
                             static_cast<void>(slotRuntime.QueueResetResults());
-                        DescribeLastV11Item("Replace the forced result table with normal 3-9 values and verify the table remains readable.");
+                        DescribeLastV11Item("Queue restoration of normal 3-9 result values. The reset waits until casino_slots reaches spin state 8 or 14 before changing the table.");
                         ImGui::EndDisabled();
 
                         ImGui::Spacing();
-                        ImGui::SeparatorText("Continuous Write");
+                        ImGui::SeparatorText("Continuous Rig");
                         if (ImGui::Checkbox("Keep Win Table Forced", &enabled))
                             slotRuntime.SetEnabled(enabled);
-                        DescribeLastV11Item("Continuously rewrite supported result entries to 6 whenever the game changes them. The spin-state value is telemetry and does not block writes.");
+                        DescribeLastV11Item("Arm the YimMenuV2-style slot rig continuously. Tutones scans the table each tick but only writes missing result-6 entries while spin state is 8 or 14.");
                     }
                     ImGui::EndChild();
 
@@ -238,9 +238,12 @@ namespace Tutones::UI
                             ImGui::Text("Spin state");
                             ImGui::SameLine(180.0f);
                             ImGui::Text("%d", state.spinState);
-                            ImGui::Text("8 / 14 telemetry");
+                            ImGui::Text("Valid state (8 / 14)");
                             ImGui::SameLine(180.0f);
-                            ImGui::Text("%s", state.safeSpinState ? "YES" : "NO");
+                            ImGui::TextColored(
+                                state.safeSpinState ? ImVec4(0.20f, 0.88f, 0.42f, 1.0f) : V11Theme::MutedText,
+                                "%s",
+                                state.safeSpinState ? "YES" : "WAITING");
                         }
 
                         ImGui::SeparatorText("Result Table");
@@ -269,7 +272,7 @@ namespace Tutones::UI
                         if (state.taskQueued)
                             ImGui::TextWrapped("Working: %s", state.message.c_str());
                         else if (state.haveResult)
-                            ImGui::TextWrapped("%s: %s", state.lastSucceeded ? "Success" : "Failed", state.message.c_str());
+                            ImGui::TextWrapped("%s: %s", state.lastSucceeded ? "Success" : "Waiting/Failed", state.message.c_str());
                         else
                             ImGui::TextDisabled("Sit at/use a casino slot machine so casino_slots is active.");
                     }
@@ -278,7 +281,7 @@ namespace Tutones::UI
                     ImGui::EndTable();
                 }
 
-                SetV11Description("Rig Slot Machines V2: direct live result-table read/write controls on the left and script/table verification telemetry on the right, plus optional continuous forced-win writes.");
+                SetV11Description("Rig Slot Machines V2: YimMenuV2-style casino_slots lifecycle using locals 1357+[3..196], the five blacklist entries, spin-state 8/14 gating, read-back verification, and safe-state restoration.");
             }
         }
 
