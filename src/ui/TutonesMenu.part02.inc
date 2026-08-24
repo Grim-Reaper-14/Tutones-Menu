@@ -1,5 +1,6 @@
 #include "WorldPanel.hpp"
 #include "GoodBehaviorBonusPanel.hpp"
+#include "SpecialCargoToolsPanel.hpp"
 
 namespace Tutones::UI
 {
@@ -47,6 +48,8 @@ namespace Tutones::UI
             RenderRecoveryPanel(m_Item);
             if (m_Item == 0)
                 RenderGoodBehaviorBonusControl();
+            else if (m_Item == 2)
+                RenderSpecialCargoToolsControl();
             break;
 
         case 6:
