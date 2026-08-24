@@ -4,6 +4,11 @@
 #include "LogRecord.hpp"
 #include "LogSink.hpp"
 
+#include <Windows.h>
+#ifdef SetConsoleTitle
+#undef SetConsoleTitle
+#endif
+
 #include <cstdint>
 #include <filesystem>
 #include <memory>
