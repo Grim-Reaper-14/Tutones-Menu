@@ -8,7 +8,7 @@
 
 namespace Tutones::UI
 {
-    inline void RenderGoodBehaviorBonusControl(bool sessionStarted) noexcept
+    inline void RenderGoodBehaviorBonusControl() noexcept
     {
         auto& runtime = Game::Recovery::GoodBehaviorBonusRuntime::Get();
         const auto state = runtime.Snapshot();
@@ -25,7 +25,7 @@ namespace Tutones::UI
             ImGui::SameLine();
             ImGui::TextDisabled("$2,000");
 
-            ImGui::BeginDisabled(state.pending || !sessionStarted);
+            ImGui::BeginDisabled(state.pending);
             if (ImGui::Button(state.pending ? "Applying..." : "Trigger Good Behavior Bonus", ImVec2(-1.0f, 0.0f)))
                 runtime.QueueTrigger();
             ImGui::EndDisabled();
