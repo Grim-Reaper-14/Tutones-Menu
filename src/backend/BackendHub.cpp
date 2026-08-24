@@ -5,6 +5,7 @@
 #include "../features/player/OffRadarRuntime.hpp"
 #include "../features/player/PlayerRuntime.hpp"
 #include "../features/recovery/RecoveryRuntime.hpp"
+#include "../features/vehicle/DlcVehicleRuntime.hpp"
 #include "../features/vehicle/LscBypassRuntime.hpp"
 #include "../features/vehicle/PersonalVehicleRuntime.hpp"
 #include "../features/vehicle/VehicleModificationRuntime.hpp"
@@ -236,6 +237,19 @@ namespace Tutones::Backend
             "Game",
             [] { return Game::Tunables::TunableRegistry::Get().Start(); },
             [] { Game::Tunables::TunableRegistry::Get().Stop(); });
+
+        {
+            FeatureDescriptor descriptor;
+            descriptor.id = "vehicle.dlc_websites";
+            descriptor.displayName = "DLC vehicle websites";
+            descriptor.category = "Vehicle";
+            descriptor.tickRate = TickRate::OnDemand;
+            descriptor.requirements = {Capability::ScriptRuntime, Capability::ScriptVm};
+            descriptor.start = [] { return Game::VehicleFeatures::DlcVehicleRuntime::Get().Start(); };
+            descriptor.stop = [] { Game::VehicleFeatures::DlcVehicleRuntime::Get().Stop(); };
+            static_cast<void>(m_Features.Register(std::move(descriptor)));
+        }
+
         registerRuntime(
             "vehicle.lsc",
             "LSC restriction bypass",
