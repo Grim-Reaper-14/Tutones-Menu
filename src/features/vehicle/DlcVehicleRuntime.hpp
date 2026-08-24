@@ -127,25 +127,10 @@ namespace Tutones::Game::VehicleFeatures
     private:
         DlcVehicleRuntime() = default;
 
-        [[nodiscard]] static constexpr std::uint32_t Joaat(const char* text) noexcept
-        {
-            std::uint32_t hash{};
-            while (text && *text)
-            {
-                char c = *text++;
-                if (c >= 'A' && c <= 'Z')
-                    c = static_cast<char>(c - 'A' + 'a');
-                hash += static_cast<std::uint8_t>(c);
-                hash += hash << 10;
-                hash ^= hash >> 6;
-            }
-            hash += hash << 3;
-            hash ^= hash >> 11;
-            hash += hash << 15;
-            return hash;
-        }
-
-        static constexpr std::uint32_t AppInternetHash = Joaat("appinternet");
+        // Precomputed JOAAT("appinternet"). Keeping this as a literal avoids the
+        // MSVC in-class constexpr evaluation issue that previously affected other
+        // Tutones script hashes.
+        static constexpr std::uint32_t AppInternetHash = 0x6A172273u;
 
         bool QueueNextTick()
         {
