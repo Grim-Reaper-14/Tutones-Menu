@@ -18,39 +18,52 @@ namespace Tutones::UI
     {
         inline void RenderBusinessTabs(int& selectedBusinessPage) noexcept
         {
-            // Business Hub keeps every business one click away with full names.
             ImGui::SetCursorPos(ImVec2(226.0f, 16.0f));
-            ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(4.0f, 4.0f));
+            ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(6.0f, 6.0f));
+            ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 5.0f);
+            ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(10.0f, 7.0f));
 
             const auto tabButton = [&](const char* label, int page, float width)
             {
-                if (selectedBusinessPage == page)
-                    ImGui::PushStyleColor(ImGuiCol_Button, V11Theme::AccentDark);
+                const bool selected = selectedBusinessPage == page;
+                if (selected)
+                {
+                    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(
+                        V11Theme::Accent.x,
+                        V11Theme::Accent.y,
+                        V11Theme::Accent.z,
+                        0.28f));
+                    ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(
+                        V11Theme::Accent.x,
+                        V11Theme::Accent.y,
+                        V11Theme::Accent.z,
+                        0.82f));
+                }
 
-                const bool pressed = ImGui::Button(label, ImVec2(width, 28.0f));
+                const bool pressed = ImGui::Button(label, ImVec2(width, 34.0f));
 
-                if (selectedBusinessPage == page)
-                    ImGui::PopStyleColor();
+                if (selected)
+                    ImGui::PopStyleColor(2);
 
                 if (pressed)
                     selectedBusinessPage = page;
             };
 
-            tabButton("Nightclub", 0, 76.0f);
+            tabButton("Nightclub", 0, 88.0f);
             ImGui::SameLine();
-            tabButton("Special Cargo", 1, 102.0f);
+            tabButton("Special Cargo", 1, 116.0f);
             ImGui::SameLine();
-            tabButton("Bunker", 2, 62.0f);
+            tabButton("Bunker", 2, 76.0f);
             ImGui::SameLine();
-            tabButton("Motorcycle Club", 3, 100.0f);
+            tabButton("Motorcycle Club", 3, 126.0f);
             ImGui::SameLine();
-            tabButton("Acid Lab", 4, 66.0f);
+            tabButton("Acid Lab", 4, 78.0f);
             ImGui::SameLine();
-            tabButton("Hangar", 5, 62.0f);
+            tabButton("Hangar", 5, 78.0f);
             ImGui::SameLine();
-            tabButton("Vehicle Cargo", 6, 104.0f);
+            tabButton("Vehicle Cargo", 6, 110.0f);
 
-            ImGui::PopStyleVar();
+            ImGui::PopStyleVar(3);
         }
     }
 
@@ -83,14 +96,17 @@ namespace Tutones::UI
         else if (selectedBusinessPage == 4)
         {
             RenderAcidLabBusinessPanel();
+            SetV11Description("Acid Lab business controls and Enhanced tuning values in the V12 Business Hub.");
         }
         else if (selectedBusinessPage == 5)
         {
             RenderHangarBusinessPanel();
+            SetV11Description("Hangar / Air Freight business controls and Enhanced tuning values in the V12 Business Hub.");
         }
         else
         {
             RenderVehicleCargoBusinessPanel();
+            SetV11Description("Vehicle Cargo cooldown and sell-value read/write controls with current-value refresh and read-back verification.");
         }
     }
 }
