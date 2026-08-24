@@ -75,6 +75,33 @@ namespace Tutones::Game::Native
         }
 
         template<typename T>
+        [[nodiscard]] T GetArg(std::size_t index) const noexcept
+        {
+            using Value = std::remove_cv_t<std::remove_reference_t<T>>;
+            static_assert(std::is_trivially_copyable_v<Value>);
+            static_assert(sizeof(Value) <= sizeof(std::uint64_t));
+
+            Value value{};
+            if (!m_Args || index >= m_ArgCount)
+                return value;
+
+            const auto* slot = &reinterpret_cast<const std::uint64_t*>(m_Args)[index];
+            std::memcpy(&value, slot, sizeof(Value));
+            return value;
+        }
+
+        template<typename T>
+        void SetReturnValue(T value) noexcept
+        {
+            using Value = std::remove_cv_t<std::remove_reference_t<T>>;
+            static_assert(std::is_trivially_copyable_v<Value>);
+            static_assert(sizeof(Value) <= sizeof(NativeVector3));
+
+            if (m_ReturnValue)
+                std::memcpy(m_ReturnValue, &value, sizeof(Value));
+        }
+
+        template<typename T>
         [[nodiscard]] T GetReturnValue() const noexcept
         {
             using Value = std::remove_cv_t<std::remove_reference_t<T>>;
