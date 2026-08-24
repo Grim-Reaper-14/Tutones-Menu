@@ -36,8 +36,8 @@ namespace Tutones::Core::Config
             const auto misc = document.value("misc", nlohmann::json::object());
             const auto ui = document.value("ui", nlohmann::json::object());
 
-            // Older files remain valid. The next save upgrades them to schema v4.
-            m_Settings.version = 4;
+            // Older files remain valid. The next save upgrades them to schema v5.
+            m_Settings.version = 5;
             m_Settings.offRadar = document.value("off_radar", m_Settings.offRadar);
 
             m_Settings.player.invincible = player.value("invincible", m_Settings.player.invincible);
@@ -101,6 +101,14 @@ namespace Tutones::Core::Config
             m_Settings.misc.disableCameraShake = misc.value("disable_camera_shake", m_Settings.misc.disableCameraShake);
 
             m_Settings.ui.activeTheme = ui.value("active_theme", m_Settings.ui.activeTheme);
+            m_Settings.ui.resizable = ui.value("resizable", m_Settings.ui.resizable);
+            m_Settings.ui.anchorTopLeft = ui.value("anchor_top_left", m_Settings.ui.anchorTopLeft);
+            m_Settings.ui.menuWidth = ui.value("menu_width", m_Settings.ui.menuWidth);
+            m_Settings.ui.menuHeight = ui.value("menu_height", m_Settings.ui.menuHeight);
+            if (m_Settings.ui.menuWidth < 1120.0f)
+                m_Settings.ui.menuWidth = 1120.0f;
+            if (m_Settings.ui.menuHeight < 754.0f)
+                m_Settings.ui.menuHeight = 754.0f;
 
             m_Loaded = true;
             return true;
@@ -194,6 +202,10 @@ namespace Tutones::Core::Config
                 }},
                 {"ui", {
                     {"active_theme", m_Settings.ui.activeTheme},
+                    {"resizable", m_Settings.ui.resizable},
+                    {"anchor_top_left", m_Settings.ui.anchorTopLeft},
+                    {"menu_width", m_Settings.ui.menuWidth},
+                    {"menu_height", m_Settings.ui.menuHeight},
                 }},
             };
 
