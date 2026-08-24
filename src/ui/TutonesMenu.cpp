@@ -1,4 +1,5 @@
 #include "BusinessPanel.hpp"
+#include "GoodBehaviorBonusPanel.hpp"
 #include "MiscPanel.hpp"
 #include "NativeToolsPanel.hpp"
 #include "NightclubPanel.hpp"
@@ -25,7 +26,7 @@ namespace Tutones::UI
             {"D", "RECOVERY",
                 {{"Overview", "RP Multiplier", "Unlocks", nullptr}},
                 {{"D", "H", "U", nullptr}},
-                {{"Live Enhanced Recovery capability and character-state overview.", "Override the current Enhanced XP multiplier while enabled, restoring the prior value when disabled.", "Enhanced DLC clothing unlock groups with packed-stat read-back verification.", nullptr}}, 3, true},
+                {{"Live Enhanced Recovery capability and character-state overview, including the Good Behavior Bonus reward trigger.", "Override the current Enhanced XP multiplier while enabled, restoring the prior value when disabled.", "Enhanced DLC clothing unlock groups with packed-stat read-back verification.", nullptr}}, 3, true},
             BaseCategories[6],
             {"S", "PROTECTIONS",
                 {{"Overview", "Network Events", "Script Events", nullptr}},
@@ -53,10 +54,16 @@ namespace Tutones::UI
 
         void RenderRecoveryNavigationPanel(std::size_t index) noexcept
         {
-            // Recovery navigation now exposes Overview / RP Multiplier / Unlocks.
+            // Recovery navigation exposes Overview / RP Multiplier / Unlocks.
             // The legacy business renderer remains at internal index 2 so the Misc
             // business hub can reuse it; visible Unlocks therefore maps to index 3.
             RenderRecoveryPanel(index == 2 ? 3 : index);
+
+            // Good Behavior Bonus is a Recovery reward, not a business feature.
+            // Render it after the Overview panel so the control stays visible above
+            // the full-size Recovery child and actually participates in the menu UI.
+            if (index == 0)
+                RenderGoodBehaviorBonusControl();
         }
     }
 }
