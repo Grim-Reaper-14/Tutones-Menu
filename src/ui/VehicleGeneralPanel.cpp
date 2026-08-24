@@ -419,11 +419,6 @@ namespace Tutones::UI
                     RenderClone(runtime);
                     ImGui::EndTabItem();
                 }
-                if (ImGui::BeginTabItem("Saved Garage"))
-                {
-                    RenderSavedGarage(runtime, snapshot);
-                    ImGui::EndTabItem();
-                }
                 ImGui::EndTabBar();
             }
 
