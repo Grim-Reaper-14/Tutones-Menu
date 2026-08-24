@@ -4,7 +4,8 @@ namespace Tutones::UI
 {
     void TutonesMenu::RenderContent() noexcept
     {
-        const ImVec2 windowPos = ImGui::GetWindowPos();
+        const ImVec2 rawWindowPos = ImGui::GetWindowPos();
+        const ImVec2 windowPos{rawWindowPos.x, rawWindowPos.y - ImGui::GetScrollY()};
         auto* draw = ImGui::GetWindowDrawList();
         const char* selected = Categories[m_Category].items[m_Item];
 
@@ -164,11 +165,18 @@ namespace Tutones::UI
 
             ImGui::SetCursorPos(ImVec2(V11Theme::ContentHostX, V11Theme::HeaderHeight));
             ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
-            constexpr ImGuiWindowFlags bodyFlags = ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoNavInputs | ImGuiWindowFlags_NoNavFocus;
+            ImGui::PushStyleColor(ImGuiCol_ScrollbarBg, ImVec4(V11Theme::ControlBg.x, V11Theme::ControlBg.y, V11Theme::ControlBg.z, 0.72f));
+            ImGui::PushStyleColor(ImGuiCol_ScrollbarGrab, V11Theme::AccentDark);
+            ImGui::PushStyleColor(ImGuiCol_ScrollbarGrabHovered, V11Theme::Accent);
+            ImGui::PushStyleColor(ImGuiCol_ScrollbarGrabActive, V11Theme::AccentHover);
+            ImGui::PushStyleVar(ImGuiStyleVar_ScrollbarSize, 10.0f);
+            ImGui::PushStyleVar(ImGuiStyleVar_ScrollbarRounding, 5.0f);
+            constexpr ImGuiWindowFlags bodyFlags = ImGuiWindowFlags_AlwaysVerticalScrollbar | ImGuiWindowFlags_NoNavInputs | ImGuiWindowFlags_NoNavFocus;
             if (ImGui::BeginChild("##v11_body", ImVec2(V11Theme::ContentHostWidth, V11Theme::BodyHeight), false, bodyFlags))
                 RenderContent();
             ImGui::EndChild();
-            ImGui::PopStyleColor();
+            ImGui::PopStyleVar(2);
+            ImGui::PopStyleColor(5);
 
             ImGui::SetCursorPos(ImVec2(0.0f, 0.0f));
             ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
