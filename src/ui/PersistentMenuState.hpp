@@ -10,6 +10,7 @@
 #include "../features/weapon/WeaponRuntime.hpp"
 #include "../features/world/TeleportRuntime.hpp"
 #include "../features/world/WorldRuntime.hpp"
+#include "../runtime/GameRuntime.hpp"
 
 #include <atomic>
 #include <chrono>
@@ -178,10 +179,10 @@ namespace Tutones::UI
     {
         using namespace PersistentMenuStateDetail;
 
-        // Recovery and Network are the final gameplay services started by Application.
-        // Waiting for both avoids staging settings while a later Start() could reset them.
-        if (!Game::Recovery::RecoveryRuntime::Get().IsRunning()
-            || !Game::NetworkFeatures::NetworkRuntime::Get().IsRunning())
+        // Persistent settings belong to the menu core, not to any one feature.
+        // Optional runtimes such as Recovery or Network are allowed to be offline;
+        // their failure must not block every other setting from being staged/captured.
+        if (!Runtime::GameRuntime::Get().IsInitialized())
         {
             g_Staged = false;
             g_CaptureAfter = {};
