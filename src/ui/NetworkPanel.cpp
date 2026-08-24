@@ -3,6 +3,7 @@
 #include "V11Description.hpp"
 #include "EnhancedHashCatalogWidget.hpp"
 #include "NetworkPlayersPanel.hpp"
+#include "RequestServicesPanel.hpp"
 #include "V11Theme.hpp"
 #include "../features/game/GameSessionRuntime.hpp"
 #include "../features/network/EnhancedCatalog.hpp"
@@ -197,6 +198,9 @@ namespace Tutones::UI
             if (snapshot.lastServiceAction != GameServiceAction::None)
                 ImGui::Text("Last service: %s - %s", ServiceName(snapshot.lastServiceAction),
                     snapshot.lastServiceSucceeded ? "dispatched" : "failed");
+
+            ImGui::Spacing();
+            RenderRequestServicesPanel();
 
             ImGui::Spacing();
             if (ImGui::CollapsingHeader("Timers & Money Inspector"))
