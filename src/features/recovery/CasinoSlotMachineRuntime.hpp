@@ -253,7 +253,11 @@ namespace Tutones::Game::Recovery
             if (!thread || !thread->stack)
                 return false;
 
-            const std::size_t slotCount = static_cast<std::size_t>(thread->context.stackSize) / sizeof(std::uint64_t);
+            // Enhanced m_StackSize is already measured in 64-bit script slots.
+            // YimMenuV2 compares the local offset directly against this count.
+            // Dividing by sizeof(uint64_t) rejects valid casino_slots locals
+            // such as the result table around 1357 and spin state at 1675.
+            const std::size_t slotCount = static_cast<std::size_t>(thread->context.stackSize);
             return index < slotCount;
         }
 
