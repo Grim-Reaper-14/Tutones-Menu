@@ -27,7 +27,7 @@ namespace Tutones::UI
             {"D", "RECOVERY",
                 {{"Overview", "RP Multiplier", "Unlocks", "Casino"}},
                 {{"D", "H", "U", "C"}},
-                {{"Live Enhanced Recovery capability and character-state overview, including the Good Behavior Bonus reward trigger.", "Override the current Enhanced XP multiplier while enabled, restoring the prior value when disabled.", "Enhanced DLC clothing unlock groups with packed-stat read-back verification.", "Enhanced Casino Lucky Wheel globals plus a validated read-only casino_lucky_wheel player-local inspector."}}, 4, true},
+                {{"Live Enhanced Recovery capability and character-state overview, including the Good Behavior Bonus reward trigger.", "Override the current Enhanced XP multiplier while enabled, restoring the prior value when disabled.", "Enhanced DLC clothing unlock groups with packed-stat read-back verification.", "Enhanced Casino tools including Lucky Wheel globals/local inspection and Rig Slot Machines runtime controls."}}, 4, true},
             BaseCategories[6],
             {"S", "PROTECTIONS",
                 {{"Overview", "Network Events", "Script Events", nullptr}},
@@ -50,6 +50,7 @@ namespace Tutones::UI
             // This runs once per rendered frame before TutonesMenu checks IsMenuOpen().
             Input::Get().PollFallbackHotkeys();
             static_cast<void>(Game::Protections::ProtectionRuntime::Get().Start());
+            Game::Recovery::CasinoSlotMachineRuntime::Get().Tick();
             RenderMiscOverlay();
         }
 
