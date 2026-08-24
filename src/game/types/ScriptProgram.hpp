@@ -1,5 +1,7 @@
 #pragma once
 
+#include "../native/NativeCallContext.hpp"
+
 #include <cstddef>
 #include <cstdint>
 
@@ -17,7 +19,7 @@ namespace Tutones::Game::Types
         std::uint32_t nativeCount{};        // 0x2C
         void* localData{};                  // 0x30
         void** globalData{};                // 0x38
-        void** nativeEntrypoints{};         // 0x40
+        Native::NativeHandler* nativeEntrypoints{}; // 0x40
         std::uint32_t procCount{};          // 0x48
         std::byte pad4C[0x4]{};
         const char** procNames{};           // 0x50
@@ -25,7 +27,7 @@ namespace Tutones::Game::Types
         std::uint32_t refCount{};           // 0x5C
         const char* name{};                 // 0x60
         const char** stringsData{};         // 0x68
-        std::uint32_t stringsCount{};       // 0x70
+        std::uint32_t stringsCount{};        // 0x70
         std::byte pad74[0x0C]{};
 
         [[nodiscard]] std::uint8_t* GetCodeAddress(std::uint32_t index) const noexcept
@@ -41,6 +43,5 @@ namespace Tutones::Game::Types
     static_assert(offsetof(ScriptProgram, codeBlocks) == 0x10);
     static_assert(offsetof(ScriptProgram, nativeCount) == 0x2C);
     static_assert(offsetof(ScriptProgram, nativeEntrypoints) == 0x40);
-    static_assert(offsetof(ScriptProgram, nameHash) == 0x58);
     static_assert(sizeof(ScriptProgram) == 0x80);
 }
