@@ -78,7 +78,7 @@ namespace Tutones::UI
             if (g_SelectedJoinType >= OnlineJoinTypes.size())
                 g_SelectedJoinType = 0;
 
-            if (ImGui::BeginTable("##session_v12_columns", 2, ImGuiTableFlags_SizingStretchSame))
+            if (ImGui::BeginTable("##session_v2_columns", 2, ImGuiTableFlags_SizingStretchSame))
             {
                 ImGui::TableNextColumn();
                 if (ImGui::BeginChild("##session_transition_card", ImVec2(0.0f, 365.0f), true))
@@ -186,7 +186,7 @@ namespace Tutones::UI
 
         void RenderCreator(GameSessionRuntime& runtime) noexcept
         {
-            if (ImGui::BeginChild("##creator_v12_card", ImVec2(0.0f, 365.0f), true))
+            if (ImGui::BeginChild("##creator_v2_card", ImVec2(0.0f, 365.0f), true))
             {
                 ImGui::TextColored(Accent, "CREATOR");
                 ImGui::TextDisabled("Capability placeholder");
@@ -214,7 +214,7 @@ namespace Tutones::UI
         ImGui::PushStyleColor(ImGuiCol_ChildBg, V11Theme::PanelBg);
         ImGui::PushStyleColor(ImGuiCol_Border, V11Theme::PanelBorder);
 
-        if (ImGui::BeginChild("##game_v12_panel", ImVec2(780.0f, 500.0f), true))
+        if (ImGui::BeginChild("##game_v2_panel", ImVec2(780.0f, 500.0f), true))
         {
             ImGui::TextColored(Accent, "ONLINE");
             ImGui::SameLine();
