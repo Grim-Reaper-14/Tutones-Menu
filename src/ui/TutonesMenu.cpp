@@ -129,13 +129,20 @@ namespace Tutones::UI
 }
 
 #include "TutonesMenu.part01.inc"
+#include "TutonesMenu.v12.inc"
 #define DrawPanel(...) RenderProtectionPanel(m_Item)
 #define RenderMiscOverlay(...) RenderTutonesRuntimeOverlays()
 #define RenderGamePanel(index) RenderOnlineNavigationPanel(index)
 #define RenderRecoveryPanel(index) RenderBusinessNavigationPanel(index)
 #define RenderNetworkPanel(index) RenderRecoveryNavigationPanel(index)
 #define RenderMiscPanel(index) RenderUtilitiesNavigationPanel(index)
+#define RenderNavigationRail() RenderV12NavigationRail()
+#define RenderCategoryRail() RenderV12CategoryRail()
+#define RenderStatusPanel(category, item) RenderV12StatusPanel(category, item)
 #include "TutonesMenu.part03.inc"
+#undef RenderStatusPanel
+#undef RenderCategoryRail
+#undef RenderNavigationRail
 #undef RenderMiscPanel
 #undef RenderNetworkPanel
 #undef RenderRecoveryPanel
