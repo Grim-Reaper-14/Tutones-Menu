@@ -2,6 +2,7 @@
 
 #include "V11Description.hpp"
 #include "V11Theme.hpp"
+#include "../features/business/InstantResupplyRuntime.hpp"
 #include "../features/business/MotorcycleClubRuntime.hpp"
 
 #include <imgui.h>
@@ -20,6 +21,8 @@ namespace Tutones::UI
 
         auto& runtime = MotorcycleClubRuntime::Get();
         const auto snapshot = runtime.Snapshot();
+        auto& resupply = InstantResupplyRuntime::Get();
+        const auto resupplyState = resupply.Snapshot();
 
         selectedBusiness = std::clamp(
             selectedBusiness,
@@ -63,6 +66,30 @@ namespace Tutones::UI
                 static_cast<void>(runtime.QueueApplyBusiness(businessIndex, profile));
             ImGui::EndDisabled();
             DescribeLastV11Item("Write and read back the selected business stock value and max-capacity globals.");
+
+            ImGui::SeparatorText("Instant Resupply Slots");
+            ImGui::TextDisabled("Supplied Global_1673820 slots 0-4 are kept generic until their business-to-slot mapping is verified.");
+            ImGui::BeginDisabled(resupplyState.pending);
+            if (ImGui::Button("Slot 0", ImVec2(86.0f, 0.0f)))
+                static_cast<void>(resupply.QueueRequest(InstantResupplyTarget::Slot0));
+            ImGui::SameLine();
+            if (ImGui::Button("Slot 1", ImVec2(86.0f, 0.0f)))
+                static_cast<void>(resupply.QueueRequest(InstantResupplyTarget::Slot1));
+            ImGui::SameLine();
+            if (ImGui::Button("Slot 2", ImVec2(86.0f, 0.0f)))
+                static_cast<void>(resupply.QueueRequest(InstantResupplyTarget::Slot2));
+            if (ImGui::Button("Slot 3", ImVec2(86.0f, 0.0f)))
+                static_cast<void>(resupply.QueueRequest(InstantResupplyTarget::Slot3));
+            ImGui::SameLine();
+            if (ImGui::Button("Slot 4", ImVec2(86.0f, 0.0f)))
+                static_cast<void>(resupply.QueueRequest(InstantResupplyTarget::Slot4));
+            ImGui::EndDisabled();
+            DescribeLastV11Item("Write 1 to the selected supplied Global_1673820 + 1 through +5 resupply flag with read-back verification.");
+
+            if (resupplyState.pending)
+                ImGui::TextDisabled("%s", resupplyState.message.c_str());
+            else if (resupplyState.haveResult)
+                ImGui::TextDisabled("Resupply %s: %s", resupplyState.lastSucceeded ? "Success" : "Failed", resupplyState.message.c_str());
 
             ImGui::SeparatorText("Sale Multipliers");
             ImGui::SetNextItemWidth(210.0f);

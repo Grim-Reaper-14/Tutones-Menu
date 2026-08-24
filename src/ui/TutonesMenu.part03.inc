@@ -3,6 +3,48 @@
 
 namespace Tutones::UI
 {
+    namespace
+    {
+        void DrawImageCover(
+            ImDrawList* draw,
+            ImTextureRef texture,
+            const ImVec2 destinationMin,
+            const ImVec2 destinationMax,
+            const float sourceAspect,
+            ImVec2 uvMin,
+            ImVec2 uvMax,
+            const ImU32 tint = IM_COL32_WHITE) noexcept
+        {
+            if (!draw || texture.GetTexID() == ImTextureID_Invalid || sourceAspect <= 0.0f)
+                return;
+
+            const float width = destinationMax.x - destinationMin.x;
+            const float height = destinationMax.y - destinationMin.y;
+            if (width <= 0.0f || height <= 0.0f)
+                return;
+
+            const float destinationAspect = width / height;
+            if (sourceAspect > destinationAspect)
+            {
+                const float visibleFraction = destinationAspect / sourceAspect;
+                const float span = uvMax.x - uvMin.x;
+                const float crop = span * (1.0f - visibleFraction) * 0.5f;
+                uvMin.x += crop;
+                uvMax.x -= crop;
+            }
+            else if (sourceAspect < destinationAspect)
+            {
+                const float visibleFraction = sourceAspect / destinationAspect;
+                const float span = uvMax.y - uvMin.y;
+                const float crop = span * (1.0f - visibleFraction) * 0.5f;
+                uvMin.y += crop;
+                uvMax.y -= crop;
+            }
+
+            draw->AddImage(texture, destinationMin, destinationMax, uvMin, uvMax, tint);
+        }
+    }
+
     void TutonesMenu::RenderContent() noexcept
     {
         const ImVec2 rawWindowPos = ImGui::GetWindowPos();
@@ -170,10 +212,16 @@ namespace Tutones::UI
             if (headerTexture.GetTexID() != ImTextureID_Invalid)
             {
                 const ImVec2 headerMax{pos.x + menuWidth, pos.y + V11Theme::HeaderHeight};
-                if (themes.HeaderIsCustom())
-                    draw->AddImage(headerTexture, pos, headerMax);
-                else
-                    draw->AddImage(headerTexture, pos, headerMax, ImVec2(0.0f, 0.045f), ImVec2(1.0f, 0.605f));
+                const ImVec2 uvMin = themes.HeaderIsCustom() ? ImVec2(0.0f, 0.0f) : ImVec2(0.0f, 0.045f);
+                const ImVec2 uvMax = themes.HeaderIsCustom() ? ImVec2(1.0f, 1.0f) : ImVec2(1.0f, 0.605f);
+                DrawImageCover(
+                    draw,
+                    headerTexture,
+                    pos,
+                    headerMax,
+                    V11Theme::MenuWidth / V11Theme::HeaderHeight,
+                    uvMin,
+                    uvMax);
             }
             else
             {
@@ -188,10 +236,12 @@ namespace Tutones::UI
             if (backgroundTexture.GetTexID() != ImTextureID_Invalid)
             {
                 const float alpha = std::clamp(themes.Current().backgroundOpacity, 0.0f, 1.0f);
-                draw->AddImage(
+                DrawImageCover(
+                    draw,
                     backgroundTexture,
                     bodyMin,
                     bodyMax,
+                    V11Theme::MenuWidth / V11Theme::BodyHeight,
                     ImVec2(0.0f, 0.0f),
                     ImVec2(1.0f, 1.0f),
                     IM_COL32(255, 255, 255, static_cast<int>(alpha * 255.0f)));
@@ -257,10 +307,16 @@ namespace Tutones::UI
             const ImTextureRef footerTexture = themes.FooterTexture();
             if (footerTexture.GetTexID() != ImTextureID_Invalid)
             {
-                if (themes.FooterIsCustom())
-                    draw->AddImage(footerTexture, footerMin, footerMax);
-                else
-                    draw->AddImage(footerTexture, footerMin, footerMax, ImVec2(0.0f, 0.635f), ImVec2(1.0f, 0.965f));
+                const ImVec2 uvMin = themes.FooterIsCustom() ? ImVec2(0.0f, 0.0f) : ImVec2(0.0f, 0.635f);
+                const ImVec2 uvMax = themes.FooterIsCustom() ? ImVec2(1.0f, 1.0f) : ImVec2(1.0f, 0.965f);
+                DrawImageCover(
+                    draw,
+                    footerTexture,
+                    footerMin,
+                    footerMax,
+                    V11Theme::MenuWidth / V11Theme::FooterHeight,
+                    uvMin,
+                    uvMax);
 
                 const ImVec2 textMin{footerMin.x + 172.0f, footerMin.y + 24.0f};
                 const ImVec2 textMax{footerMax.x - 150.0f, footerMax.y - 18.0f};

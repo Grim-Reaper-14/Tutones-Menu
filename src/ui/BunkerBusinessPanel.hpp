@@ -2,6 +2,7 @@
 
 #include "V11Description.hpp"
 #include "V11Theme.hpp"
+#include "../features/business/InstantResupplyRuntime.hpp"
 #include "../features/recovery/BunkerToolsRuntime.hpp"
 #include "../features/recovery/RecoveryRuntime.hpp"
 
@@ -14,6 +15,8 @@ namespace Tutones::UI
 {
     inline void RenderBunkerBusinessPanel() noexcept
     {
+        using Game::Business::InstantResupplyRuntime;
+        using Game::Business::InstantResupplyTarget;
         using Game::Recovery::BunkerTuningProfile;
         using Game::Recovery::BunkerToolsRuntime;
         using Game::Recovery::RecoveryRuntime;
@@ -22,6 +25,8 @@ namespace Tutones::UI
         const auto snapshot = runtime.Snapshot();
         auto& tools = BunkerToolsRuntime::Get();
         const auto toolState = tools.Snapshot();
+        auto& resupply = InstantResupplyRuntime::Get();
+        const auto resupplyState = resupply.Snapshot();
 
         static std::uint64_t lastRevision{};
         static int supplies{};
@@ -140,10 +145,23 @@ namespace Tutones::UI
                 ImGui::SameLine();
                 if (ImGui::Button("Reset editor defaults", ImVec2(-1.0f, 0.0f)))
                     profile = BunkerTuningProfile{};
+                ImGui::EndDisabled();
 
+                ImGui::BeginDisabled(resupplyState.pending);
+                if (ImGui::Button("Instant Resupply (supplied +6)", ImVec2(-1.0f, 0.0f)))
+                    static_cast<void>(resupply.QueueRequest(InstantResupplyTarget::Bunker));
+                ImGui::EndDisabled();
+                DescribeLastV11Item("Write 1 to the supplied Global_1673820 + 6 Bunker Instant Resupply flag and verify the read-back.");
+
+                ImGui::BeginDisabled(toolState.pending);
                 if (ImGui::Button("Instant Sell (active gb_gunrunning)", ImVec2(-1.0f, 0.0f)))
                     tools.QueueInstantSell();
                 ImGui::EndDisabled();
+
+                if (resupplyState.pending)
+                    ImGui::TextDisabled("%s", resupplyState.message.c_str());
+                else if (resupplyState.haveResult)
+                    ImGui::TextDisabled("Resupply %s: %s", resupplyState.lastSucceeded ? "Success" : "Failed", resupplyState.message.c_str());
 
                 if (toolState.pending)
                     ImGui::TextDisabled("Bunker action queued on the GTA script thread...");
@@ -157,6 +175,6 @@ namespace Tutones::UI
         ImGui::EndChild();
         ImGui::PopStyleColor(2);
         ImGui::PopStyleVar(2);
-        SetV11Description("Bunker is fully rendered inside its business tab: stock, product value, sale multipliers, high-demand bonus, production times and Instant Sell.");
+        SetV11Description("Bunker is fully rendered inside its business tab: stock, Instant Resupply, product value, sale multipliers, high-demand bonus, production times and Instant Sell.");
     }
 }

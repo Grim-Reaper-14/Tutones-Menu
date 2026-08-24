@@ -1,9 +1,12 @@
 #pragma once
 
+#include "AcidLabBusinessPanel.hpp"
 #include "BunkerBusinessPanel.hpp"
+#include "HangarBusinessPanel.hpp"
 #include "MotorcycleClubPanel.hpp"
 #include "NightclubPanel.hpp"
 #include "SpecialCargoBusinessPanel.hpp"
+#include "VehicleCargoBusinessPanel.hpp"
 #include "V11Description.hpp"
 #include "V11Theme.hpp"
 
@@ -15,9 +18,8 @@ namespace Tutones::UI
     {
         inline void RenderBusinessTabs(int& selectedBusinessPage) noexcept
         {
-            // The business selector belongs to the menu itself. Keep it in the
-            // normal parent layout above the selected business child panel so no
-            // top-level ImGui window or overlay is needed.
+            // Keep every business isolated on its own page while fitting the
+            // complete selector inside the existing 730px content host.
             ImGui::SetCursorPos(ImVec2(226.0f, 16.0f));
             ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(4.0f, 4.0f));
 
@@ -35,13 +37,19 @@ namespace Tutones::UI
                     selectedBusinessPage = page;
             };
 
-            tabButton("Nightclub", 0, 82.0f);
+            tabButton("Nightclub", 0, 78.0f);
             ImGui::SameLine();
-            tabButton("Special Cargo", 1, 112.0f);
+            tabButton("Special Cargo", 1, 106.0f);
             ImGui::SameLine();
-            tabButton("Bunker", 2, 72.0f);
+            tabButton("Bunker", 2, 68.0f);
             ImGui::SameLine();
-            tabButton("Motorcycle Club", 3, 136.0f);
+            tabButton("MC", 3, 44.0f);
+            ImGui::SameLine();
+            tabButton("Acid Lab", 4, 72.0f);
+            ImGui::SameLine();
+            tabButton("Hangar", 5, 68.0f);
+            ImGui::SameLine();
+            tabButton("Vehicle Cargo", 6, 108.0f);
 
             ImGui::PopStyleVar();
         }
@@ -66,12 +74,24 @@ namespace Tutones::UI
         else if (selectedBusinessPage == 2)
         {
             RenderBunkerBusinessPanel();
-            SetV11Description("Bunker only: supplies/product stock, product value, sale multipliers, high-demand bonus, production times and gb_gunrunning Instant Sell, all rendered directly in the menu.");
+            SetV11Description("Bunker only: supplies/product stock, Instant Resupply, product value, sale multipliers, high-demand bonus, production times and gb_gunrunning Instant Sell.");
+        }
+        else if (selectedBusinessPage == 3)
+        {
+            RenderMotorcycleClubPanel();
+            SetV11Description("Motorcycle Club only: supplied Enhanced 1.73 stock values, Near/Far sale multipliers, max capacities and the five supplied Instant Resupply slots.");
+        }
+        else if (selectedBusinessPage == 4)
+        {
+            RenderAcidLabBusinessPanel();
+        }
+        else if (selectedBusinessPage == 5)
+        {
+            RenderHangarBusinessPanel();
         }
         else
         {
-            RenderMotorcycleClubPanel();
-            SetV11Description("Motorcycle Club only: supplied Enhanced 1.73 stock values, Near/Far sale multipliers, and max capacities for Documents, Cash, Cocaine, Meth, Weed and Acid.");
+            RenderVehicleCargoBusinessPanel();
         }
     }
 }

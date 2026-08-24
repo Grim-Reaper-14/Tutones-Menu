@@ -1,4 +1,5 @@
 #include "BusinessPanel.hpp"
+#include "CasinoLuckyWheelPanel.hpp"
 #include "GoodBehaviorBonusPanel.hpp"
 #include "MiscPanel.hpp"
 #include "NativeToolsPanel.hpp"
@@ -24,9 +25,9 @@ namespace Tutones::UI
                 {{"O", "Q", "L", "E"}},
                 {{"Pedestrian, scenario, traffic and parked-vehicle population density controls.", "Verified Enhanced local clock, freeze-time, weather and blackout controls.", "Waypoint and map-destination teleport tools with ground-height resolution.", "Local entity cleanup plus a live crosshair inspector for model, transform, health, material, vehicle and ped debug data."}}, 4, true},
             {"D", "RECOVERY",
-                {{"Overview", "RP Multiplier", "Unlocks", nullptr}},
-                {{"D", "H", "U", nullptr}},
-                {{"Live Enhanced Recovery capability and character-state overview, including the Good Behavior Bonus reward trigger.", "Override the current Enhanced XP multiplier while enabled, restoring the prior value when disabled.", "Enhanced DLC clothing unlock groups with packed-stat read-back verification.", nullptr}}, 3, true},
+                {{"Overview", "RP Multiplier", "Unlocks", "Casino"}},
+                {{"D", "H", "U", "C"}},
+                {{"Live Enhanced Recovery capability and character-state overview, including the Good Behavior Bonus reward trigger.", "Override the current Enhanced XP multiplier while enabled, restoring the prior value when disabled.", "Enhanced DLC clothing unlock groups with packed-stat read-back verification.", "Enhanced Casino Lucky Wheel globals plus a validated read-only casino_lucky_wheel player-local inspector."}}, 4, true},
             BaseCategories[6],
             {"S", "PROTECTIONS",
                 {{"Overview", "Network Events", "Script Events", nullptr}},
@@ -36,7 +37,7 @@ namespace Tutones::UI
             {"M", "MISC",
                 {{"General", "HUD", "Businesses", "Camera & Utilities"}},
                 {{"M", "H", "B", "C"}},
-                {{"Gameplay convenience actions and shared quality-of-life controls.", "Always-on coordinates, heading, FPS and Online session overlays.", "Central business hub for Nightclub, Special Cargo, Lupe sourcing, warehouse controls, Bunker stock, cooldowns, mission locals, crate prices and special cargo globals.", "Gameplay camera telemetry/shake suppression plus player cleanup, parachute and underwater utilities."}}, 4, true},
+                {{"Gameplay convenience actions and shared quality-of-life controls.", "Always-on coordinates, heading, FPS and Online session overlays.", "Central business hub for Nightclub, Special Cargo, Bunker, Motorcycle Club, Acid Lab, Hangar/Air Freight and Vehicle Cargo, with validated Enhanced globals and script runtime guards.", "Gameplay camera telemetry/shake suppression plus player cleanup, parachute and underwater utilities."}}, 4, true},
             {"T", "NATIVE TOOLS",
                 {{"Workshop", "Vehicle & Camera", "World Tools", "Diagnostics"}},
                 {{"W", "C", "O", "K"}},
@@ -54,6 +55,12 @@ namespace Tutones::UI
 
         void RenderRecoveryNavigationPanel(std::size_t index) noexcept
         {
+            if (index == 3)
+            {
+                RenderCasinoLuckyWheelPanel();
+                return;
+            }
+
             // Recovery navigation exposes Overview / RP Multiplier / Unlocks.
             // The legacy business renderer remains at internal index 2 so the Misc
             // business hub can reuse it; visible Unlocks therefore maps to index 3.
