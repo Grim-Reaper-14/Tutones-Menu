@@ -11,9 +11,11 @@
 #include "../features/vehicle/VehiclePaintRuntime.hpp"
 #include "../features/weapon/WeaponRuntime.hpp"
 #include "../game/GameState.hpp"
+#include "../runtime/GameRuntime.hpp"
 
 #include <chrono>
 #include <string>
+#include <thread>
 #include <utility>
 
 namespace Tutones::Backend
@@ -31,10 +33,20 @@ namespace Tutones::Backend
             return true;
 
         m_TickSequence.store(0, std::memory_order_release);
+        m_ActiveTicks.store(0, std::memory_order_release);
         RegisterBuiltinFeatures();
         m_Capabilities.Refresh();
         RefreshContext();
         m_Features.StartEligible(m_Capabilities);
+
+        if (!QueueNextTick())
+        {
+            TUTONES_LOG_ERROR("backend.hub", "Could not queue the first BackendHub heartbeat");
+            m_Initialized.store(false, std::memory_order_release);
+            m_Features.StopAll();
+            m_Capabilities.Reset();
+            return false;
+        }
 
         const auto features = m_Features.Snapshot();
         std::size_t healthy{};
@@ -65,6 +77,17 @@ namespace Tutones::Backend
             return;
 
         TUTONES_LOG_INFO("backend.hub", "Stopping BackendHub feature orchestration");
+
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(500);
+        while (m_ActiveTicks.load(std::memory_order_acquire) != 0
+            && std::chrono::steady_clock::now() < deadline)
+        {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+
+        if (m_ActiveTicks.load(std::memory_order_acquire) != 0)
+            TUTONES_LOG_WARN("backend.hub", "Timed out waiting for BackendHub heartbeat drain");
+
         m_Features.StopAll();
         m_Capabilities.Reset();
         {
@@ -72,6 +95,7 @@ namespace Tutones::Backend
             m_Context = {};
         }
         m_TickSequence.store(0, std::memory_order_release);
+        m_ActiveTicks.store(0, std::memory_order_release);
         TUTONES_LOG_INFO("backend.hub", "BackendHub stopped");
     }
 
@@ -80,11 +104,23 @@ namespace Tutones::Backend
         if (!IsInitialized())
             return;
 
+        m_ActiveTicks.fetch_add(1, std::memory_order_acq_rel);
+        if (!IsInitialized())
+        {
+            m_ActiveTicks.fetch_sub(1, std::memory_order_acq_rel);
+            return;
+        }
+
         m_Capabilities.Refresh();
         RefreshContext();
         const auto context = Context();
         m_Features.Tick(context, m_Capabilities, MonotonicMs());
         m_TickSequence.fetch_add(1, std::memory_order_acq_rel);
+
+        if (IsInitialized() && !QueueNextTick())
+            TUTONES_LOG_ERROR("backend.hub", "BackendHub heartbeat could not requeue itself");
+
+        m_ActiveTicks.fetch_sub(1, std::memory_order_acq_rel);
     }
 
     bool BackendHub::IsInitialized() const noexcept
@@ -273,6 +309,16 @@ namespace Tutones::Backend
 
         std::scoped_lock lock(m_ContextMutex);
         m_Context = context;
+    }
+
+    bool BackendHub::QueueNextTick() noexcept
+    {
+        if (!IsInitialized())
+            return false;
+
+        return Runtime::GameRuntime::Get().Enqueue([] {
+            BackendHub::Get().TickOnGameThread();
+        });
     }
 
     std::uint64_t BackendHub::MonotonicMs() noexcept
