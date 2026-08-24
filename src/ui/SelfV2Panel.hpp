@@ -83,6 +83,8 @@ namespace Tutones::UI
         static Game::Ped lastPed{};
         static bool godMode{};
         static bool neverWanted{};
+        static bool policeIgnore{};
+        static bool everyoneIgnore{};
         static bool superRun{};
         static bool superJump{};
         static bool noRagdoll{};
@@ -102,6 +104,8 @@ namespace Tutones::UI
             lastPed = player.ped;
             godMode = player.invincible;
             neverWanted = player.neverWanted;
+            policeIgnore = player.policeIgnore;
+            everyoneIgnore = player.everyoneIgnore;
             superRun = player.runMultiplier > 1.01f;
             superJump = player.superJump;
             noRagdoll = player.noRagdoll;
@@ -154,6 +158,14 @@ namespace Tutones::UI
                     if (SelfV2Detail::Toggle("wanted", "Never Wanted", neverWanted))
                         playerRuntime.SetNeverWanted(neverWanted);
                     DescribeLastV11Item("Continuously clear the local player's wanted level while enabled.");
+
+                    if (SelfV2Detail::Toggle("police_ignore", "Police Ignore", policeIgnore))
+                        playerRuntime.SetPoliceIgnore(policeIgnore);
+                    DescribeLastV11Item("Tell police AI to ignore the local player while the option is enabled.");
+
+                    if (SelfV2Detail::Toggle("everyone_ignore", "Everyone Ignore", everyoneIgnore))
+                        playerRuntime.SetEveryoneIgnore(everyoneIgnore);
+                    DescribeLastV11Item("Tell ambient AI to ignore the local player while the option is enabled.");
 
                     if (SelfV2Detail::Toggle("run", "Super Run", superRun))
                         playerRuntime.SetRunMultiplier(superRun ? 1.49f : 1.0f);
@@ -321,6 +333,6 @@ namespace Tutones::UI
         ImGui::PopStyleColor(2);
         ImGui::PopStyleVar(3);
 
-        SetV11Description("Tutones Menu V2 Self dashboard: Player Options, Enhanced Ghost Organization / Off Radar, live stat editing and quick actions mirrored from the approved design.");
+        SetV11Description("Tutones Menu V2 Self dashboard: Player Options, Police Ignore / Everyone Ignore, Enhanced Ghost Organization / Off Radar, live stat editing and quick actions mirrored from the approved design.");
     }
 }
