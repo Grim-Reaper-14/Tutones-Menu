@@ -6,6 +6,9 @@
 #include "NightclubPanel.hpp"
 #include "PersistentMenuState.hpp"
 #include "ProtectionPanel.hpp"
+#include "../features/recovery/RecoveryRuntime.hpp"
+#include "../features/vehicle/VehicleModificationRuntime.hpp"
+#include "../features/world/WorldRuntime.hpp"
 
 #define Categories BaseCategories
 #include "TutonesMenu.part00.inc"
