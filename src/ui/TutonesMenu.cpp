@@ -6,6 +6,7 @@
 #include "NightclubPanel.hpp"
 #include "PersistentMenuState.hpp"
 #include "ProtectionPanel.hpp"
+#include "WorldPanel.hpp"
 #include "../features/recovery/RecoveryRuntime.hpp"
 #include "../features/vehicle/VehicleModificationRuntime.hpp"
 #include "../features/world/WorldRuntime.hpp"
