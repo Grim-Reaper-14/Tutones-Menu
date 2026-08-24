@@ -92,11 +92,15 @@ namespace Tutones::Core::Config
     struct UiMenuSettings final
     {
         std::string activeTheme{"default.json"};
+        bool resizable{true};
+        bool anchorTopLeft{true};
+        float menuWidth{1120.0f};
+        float menuHeight{754.0f};
     };
 
     struct MenuSettingsData final
     {
-        std::uint32_t version{4};
+        std::uint32_t version{5};
         PlayerMenuSettings player{};
         bool offRadar{};
         VehicleMenuSettings vehicle{};
