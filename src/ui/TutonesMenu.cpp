@@ -6,6 +6,7 @@
 #include "NightclubPanel.hpp"
 #include "PersistentMenuState.hpp"
 #include "ProtectionPanel.hpp"
+#include "SelfV2Panel.hpp"
 #include "WorldPanel.hpp"
 #include "../features/recovery/RecoveryRuntime.hpp"
 #include "../features/vehicle/VehicleModificationRuntime.hpp"
@@ -226,7 +227,7 @@ namespace Tutones::UI
 
 #define DrawPanel(...) RenderV12ProtectionPanel(m_Item)
 #define RenderMiscOverlay(...) RenderTutonesRuntimeOverlays()
-#define RenderPlayerPanel(index) RenderV12PlayerPanel(index)
+#define RenderPlayerPanel(index) ((index) == 0 ? RenderSelfV2Panel() : RenderV12PlayerPanel(index))
 #define RenderPlayerOnlinePanel() RenderV12PlayerOnlinePanel()
 #define RenderWeaponPanel(index) RenderV12WeaponPanel(index)
 #define RenderVehicleGeneralPanel() RenderV12VehicleGeneralPanel()
