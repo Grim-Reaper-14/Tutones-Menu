@@ -253,7 +253,6 @@ source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR}/src PREFIX "Source" FILES
     src/render/d3d12/FrameContext.hpp
     src/runtime/GameRuntime.cpp
     src/runtime/GameRuntime.hpp
-    src/runtime/RuntimeStartup.hpp
     src/ui/GamePanel.cpp
     src/ui/GamePanel.hpp
     src/ui/Input.cpp
