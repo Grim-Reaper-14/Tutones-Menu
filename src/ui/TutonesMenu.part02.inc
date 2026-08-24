@@ -1,4 +1,5 @@
 #include "WorldPanel.hpp"
+#include "GoodBehaviorBonusPanel.hpp"
 
 namespace Tutones::UI
 {
@@ -44,6 +45,8 @@ namespace Tutones::UI
 
         case 5:
             RenderRecoveryPanel(m_Item);
+            if (m_Item == 0)
+                RenderGoodBehaviorBonusControl(Game::Recovery::RecoveryRuntime::Get().Snapshot().sessionStarted);
             break;
 
         case 6:
