@@ -18,11 +18,9 @@ namespace Tutones::UI::V11Theme
     inline ImVec4 ControlHover{9.0f / 255.0f, 34.0f / 255.0f, 66.0f / 255.0f, 1.0f};
     inline ImVec4 MutedText{139.0f / 255.0f, 153.0f / 255.0f, 177.0f / 255.0f, 1.0f};
 
-    inline constexpr float MenuWidth = 1120.0f;
-    // Keep the existing horizontal layout intact so fixed-width feature panels
-    // do not get squeezed, but trim the oversized banner/footer to make the
-    // overall V11 frame substantially shorter. The 474px body still fits all
-    // eleven 38px category buttons on their existing 42px pitch.
+    // Wider V11 shell: the previous 1120px frame left only ~504px to the
+    // right of fixed 226px panel offsets, which clipped the Business selector.
+    inline constexpr float MenuWidth = 1280.0f;
     inline constexpr float MenuHeight = 754.0f;
     inline constexpr float HeaderHeight = 150.0f;
     inline constexpr float FooterHeight = 130.0f;
@@ -35,10 +33,10 @@ namespace Tutones::UI::V11Theme
     inline constexpr float SubtabRailWidth = 170.0f;
 
     inline constexpr float ContentHostX = 139.0f;
-    // Reserve a little extra width for the main content scrollbar without
-    // pushing into the status column at x=870.
-    inline constexpr float ContentHostWidth = 730.0f;
+    // 880px keeps the existing panel offsets intact while leaving ~654px of
+    // usable center width after x=226, enough for all seven Business tabs.
+    inline constexpr float ContentHostWidth = 880.0f;
 
-    inline constexpr float StatusX = 870.0f;
+    inline constexpr float StatusX = 1030.0f;
     inline constexpr float StatusWidth = 236.0f;
 }
