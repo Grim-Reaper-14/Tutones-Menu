@@ -11,9 +11,50 @@
 #include "../features/vehicle/VehicleModificationRuntime.hpp"
 #include "../features/world/WorldRuntime.hpp"
 
+#include <cstring>
+
 #define Categories BaseCategories
 #include "TutonesMenu.part00.inc"
 #undef Categories
+
+namespace ImGui
+{
+    namespace
+    {
+        bool g_TutonesV12OverlayItemHovered{};
+    }
+
+    // The V12 rail is rendered inside a transparent overlay child so it can sit
+    // above the dashboard visually. The child itself must not own mouse input,
+    // otherwise it blocks every real feature control underneath it. Navigation
+    // uses direct mouse hit-testing instead of normal ImGui item ownership.
+    inline bool TutonesV12OverlayInvisibleButton(
+        const char*,
+        const ImVec2& size,
+        ImGuiButtonFlags = 0) noexcept
+    {
+        const ImVec2 min = GetCursorScreenPos();
+        const ImVec2 max{min.x + size.x, min.y + size.y};
+        g_TutonesV12OverlayItemHovered = IsMouseHoveringRect(min, max, false);
+        return g_TutonesV12OverlayItemHovered && IsMouseClicked(ImGuiMouseButton_Left);
+    }
+
+    inline bool TutonesV12OverlayIsItemHovered(ImGuiHoveredFlags = 0) noexcept
+    {
+        return g_TutonesV12OverlayItemHovered;
+    }
+
+    inline bool TutonesV12BeginChild(
+        const char* strId,
+        const ImVec2& size,
+        bool border,
+        ImGuiWindowFlags windowFlags) noexcept
+    {
+        if (strId && std::strcmp(strId, "##v11_rail_input") == 0)
+            windowFlags |= ImGuiWindowFlags_NoMouseInputs;
+        return BeginChild(strId, size, border, windowFlags);
+    }
+}
 
 namespace Tutones::UI
 {
@@ -60,7 +101,7 @@ namespace Tutones::UI
             {"M", "UTILITIES",
                 {{"General", "HUD", "Camera & Player", nullptr}},
                 {{"M", "H", "C", nullptr}},
-                {{"Gameplay convenience actions and shared quality-of-life controls.", "Coordinates, heading, FPS and Online-session overlays.", "Camera-shake, player cleanup, parachute and underwater utility controls.", nullptr}}, 3, true},
+                {{"Gameplay convenience actions and shared quality-of-life controls.", "Coordinates, heading, FPS and Online-session overlays.", "Camera-shake, player cleanup, parachute and underwater utility controls."}}, 3, true},
             {"T", "TOOLS",
                 {{"Workshop", "Vehicle & Camera", "World Tools", "Diagnostics"}},
                 {{"W", "C", "O", "K"}},
@@ -79,7 +120,11 @@ namespace Tutones::UI
 
 #include "TutonesMenu.part01.inc"
 #include "TutonesMenu.v12style.inc"
+#define InvisibleButton TutonesV12OverlayInvisibleButton
+#define IsItemHovered TutonesV12OverlayIsItemHovered
 #include "TutonesMenu.v12.inc"
+#undef IsItemHovered
+#undef InvisibleButton
 #include "TutonesMenu.v12pages.inc"
 #include "TutonesMenu.v12tools.inc"
 
@@ -158,7 +203,9 @@ namespace Tutones::UI
 #define RenderCategoryRail() RenderV12CategoryRail()
 #define RenderStatusPanel(category, item) RenderV12StatusPanel(category, item)
 #define ApplyV11Style() ApplyV12Style()
+#define BeginChild TutonesV12BeginChild
 #include "TutonesMenu.part03.inc"
+#undef BeginChild
 #undef ApplyV11Style
 #undef RenderStatusPanel
 #undef RenderCategoryRail
