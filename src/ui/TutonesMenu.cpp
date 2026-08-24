@@ -15,10 +15,7 @@ namespace Tutones::UI
 {
     namespace
     {
-        // Navigation is intentionally organized by what the user is trying to do,
-        // not by which backend happens to implement the feature. This keeps Online,
-        // Businesses, Recovery and Utilities from being scattered across Game,
-        // Network and Misc pages.
+        // Navigation is organized by user intent instead of backend ownership.
         constexpr std::array<CategoryEntry, 11> Categories{{
             {"P", "SELF",
                 {{"General", "Online", "Movement", "Appearance"}},
@@ -68,62 +65,10 @@ namespace Tutones::UI
 
         void RenderTutonesRuntimeOverlays() noexcept
         {
-            // Keep F4 usable even when GTA's WndProc path misses the key event.
-            // This runs once per rendered frame before TutonesMenu checks IsMenuOpen().
             Input::Get().PollFallbackHotkeys();
             static_cast<void>(Game::Protections::ProtectionRuntime::Get().Start());
             Game::Recovery::CasinoSlotMachineRuntime::Get().Tick();
             RenderMiscOverlay();
-        }
-
-        void RenderOnlineNavigationPanel(std::size_t index) noexcept
-        {
-            switch (index)
-            {
-            case 0:
-                RenderGamePanel(0); // Session
-                break;
-            case 1:
-                RenderNetworkPanel(2); // Players
-                break;
-            case 2:
-                RenderNetworkPanel(0); // Services
-                break;
-            default:
-                RenderNetworkPanel(3); // Player State
-                break;
-            }
-        }
-
-        void RenderBusinessNavigationPanel(std::size_t) noexcept
-        {
-            RenderBusinessPanel();
-        }
-
-        void RenderRecoveryNavigationPanel(std::size_t index) noexcept
-        {
-            switch (index)
-            {
-            case 0:
-                RenderRecoveryPanel(0);
-                RenderGoodBehaviorBonusControl();
-                break;
-            case 1:
-                RenderCasinoLuckyWheelPanel();
-                break;
-            case 2:
-                RenderRecoveryPanel(3); // Unlocks
-                break;
-            default:
-                RenderRecoveryPanel(1); // RP multiplier
-                break;
-            }
-        }
-
-        void RenderUtilitiesNavigationPanel(std::size_t index) noexcept
-        {
-            // part03 maps visible utility index 2 to the legacy Misc index 3.
-            RenderMiscPanel(index);
         }
     }
 }
@@ -131,12 +76,79 @@ namespace Tutones::UI
 #include "TutonesMenu.part01.inc"
 #include "TutonesMenu.v12style.inc"
 #include "TutonesMenu.v12.inc"
-#define DrawPanel(...) RenderProtectionPanel(m_Item)
+#include "TutonesMenu.v12pages.inc"
+
+namespace Tutones::UI
+{
+    namespace
+    {
+        void RenderOnlineNavigationPanel(std::size_t index) noexcept
+        {
+            switch (index)
+            {
+            case 0:
+                RenderV12GamePanel(0);
+                break;
+            case 1:
+                RenderV12NetworkPanel(2);
+                break;
+            case 2:
+                RenderV12NetworkPanel(0);
+                break;
+            default:
+                RenderV12NetworkPanel(3);
+                break;
+            }
+        }
+
+        void RenderBusinessNavigationPanel(std::size_t) noexcept
+        {
+            RenderV12BusinessPanel();
+        }
+
+        void RenderRecoveryNavigationPanel(std::size_t index) noexcept
+        {
+            switch (index)
+            {
+            case 0:
+                RenderV12RecoveryPanel(0);
+                RenderGoodBehaviorBonusControl();
+                break;
+            case 1:
+                RenderV12CasinoPanel();
+                break;
+            case 2:
+                RenderV12RecoveryPanel(3);
+                break;
+            default:
+                RenderV12RecoveryPanel(1);
+                break;
+            }
+        }
+
+        void RenderUtilitiesNavigationPanel(std::size_t index) noexcept
+        {
+            RenderV12MiscPanel(index);
+        }
+    }
+}
+
+#define DrawPanel(...) RenderV12ProtectionPanel(m_Item)
 #define RenderMiscOverlay(...) RenderTutonesRuntimeOverlays()
+#define RenderPlayerPanel(index) RenderV12PlayerPanel(index)
+#define RenderPlayerOnlinePanel() RenderV12PlayerOnlinePanel()
+#define RenderWeaponPanel(index) RenderV12WeaponPanel(index)
+#define RenderVehicleGeneralPanel() RenderV12VehicleGeneralPanel()
+#define RenderVehiclePaintPanel() RenderV12VehiclePaintPanel()
+#define RenderVehicleModificationPanel() RenderV12VehicleModificationPanel()
+#define RenderPersonalVehiclePanel() RenderV12PersonalVehiclePanel()
 #define RenderGamePanel(index) RenderOnlineNavigationPanel(index)
+#define RenderWorldPanel(index) RenderV12WorldPanel(index)
 #define RenderRecoveryPanel(index) RenderBusinessNavigationPanel(index)
 #define RenderNetworkPanel(index) RenderRecoveryNavigationPanel(index)
+#define RenderSettingsPanel(index) RenderV12SettingsPanel(index)
 #define RenderMiscPanel(index) RenderUtilitiesNavigationPanel(index)
+#define RenderNativeToolsPanel(index) RenderV12NativeToolsPanel(index)
 #define RenderNavigationRail() RenderV12NavigationRail()
 #define RenderCategoryRail() RenderV12CategoryRail()
 #define RenderStatusPanel(category, item) RenderV12StatusPanel(category, item)
@@ -146,9 +158,19 @@ namespace Tutones::UI
 #undef RenderStatusPanel
 #undef RenderCategoryRail
 #undef RenderNavigationRail
+#undef RenderNativeToolsPanel
 #undef RenderMiscPanel
+#undef RenderSettingsPanel
 #undef RenderNetworkPanel
 #undef RenderRecoveryPanel
+#undef RenderWorldPanel
 #undef RenderGamePanel
+#undef RenderPersonalVehiclePanel
+#undef RenderVehicleModificationPanel
+#undef RenderVehiclePaintPanel
+#undef RenderVehicleGeneralPanel
+#undef RenderWeaponPanel
+#undef RenderPlayerOnlinePanel
+#undef RenderPlayerPanel
 #undef RenderMiscOverlay
 #undef DrawPanel
