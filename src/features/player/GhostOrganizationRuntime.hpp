@@ -52,24 +52,6 @@ namespace Tutones::Game::PlayerFeatures
     private:
         GhostOrganizationRuntime() = default;
 
-        static constexpr std::uint32_t Joaat(const char* text) noexcept
-        {
-            std::uint32_t hash{};
-            while (text && *text)
-            {
-                char c = *text++;
-                if (c >= 'A' && c <= 'Z')
-                    c = static_cast<char>(c - 'A' + 'a');
-                hash += static_cast<std::uint8_t>(c);
-                hash += hash << 10;
-                hash ^= hash >> 6;
-            }
-            hash += hash << 3;
-            hash ^= hash >> 11;
-            hash += hash << 15;
-            return hash;
-        }
-
         bool QueueNextTick() noexcept
         {
             return Runtime::GameRuntime::Get().Enqueue([this] { TickOnGameThread(); });
@@ -135,7 +117,10 @@ namespace Tutones::Game::PlayerFeatures
             }
         }
 
-        static constexpr std::uint32_t FreemodeHash = Joaat("freemode");
+        // JOAAT("freemode") = 0xC875557D. Keep the precomputed hash here so
+        // MSVC does not need to evaluate a class-local constexpr function while
+        // the class definition itself is still being completed.
+        static constexpr std::uint32_t FreemodeHash = 0xC875557Du;
 
         // Current Enhanced mapping verified against the same Freemode generation
         // used by Tutones' updated Off Radar globals. Ghost Organization is the
