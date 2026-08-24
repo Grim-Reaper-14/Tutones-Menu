@@ -1,4 +1,5 @@
 #include "WorldPanel.hpp"
+#include "../core/config/MenuSettings.hpp"
 
 namespace Tutones::UI
 {
@@ -99,32 +100,76 @@ namespace Tutones::UI
             return;
 
         auto& themes = ThemeManager::Get();
+        auto& uiSettings = Core::Config::MenuSettingsService::Get().Current().ui;
         ApplyV11Style();
         ProcessInput();
 
         const ImGuiViewport* viewport = ImGui::GetMainViewport();
-        const ImVec2 center{viewport->Pos.x + viewport->Size.x * 0.5f, viewport->Pos.y + viewport->Size.y * 0.5f};
-        ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
-        ImGui::SetNextWindowSize(ImVec2(V11Theme::MenuWidth, V11Theme::MenuHeight), ImGuiCond_Always);
+        const ImVec2 center{viewport->WorkPos.x + viewport->WorkSize.x * 0.5f, viewport->WorkPos.y + viewport->WorkSize.y * 0.5f};
+        const ImVec2 topLeft{viewport->WorkPos.x + 12.0f, viewport->WorkPos.y + 12.0f};
+        const ImVec2 minSize{V11Theme::MenuWidth, V11Theme::MenuHeight};
+        const ImVec2 maxSize{
+            std::max(V11Theme::MenuWidth, viewport->WorkSize.x - 24.0f),
+            std::max(V11Theme::MenuHeight, viewport->WorkSize.y - 24.0f)};
+        const ImVec2 requestedSize{
+            std::clamp(uiSettings.menuWidth, minSize.x, maxSize.x),
+            std::clamp(uiSettings.menuHeight, minSize.y, maxSize.y)};
+
+        if (uiSettings.anchorTopLeft)
+            ImGui::SetNextWindowPos(topLeft, ImGuiCond_Always);
+        else
+            ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+
+        if (uiSettings.resizable)
+        {
+            ImGui::SetNextWindowSizeConstraints(minSize, maxSize);
+            ImGui::SetNextWindowSize(requestedSize, ImGuiCond_Once);
+        }
+        else
+        {
+            ImGui::SetNextWindowSize(requestedSize, ImGuiCond_Always);
+        }
 
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
         ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
         ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
         ImGui::PushStyleColor(ImGuiCol_WindowBg, V11Theme::WindowBg);
 
-        constexpr ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoNavInputs | ImGuiWindowFlags_NoNavFocus;
+        ImGuiWindowFlags flags = ImGuiWindowFlags_NoTitleBar
+            | ImGuiWindowFlags_NoCollapse
+            | ImGuiWindowFlags_NoSavedSettings
+            | ImGuiWindowFlags_NoScrollbar
+            | ImGuiWindowFlags_NoScrollWithMouse
+            | ImGuiWindowFlags_NoNavInputs
+            | ImGuiWindowFlags_NoNavFocus;
+        if (!uiSettings.resizable)
+            flags |= ImGuiWindowFlags_NoResize;
+        if (uiSettings.anchorTopLeft)
+            flags |= ImGuiWindowFlags_NoMove;
+
         if (ImGui::Begin("Tutone Menu##v11", nullptr, flags))
         {
             const ImVec2 pos = ImGui::GetWindowPos();
+            const ImVec2 windowSize = ImGui::GetWindowSize();
             auto* draw = ImGui::GetWindowDrawList();
-            const float footerY = pos.y + V11Theme::FooterY;
 
-            draw->AddRectFilled(pos, ImVec2(pos.x + V11Theme::MenuWidth, pos.y + V11Theme::MenuHeight), ImGui::GetColorU32(V11Theme::WindowBg));
+            if (uiSettings.resizable)
+            {
+                uiSettings.menuWidth = windowSize.x;
+                uiSettings.menuHeight = windowSize.y;
+            }
+
+            const float menuWidth = windowSize.x;
+            const float bodyHeight = std::max(1.0f, windowSize.y - V11Theme::HeaderHeight - V11Theme::FooterHeight);
+            const float footerLocalY = V11Theme::HeaderHeight + bodyHeight;
+            const float footerY = pos.y + footerLocalY;
+
+            draw->AddRectFilled(pos, ImVec2(pos.x + menuWidth, pos.y + windowSize.y), ImGui::GetColorU32(V11Theme::WindowBg));
 
             const ImTextureRef headerTexture = themes.HeaderTexture();
             if (headerTexture.GetTexID() != ImTextureID_Invalid)
             {
-                const ImVec2 headerMax{pos.x + V11Theme::MenuWidth, pos.y + V11Theme::HeaderHeight};
+                const ImVec2 headerMax{pos.x + menuWidth, pos.y + V11Theme::HeaderHeight};
                 if (themes.HeaderIsCustom())
                     draw->AddImage(headerTexture, pos, headerMax);
                 else
@@ -132,11 +177,11 @@ namespace Tutones::UI
             }
             else
             {
-                DrawTopBanner(draw, pos, V11Theme::MenuWidth);
+                DrawTopBanner(draw, pos, menuWidth);
             }
 
             const ImVec2 bodyMin{pos.x, pos.y + V11Theme::HeaderHeight};
-            const ImVec2 bodyMax{pos.x + V11Theme::MenuWidth, footerY};
+            const ImVec2 bodyMax{pos.x + menuWidth, footerY};
             draw->AddRectFilled(bodyMin, bodyMax, ImGui::GetColorU32(V11Theme::BodyBg));
 
             const ImTextureRef backgroundTexture = themes.BackgroundTexture();
@@ -172,7 +217,7 @@ namespace Tutones::UI
             ImGui::PushStyleVar(ImGuiStyleVar_ScrollbarSize, 10.0f);
             ImGui::PushStyleVar(ImGuiStyleVar_ScrollbarRounding, 5.0f);
             constexpr ImGuiWindowFlags bodyFlags = ImGuiWindowFlags_AlwaysVerticalScrollbar | ImGuiWindowFlags_NoNavInputs | ImGuiWindowFlags_NoNavFocus;
-            if (ImGui::BeginChild("##v11_body", ImVec2(V11Theme::ContentHostWidth, V11Theme::BodyHeight), false, bodyFlags))
+            if (ImGui::BeginChild("##v11_body", ImVec2(V11Theme::ContentHostWidth, bodyHeight), false, bodyFlags))
                 RenderContent();
             ImGui::EndChild();
             ImGui::PopStyleVar(2);
@@ -183,7 +228,7 @@ namespace Tutones::UI
             constexpr ImGuiWindowFlags railFlags = ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoNavInputs | ImGuiWindowFlags_NoNavFocus;
             if (ImGui::BeginChild(
                     "##v11_rail_input",
-                    ImVec2(V11Theme::SubtabRailX + V11Theme::SubtabRailWidth, V11Theme::FooterY),
+                    ImVec2(V11Theme::SubtabRailX + V11Theme::SubtabRailWidth, footerLocalY),
                     false,
                     railFlags))
             {
@@ -201,21 +246,21 @@ namespace Tutones::UI
                 ImGui::GetColorU32(V11Theme::MutedText),
                 ::Tutones::App::BuildInfo::Label);
 
+            const ImVec2 footerMin{pos.x, footerY};
+            const ImVec2 footerMax{pos.x + menuWidth, footerY + V11Theme::FooterHeight};
+            const char* description = CurrentV11Description();
+            if (!description)
+                description = Categories[m_Category].descriptions[m_Item];
+            if (!description)
+                description = "No description is available for this option yet.";
+
             const ImTextureRef footerTexture = themes.FooterTexture();
             if (footerTexture.GetTexID() != ImTextureID_Invalid)
             {
-                const ImVec2 footerMin{pos.x, footerY};
-                const ImVec2 footerMax{pos.x + V11Theme::MenuWidth, footerY + V11Theme::FooterHeight};
                 if (themes.FooterIsCustom())
                     draw->AddImage(footerTexture, footerMin, footerMax);
                 else
                     draw->AddImage(footerTexture, footerMin, footerMax, ImVec2(0.0f, 0.635f), ImVec2(1.0f, 0.965f));
-
-                const char* description = CurrentV11Description();
-                if (!description)
-                    description = Categories[m_Category].descriptions[m_Item];
-                if (!description)
-                    description = "No description is available for this option yet.";
 
                 const ImVec2 textMin{footerMin.x + 172.0f, footerMin.y + 24.0f};
                 const ImVec2 textMax{footerMax.x - 150.0f, footerMax.y - 18.0f};
@@ -236,7 +281,16 @@ namespace Tutones::UI
             }
             else
             {
-                DrawDescriptionBanner(draw, pos, V11Theme::MenuWidth, m_Category, m_Item);
+                draw->AddRectFilled(footerMin, footerMax, ImGui::GetColorU32(V11Theme::FooterBg));
+                draw->AddText(FontOrDefault(g_Bold), 24.0f, ImVec2(footerMin.x + 172.0f, footerMin.y + 24.0f), ImGui::GetColorU32(Accent), "DESCRIPTION");
+                draw->AddText(
+                    FontOrDefault(g_Medium),
+                    15.0f,
+                    ImVec2(footerMin.x + 174.0f, footerMin.y + 63.0f),
+                    IM_COL32(226, 232, 242, 255),
+                    description,
+                    nullptr,
+                    std::max(160.0f, menuWidth - 340.0f));
             }
         }
 
