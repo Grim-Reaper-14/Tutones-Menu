@@ -161,9 +161,9 @@ namespace Tutones::Game::World
         };
 
         static constexpr std::size_t MaxBlips = 64;
-        static constexpr int MaxGroundAttempts = 20;
+        static constexpr int MaxGroundAttempts = 1;
         static constexpr int MaxSettleAttempts = 120;
-        static constexpr int StableCollisionTicks = 2;
+        static constexpr int StableCollisionTicks = 1;
         static constexpr float MaxGroundCheck = 1000.0f;
 
         TeleportRuntime() = default;
@@ -457,14 +457,16 @@ namespace Tutones::Game::World
             if (!ResolveHandlers())
                 return Fail("Teleport natives are unavailable");
 
-            // Keep YimMenuV2's ResolveZCoordinate structure first.
+            // Fast path: try the remote ground query once. If collision is not ready yet,
+            // immediately move the target there while frozen and resolve the final surface
+            // from the destination instead of waiting up to 20 frames before teleporting.
             m_ResolveCoords = coords;
             m_GroundZ = coords.z;
             m_GroundAttempt = 0;
             m_FoundGround = false;
             m_ResolveLabel = std::move(label);
 
-            SetPending(m_ResolveLabel + ": resolving landing Z");
+            SetPending(m_ResolveLabel + ": preparing fast landing");
             ResolveZStep();
         }
 
@@ -486,9 +488,6 @@ namespace Tutones::Game::World
                 return FinishResolvedZ();
             }
 
-            if ((m_GroundAttempt % 3) == 0)
-                m_GroundZ += 25.0f;
-
             ++m_GroundAttempt;
             if (m_GroundAttempt < MaxGroundAttempts)
             {
@@ -502,8 +501,9 @@ namespace Tutones::Game::World
 
         void FinishResolvedZ()
         {
-            // YimMenuV2 order: ground first, water overrides it, approximate path height
-            // is only a fallback when no ground was found.
+            // Water still overrides ground. If the first remote ground probe did not have
+            // collision yet, use path height only as the frozen staging point; SafeSettleTick
+            // re-probes the real surface after the entity is already at the destination.
             float waterHeight{};
             bool onWater = false;
             if (ProbeWater(m_ResolveCoords, waterHeight))
@@ -536,8 +536,7 @@ namespace Tutones::Game::World
             m_SurfaceResolved = m_FoundGround || onWater;
             m_SurfaceIsWater = onWater;
 
-            // The important difference from the old code: never release physics at the
-            // remote destination until GTA says collision around the moved entity is loaded.
+            // Keep physics frozen until collision and a valid surface are both confirmed.
             if (!SetFrozen(m_SettleTarget.entity, true))
                 return Fail("Could not freeze the teleport target for safe placement");
 
@@ -549,9 +548,12 @@ namespace Tutones::Game::World
                 return Fail("Initial safe teleport placement failed");
             }
 
-            SetPending(m_ResolveLabel + ": waiting for destination collision");
-            if (!Runtime::GameRuntime::Get().Enqueue([this] { SafeSettleTick(); }))
-                RestoreUnsafeTeleport("Destination-settle queue unavailable");
+            SetPending(m_ResolveLabel + ": streaming destination collision");
+
+            // Check immediately after the frozen move. If GTA already has destination
+            // collision, the teleport can complete in the same scheduler tick. Otherwise
+            // SafeSettleTick queues only the minimum additional frames required.
+            SafeSettleTick();
         }
 
         void SafeSettleTick()
