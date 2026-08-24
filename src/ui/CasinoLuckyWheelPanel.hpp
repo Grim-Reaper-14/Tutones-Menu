@@ -15,6 +15,29 @@ namespace Tutones::UI
         using Game::Recovery::CasinoSlotMachineRuntime;
 
         static int casinoPage = 0;
+        static int selectedPrize = 18;
+        static constexpr const char* PrizeNames[] = {
+            "0 - Clothing",
+            "1 - 2,500 RP",
+            "2 - $20,000",
+            "3 - 10,000 Chips",
+            "4 - 10% Discount Voucher",
+            "5 - 5,000 RP",
+            "6 - $30,000",
+            "7 - 15,000 Chips",
+            "8 - Clothing",
+            "9 - 7,500 RP",
+            "10 - 20,000 Chips",
+            "11 - Mystery Prize",
+            "12 - Clothing",
+            "13 - 10,000 RP",
+            "14 - $40,000",
+            "15 - 25,000 Chips",
+            "16 - Clothing",
+            "17 - 15,000 RP",
+            "18 - Podium Vehicle",
+            "19 - $50,000",
+        };
 
         auto& wheelRuntime = CasinoLuckyWheelRuntime::Get();
         auto& slotRuntime = CasinoSlotMachineRuntime::Get();
@@ -55,28 +78,49 @@ namespace Tutones::UI
                 ImGui::TextDisabled("Enhanced 1.73 / b1158.13");
                 ImGui::Separator();
 
-                ImGui::TextWrapped("Uses the supplied Enhanced Lucky Wheel globals and validates each write with read-back verification.");
+                ImGui::TextWrapped("Choose the exact wheel reward, apply it while casino_lucky_wheel is active, then spin the wheel.");
                 ImGui::Spacing();
 
+                ImGui::SeparatorText("Prize Selector");
+                ImGui::SetNextItemWidth(-1.0f);
+                ImGui::Combo("##lucky_wheel_prize", &selectedPrize, PrizeNames, IM_ARRAYSIZE(PrizeNames));
+                DescribeLastV11Item("Select the exact Lucky Wheel prize outcome value from 0 through 19.");
+
+                ImGui::BeginDisabled(state.pending);
+                if (ImGui::Button("Apply Selected Prize", ImVec2(-1.0f, 0.0f)))
+                    static_cast<void>(wheelRuntime.QueueSetPrize(selectedPrize));
+                ImGui::EndDisabled();
+                DescribeLastV11Item("Enable the supplied additional-spin globals and write the selected prize into the active casino_lucky_wheel per-player prize local with read-back verification.");
+
+                ImGui::TextDisabled("Selected: %s", PrizeNames[selectedPrize]);
+
+                ImGui::SeparatorText("Wheel Globals");
                 ImGui::BeginDisabled(state.pending);
                 if (ImGui::Button("Apply supplied Lucky Wheel globals", ImVec2(-1.0f, 0.0f)))
                     static_cast<void>(wheelRuntime.QueueApplySuppliedGlobals());
                 ImGui::EndDisabled();
                 DescribeLastV11Item("Apply Global_262145.f_26855=1, f_26856=1 and f_37458=2 using the supplied Enhanced 1.73 mapping.");
 
-                ImGui::SeparatorText("casino_lucky_wheel Player Local");
-                ImGui::TextDisabled("Supplied layout: local 150 + (PLAYER_ID * 5)");
+                ImGui::SeparatorText("Current Prize Local");
                 ImGui::BeginDisabled(state.pending);
-                if (ImGui::Button("Inspect active player local", ImVec2(-1.0f, 0.0f)))
+                if (ImGui::Button("Refresh Current Prize", ImVec2(-1.0f, 0.0f)))
                     static_cast<void>(wheelRuntime.QueueInspectPlayerLocal());
                 ImGui::EndDisabled();
-                DescribeLastV11Item("Resolve casino_lucky_wheel, PLAYER_ID and the supplied player-local index on the GTA script thread.");
+                DescribeLastV11Item("Read the active casino_lucky_wheel per-player prize outcome local without changing it.");
 
                 if (state.localAvailable)
                 {
                     ImGui::Text("PLAYER_ID: %d", state.playerId);
-                    ImGui::Text("Resolved local: %zu", state.localIndex);
-                    ImGui::Text("Raw value: %d", state.localValue);
+                    ImGui::Text("Resolved prize local: %zu", state.localIndex);
+                    if (state.localValue >= CasinoLuckyWheelRuntime::MinPrize
+                        && state.localValue <= CasinoLuckyWheelRuntime::MaxPrize)
+                    {
+                        ImGui::Text("Current prize: %s", PrizeNames[state.localValue]);
+                    }
+                    else
+                    {
+                        ImGui::Text("Current raw prize value: %d", state.localValue);
+                    }
                 }
 
                 ImGui::SeparatorText("Status");
@@ -85,9 +129,9 @@ namespace Tutones::UI
                 else if (state.haveResult)
                     ImGui::TextDisabled("%s: %s", state.lastSucceeded ? "Success" : "Failed", state.message.c_str());
                 else
-                    ImGui::TextDisabled("Ready. Local inspection only runs while casino_lucky_wheel is active.");
+                    ImGui::TextDisabled("Ready. Open/approach the Lucky Wheel so casino_lucky_wheel is active before applying a prize.");
 
-                SetV11Description("Casino Lucky Wheel tools for Enhanced 1.73 globals plus the validated casino_lucky_wheel player-local inspector.");
+                SetV11Description("Select any Lucky Wheel reward from the 0-19 prize list and apply it directly to the active Enhanced casino_lucky_wheel player prize local before spinning.");
             }
             else
             {
