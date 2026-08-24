@@ -17,6 +17,8 @@ namespace Tutones::Game::PersonalVehicles
         None,
         Repair,
         Request,
+        ReturnToStorage,
+        RepairAll,
     };
 
     struct PersonalVehicleEntry final
@@ -41,6 +43,7 @@ namespace Tutones::Game::PersonalVehicles
         int currentVehicleId{-1};
         int requestedVehicleId{-1};
         int lastActionVehicleId{-1};
+        int lastActionAffectedCount{};
         int garageCharacterIndex{-1};
         PersonalVehicleAction lastAction{PersonalVehicleAction::None};
         bool lastActionSucceeded{};
@@ -65,6 +68,8 @@ namespace Tutones::Game::PersonalVehicles
         [[nodiscard]] PersonalVehicleSnapshot Snapshot() const;
         bool QueueRepair(int vehicleId);
         bool QueueRequest(int vehicleId);
+        bool QueueReturnCurrent();
+        bool QueueRepairAll();
 
     private:
         using Clock = std::chrono::steady_clock;
@@ -90,7 +95,9 @@ namespace Tutones::Game::PersonalVehicles
         void ContinueRequestOnGameThread(Clock::time_point now) noexcept;
         void AbortRequestOnGameThread() noexcept;
         bool RepairVehicleOnGameThread(int vehicleId, bool requireRepairable) noexcept;
-        void RecordAction(PersonalVehicleAction action, int vehicleId, bool success) noexcept;
+        bool ReturnVehicleToStorageOnGameThread(int vehicleId) noexcept;
+        int RepairAllVehiclesOnGameThread() noexcept;
+        void RecordAction(PersonalVehicleAction action, int vehicleId, bool success, int affectedCount = 0) noexcept;
         void RefreshOnGameThread() noexcept;
         void PublishUnavailable(bool globalsReady, bool nativeReady) noexcept;
 
