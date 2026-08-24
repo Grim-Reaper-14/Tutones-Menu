@@ -22,10 +22,25 @@ namespace Tutones::Game::Script
             return false;
 
         auto* thread = runtime.FindThread(m_ScriptHash);
+        return CallImplOnThread(thread, args, returnValue, returnSize);
+    }
+
+    bool ScriptFunction::CallImplOnThread(
+        Types::ScriptThread* thread,
+        const std::vector<std::uint64_t>& args,
+        void* returnValue,
+        std::uint32_t returnSize)
+    {
+        auto& runtime = ScriptRuntime::Get();
+        if (!runtime.IsReady())
+            return false;
+
         auto* program = runtime.FindProgram(m_ScriptHash);
         auto** globals = runtime.Globals();
         auto scriptVm = runtime.ScriptVm();
         if (!thread || !program || !thread->stack || !globals || !scriptVm)
+            return false;
+        if (thread->scriptHash != m_ScriptHash)
             return false;
 
         if (m_ProgramCounter == 0)
