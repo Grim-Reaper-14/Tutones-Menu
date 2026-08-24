@@ -8,6 +8,8 @@
 #include <atomic>
 #include <cstdint>
 #include <mutex>
+#include <string>
+#include <vector>
 
 namespace Tutones::Backend
 {
@@ -42,10 +44,12 @@ namespace Tutones::Backend
 
         void RegisterBuiltinFeatures();
         void RefreshContext() noexcept;
+        [[nodiscard]] bool QueueNextTick() noexcept;
         [[nodiscard]] static std::uint64_t MonotonicMs() noexcept;
 
         std::atomic<bool> m_Initialized{false};
         std::atomic<std::uint64_t> m_TickSequence{0};
+        std::atomic<std::uint32_t> m_ActiveTicks{0};
         mutable std::mutex m_ContextMutex;
         GameContextSnapshot m_Context{};
         CapabilityRegistry m_Capabilities;
