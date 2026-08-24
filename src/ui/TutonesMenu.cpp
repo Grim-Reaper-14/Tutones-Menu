@@ -90,9 +90,9 @@ namespace Tutones::UI
                 {{"X", "B", "X", "E"}},
                 {{"Weapon runtime capabilities and general weapon controls.", "Infinite ammo and infinite clip controls.", "Assisted-aim controls and target handling.", "Impact-driven bullet-effect configuration."}}, 4, true},
             {"V", "VEHICLES",
-                {{"General", "Customize", "Garage", nullptr}},
+                {{"Vehicle Hub", "Customization", "Garage", nullptr}},
                 {{"V", "R", "G", nullptr}},
-                {{"Spawner, current vehicle actions and clone tools.", "Paint, custom RGB, LSC modifications, wheels, lighting, neon and tire settings in one customization hub.", "Rockstar personal vehicles and Tutones local saved vehicles kept together in one garage hub.", nullptr}}, 3, true},
+                {{"Spawn vehicles, work with the current vehicle, repair/clean it, change plates and clone nearby vehicles.", "Paint, custom RGB, LSC modifications, wheels, lighting, neon and tire settings are grouped into one customization workspace.", "All stored-vehicle tools stay together: Rockstar personal garages and Tutones local saved vehicles.", nullptr}}, 3, true},
             {"O", "ONLINE",
                 {{"Session", "Players", "Services", "Player State"}},
                 {{"G", "P", "N", "S"}},
@@ -124,7 +124,7 @@ namespace Tutones::UI
             {"T", "TOOLS",
                 {{"Workshop", "Vehicle & Camera", "World Tools", "Diagnostics"}},
                 {{"W", "C", "O", "K"}},
-                {{"Weapon components/tints, player props, outfits and animation playback.", "Scripted freecam plus advanced vehicle native controls.", "Custom blips, particle effects, bodyguards, IPL streaming and interior tools.", "Resolve current Enhanced native hashes to executable handler addresses without invoking them."}}, 4, true},
+                {{"Weapon components/tints, player props, outfits and animation playback.", "Scripted freecam plus advanced vehicle native controls.", "Custom blips, particle effects, bodyguards, IPL streaming and interior tools.", "Developer console for native handlers, tunables, running scripts, locals and backend health."}}, 4, true},
         }};
 
         void RenderTutonesRuntimeOverlays() noexcept
