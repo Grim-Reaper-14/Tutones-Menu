@@ -21,13 +21,6 @@
 
 namespace Tutones::Game::Mods
 {
-    enum class VehicleSuspensionPath : std::uint8_t
-    {
-        None,
-        VisualWheelHeight,
-        EnhancedHandlingRaise,
-    };
-
     class VehicleSuspensionRuntime final
     {
     public:
@@ -57,22 +50,11 @@ namespace Tutones::Game::Mods
             return m_LastWriteSucceeded.load(std::memory_order_acquire);
         }
 
-        [[nodiscard]] VehicleSuspensionPath ActivePath() const noexcept
-        {
-            return static_cast<VehicleSuspensionPath>(m_ActivePath.load(std::memory_order_acquire));
-        }
-
         [[nodiscard]] const char* ActivePathName() const noexcept
         {
-            switch (ActivePath())
-            {
-            case VehicleSuspensionPath::VisualWheelHeight:
-                return "Enhanced wheel visual-height";
-            case VehicleSuspensionPath::EnhancedHandlingRaise:
-                return "Enhanced handling fSuspensionRaise";
-            default:
-                return "resolving";
-            }
+            return m_Supported.load(std::memory_order_acquire)
+                ? "Enhanced CHandlingData fSuspensionRaise"
+                : "resolving Enhanced handling data";
         }
 
         void SetEnabled(bool enabled) noexcept
@@ -80,6 +62,7 @@ namespace Tutones::Game::Mods
             m_Enabled.store(enabled, std::memory_order_release);
             if (enabled)
             {
+                m_RefreshRequested.store(true, std::memory_order_release);
                 m_LastWriteSucceeded.store(false, std::memory_order_release);
                 EnsureTicking();
                 return;
@@ -88,13 +71,13 @@ namespace Tutones::Game::Mods
             auto& runtime = Runtime::GameRuntime::Get();
             if (runtime.IsOnGameThread())
             {
-                RestoreLastVehicle();
+                RestoreLastVehicle(true);
                 return;
             }
 
             static_cast<void>(runtime.Enqueue([this] {
                 if (!m_Enabled.load(std::memory_order_acquire))
-                    RestoreLastVehicle();
+                    RestoreLastVehicle(true);
             }));
         }
 
@@ -104,6 +87,7 @@ namespace Tutones::Game::Mods
                 amount = 0.0f;
 
             m_LoweringAmount.store(std::clamp(amount, 0.0f, 0.20f), std::memory_order_release);
+            m_RefreshRequested.store(true, std::memory_order_release);
             if (m_Enabled.load(std::memory_order_acquire))
                 EnsureTicking();
         }
@@ -113,7 +97,7 @@ namespace Tutones::Game::Mods
             m_Enabled.store(false, std::memory_order_release);
 
             const auto cleanup = [this] {
-                RestoreLastVehicle();
+                RestoreLastVehicle(true);
             };
 
             auto& runtime = Runtime::GameRuntime::Get();
@@ -138,34 +122,29 @@ namespace Tutones::Game::Mods
                 }
             }
 
-            RestoreCachedHeightDirect();
+            RestoreCachedRaiseDirect();
             m_Ticking.store(false, std::memory_order_release);
+            m_Supported.store(false, std::memory_order_release);
             m_LastWriteSucceeded.store(false, std::memory_order_release);
-            m_ActivePath.store(static_cast<std::uint8_t>(VehicleSuspensionPath::None), std::memory_order_release);
         }
 
     private:
         using HandleToPtrFn = void* (*)(int handle);
 
-        // FiveM exposes this CVehicle wheel-block field at +0x7C. Some Enhanced
-        // builds still retain the same wheel layout, so keep it as the preferred
-        // immediate visual path when its signature resolves.
-        static constexpr std::ptrdiff_t VisualSuspensionHeightOffset = 0x7C;
-
-        // GTA5 Enhanced CVehicle layout. Public Enhanced structure dumps place
-        // CHandlingData at CVehicle + 0x960. fSuspensionRaise remains at +0xD0
-        // in CHandlingData and negative values lower the vehicle.
+        // GTA5 Enhanced CVehicle/CHandlingData layout. Enhanced structure dumps
+        // place the vehicle handling pointer at CVehicle + 0x960. The handling
+        // layout keeps fSuspensionRaise at +0xD0; negative values lower the body.
         static constexpr std::ptrdiff_t EnhancedHandlingDataPtrOffset = 0x960;
-        static constexpr std::ptrdiff_t SuspensionForceOffset = 0xBC;
-        static constexpr std::ptrdiff_t SuspensionRaiseOffset = 0xD0;
         static constexpr std::ptrdiff_t HandlingMassOffset = 0x0C;
         static constexpr std::ptrdiff_t HandlingAccelerationOffset = 0x4C;
         static constexpr std::ptrdiff_t HandlingBrakeForceOffset = 0x6C;
+        static constexpr std::ptrdiff_t SuspensionForceOffset = 0xBC;
+        static constexpr std::ptrdiff_t SuspensionRaiseOffset = 0xD0;
 
         VehicleSuspensionRuntime() = default;
         ~VehicleSuspensionRuntime()
         {
-            RestoreCachedHeightDirect();
+            RestoreCachedRaiseDirect();
         }
         VehicleSuspensionRuntime(const VehicleSuspensionRuntime&) = delete;
         VehicleSuspensionRuntime& operator=(const VehicleSuspensionRuntime&) = delete;
@@ -250,18 +229,20 @@ namespace Tutones::Game::Mods
             return true;
         }
 
-        bool ResolveSupport() noexcept
+        bool ResolveHandleToPtr() noexcept
         {
-            if (m_ResolutionAttempted)
-                return m_Supported.load(std::memory_order_acquire);
+            if (m_HandleToPtr)
+                return true;
+            if (m_HandleResolutionAttempted)
+                return false;
 
             const auto& module = GamePointers::Get().Module();
             if (!module.IsValid())
                 return false;
 
-            m_ResolutionAttempted = true;
+            m_HandleResolutionAttempted = true;
 
-            // YimMenuV2 Enhanced resolves both handle conversions from this block.
+            // Current YimMenuV2 Enhanced handle conversion block.
             constexpr auto handlesAndPtrsPattern = "0F 1F 84 00 00 00 00 00 89 F8 0F 28 FE 41";
             auto* handlesMatch = Memory::PatternScanner::FindFirst(module, handlesAndPtrsPattern);
             auto* handleToPtrAddress = handlesMatch
@@ -269,36 +250,16 @@ namespace Tutones::Game::Mods
                 : nullptr;
             if (!handleToPtrAddress || !module.Contains(handleToPtrAddress))
             {
-                TUTONES_LOG_WARN("vehicle.suspension", "Enhanced HandleToPtr resolution failed; extra lowering is unavailable");
+                TUTONES_LOG_WARN(
+                    "vehicle.suspension",
+                    "Enhanced HandleToPtr resolution failed; extra suspension lowering is unavailable");
                 return false;
             }
 
             m_HandleToPtr = reinterpret_cast<HandleToPtrFn>(handleToPtrAddress);
-
-            // This wheel signature originated in the FiveM/Legacy vehicle path and
-            // is optional on Enhanced. If it does not match, do NOT fail the feature;
-            // fall back to Enhanced CVehicle->CHandlingData->fSuspensionRaise.
-            constexpr auto wheelsPattern = "E8 ? ? ? ? 48 63 87 ? ? ? ? 48 8B 8F";
-            auto* wheelsMatch = Memory::PatternScanner::FindFirst(module, wheelsPattern);
-            if (wheelsMatch)
-            {
-                std::uint32_t wheelsOffset{};
-                std::memcpy(&wheelsOffset, wheelsMatch + 0x0F, sizeof(wheelsOffset));
-                if (wheelsOffset >= sizeof(void*) && wheelsOffset <= 0x4000)
-                {
-                    m_WheelsPtrOffset = wheelsOffset;
-                    TUTONES_LOG_INFO("vehicle.suspension", "Enhanced wheel visual-height path resolved");
-                }
-            }
-
-            if (m_WheelsPtrOffset == 0)
-            {
-                TUTONES_LOG_INFO(
-                    "vehicle.suspension",
-                    "Wheel visual-height signature is unavailable on this Enhanced build; using CHandlingData fSuspensionRaise fallback");
-            }
-
-            m_Supported.store(true, std::memory_order_release);
+            TUTONES_LOG_INFO(
+                "vehicle.suspension",
+                "Enhanced HandleToPtr resolved for CHandlingData ride-height control");
             return true;
         }
 
@@ -307,13 +268,13 @@ namespace Tutones::Game::Mods
             if (handlingAddress == 0)
                 return false;
 
+            const auto* base = reinterpret_cast<const std::byte*>(handlingAddress);
             float mass{};
             float acceleration{};
             float brakeForce{};
             float suspensionForce{};
             float suspensionRaise{};
 
-            const auto* base = reinterpret_cast<const std::byte*>(handlingAddress);
             if (!ReadValue(base + HandlingMassOffset, mass)
                 || !ReadValue(base + HandlingAccelerationOffset, acceleration)
                 || !ReadValue(base + HandlingBrakeForceOffset, brakeForce)
@@ -335,36 +296,14 @@ namespace Tutones::Game::Mods
                 && suspensionRaise > -2.0f && suspensionRaise < 2.0f;
         }
 
-        [[nodiscard]] bool TryGetVisualWheelHeightAddress(void* vehicleAddress, float*& outHeight) noexcept
+        [[nodiscard]] bool GetSuspensionRaiseAddress(Vehicle vehicle, float*& outRaise) noexcept
         {
-            outHeight = nullptr;
-            if (!vehicleAddress || m_WheelsPtrOffset == 0)
+            outRaise = nullptr;
+            if (vehicle == 0 || !ResolveHandleToPtr() || !m_HandleToPtr)
                 return false;
 
-            std::uintptr_t wheelsAddress{};
-            auto* wheelsPointerAddress = reinterpret_cast<std::byte*>(vehicleAddress) + m_WheelsPtrOffset;
-            if (!ReadValue(wheelsPointerAddress, wheelsAddress) || wheelsAddress == 0)
-                return false;
-
-            auto* heightAddress = reinterpret_cast<float*>(wheelsAddress + VisualSuspensionHeightOffset);
-            float value{};
-            if (!ReadValue(heightAddress, value)
-                || !std::isfinite(value)
-                || value <= -2.0f
-                || value >= 2.0f
-                || !IsWritable(heightAddress, sizeof(float)))
-            {
-                return false;
-            }
-
-            outHeight = heightAddress;
-            return true;
-        }
-
-        [[nodiscard]] bool TryGetEnhancedHandlingRaiseAddress(void* vehicleAddress, float*& outHeight) noexcept
-        {
-            outHeight = nullptr;
-            if (!vehicleAddress)
+            void* vehicleAddress = m_HandleToPtr(vehicle);
+            if (!vehicleAddress || !IsReadable(vehicleAddress, EnhancedHandlingDataPtrOffset + sizeof(void*)))
                 return false;
 
             std::uintptr_t handlingAddress{};
@@ -372,76 +311,49 @@ namespace Tutones::Game::Mods
             if (!ReadValue(handlingPointerAddress, handlingAddress)
                 || !IsPlausibleHandlingData(handlingAddress))
             {
+                m_Supported.store(false, std::memory_order_release);
                 return false;
             }
 
             auto* raiseAddress = reinterpret_cast<float*>(handlingAddress + SuspensionRaiseOffset);
             if (!IsWritable(raiseAddress, sizeof(float)))
+            {
+                m_Supported.store(false, std::memory_order_release);
                 return false;
+            }
 
-            outHeight = raiseAddress;
+            m_Supported.store(true, std::memory_order_release);
+            outRaise = raiseAddress;
             return true;
         }
 
-        [[nodiscard]] bool GetSuspensionAddress(
-            Vehicle vehicle,
-            float*& outHeight,
-            VehicleSuspensionPath& outPath) noexcept
+        void ClearCachedVehicle() noexcept
         {
-            outHeight = nullptr;
-            outPath = VehicleSuspensionPath::None;
-            if (vehicle == 0 || !ResolveSupport() || !m_HandleToPtr)
-                return false;
-
-            void* vehicleAddress = m_HandleToPtr(vehicle);
-            if (!vehicleAddress || !IsReadable(vehicleAddress, sizeof(void*)))
-                return false;
-
-            if (TryGetVisualWheelHeightAddress(vehicleAddress, outHeight))
-            {
-                outPath = VehicleSuspensionPath::VisualWheelHeight;
-                return true;
-            }
-
-            if (TryGetEnhancedHandlingRaiseAddress(vehicleAddress, outHeight))
-            {
-                outPath = VehicleSuspensionPath::EnhancedHandlingRaise;
-                return true;
-            }
-
-            return false;
-        }
-
-        [[nodiscard]] bool ReadSuspensionHeight(
-            Vehicle vehicle,
-            float& height,
-            float*& address,
-            VehicleSuspensionPath& path) noexcept
-        {
-            address = nullptr;
-            path = VehicleSuspensionPath::None;
-            if (!GetSuspensionAddress(vehicle, address, path))
-                return false;
-            return ReadValue(address, height) && std::isfinite(height);
-        }
-
-        void RestoreCachedHeightDirect() noexcept
-        {
-            if (m_HasOriginalHeight && m_LastHeightAddress)
-                static_cast<void>(WriteValue(m_LastHeightAddress, m_OriginalHeight));
-
             m_LastVehicle = 0;
-            m_LastHeightAddress = nullptr;
-            m_OriginalHeight = 0.0f;
-            m_LastPath = VehicleSuspensionPath::None;
-            m_HasOriginalHeight = false;
+            m_LastRaiseAddress = nullptr;
+            m_OriginalRaise = 0.0f;
+            m_HasOriginalRaise = false;
             m_LastWriteSucceeded.store(false, std::memory_order_release);
-            m_ActivePath.store(static_cast<std::uint8_t>(VehicleSuspensionPath::None), std::memory_order_release);
         }
 
-        void RestoreLastVehicle() noexcept
+        void RestoreCachedRaiseDirect() noexcept
         {
-            RestoreCachedHeightDirect();
+            if (m_HasOriginalRaise && m_LastRaiseAddress)
+                static_cast<void>(WriteValue(m_LastRaiseAddress, m_OriginalRaise));
+            ClearCachedVehicle();
+        }
+
+        void RestoreLastVehicle(bool refreshPhysics) noexcept
+        {
+            const Vehicle previousVehicle = m_LastVehicle;
+            const bool restored = m_HasOriginalRaise
+                && m_LastRaiseAddress
+                && WriteValue(m_LastRaiseAddress, m_OriginalRaise);
+
+            if (refreshPhysics && restored && previousVehicle != 0)
+                static_cast<void>(Natives::SetVehicleOnGroundProperly(previousVehicle, 5.0f));
+
+            ClearCachedVehicle();
         }
 
         void EnsureTicking() noexcept
@@ -465,66 +377,55 @@ namespace Tutones::Game::Mods
             if (enabled && vehicle != 0)
             {
                 if (m_LastVehicle != 0 && m_LastVehicle != vehicle)
-                    RestoreLastVehicle();
+                {
+                    RestoreLastVehicle(true);
+                    m_RefreshRequested.store(true, std::memory_order_release);
+                }
 
                 if (m_LastVehicle == 0)
                 {
-                    float originalHeight{};
-                    float* heightAddress{};
-                    VehicleSuspensionPath path{VehicleSuspensionPath::None};
-                    if (ReadSuspensionHeight(vehicle, originalHeight, heightAddress, path))
+                    float* raiseAddress{};
+                    float originalRaise{};
+                    if (GetSuspensionRaiseAddress(vehicle, raiseAddress)
+                        && ReadValue(raiseAddress, originalRaise)
+                        && std::isfinite(originalRaise))
                     {
                         m_LastVehicle = vehicle;
-                        m_LastHeightAddress = heightAddress;
-                        m_OriginalHeight = originalHeight;
-                        m_LastPath = path;
-                        m_HasOriginalHeight = true;
-                        m_ActivePath.store(static_cast<std::uint8_t>(path), std::memory_order_release);
-
-                        if (path == VehicleSuspensionPath::VisualWheelHeight)
-                        {
-                            TUTONES_LOG_INFO(
-                                "vehicle.suspension",
-                                "Extra lowering attached to Enhanced wheel visual-height path");
-                        }
-                        else if (path == VehicleSuspensionPath::EnhancedHandlingRaise)
-                        {
-                            TUTONES_LOG_INFO(
-                                "vehicle.suspension",
-                                "Extra lowering attached to Enhanced CHandlingData fSuspensionRaise fallback");
-                        }
+                        m_LastRaiseAddress = raiseAddress;
+                        m_OriginalRaise = originalRaise;
+                        m_HasOriginalRaise = true;
+                        m_RefreshRequested.store(true, std::memory_order_release);
+                        TUTONES_LOG_INFO(
+                            "vehicle.suspension",
+                            "Extra lowering attached to Enhanced CVehicle + 0x960 -> CHandlingData + 0xD0");
                     }
                     else
                     {
                         m_LastWriteSucceeded.store(false, std::memory_order_release);
-                        m_ActivePath.store(static_cast<std::uint8_t>(VehicleSuspensionPath::None), std::memory_order_release);
                     }
                 }
 
-                if (m_LastVehicle == vehicle && m_HasOriginalHeight && m_LastHeightAddress)
+                if (m_LastVehicle == vehicle && m_HasOriginalRaise && m_LastRaiseAddress)
                 {
                     const float lowering = m_LoweringAmount.load(std::memory_order_acquire);
-                    float targetHeight{};
+                    const float targetRaise = std::clamp(m_OriginalRaise - lowering, -0.50f, 0.50f);
+                    const bool wrote = WriteValue(m_LastRaiseAddress, targetRaise);
+                    m_LastWriteSucceeded.store(wrote, std::memory_order_release);
 
-                    if (m_LastPath == VehicleSuspensionPath::EnhancedHandlingRaise)
+                    if (wrote && m_RefreshRequested.exchange(false, std::memory_order_acq_rel))
                     {
-                        // fSuspensionRaise uses negative values to lower the body.
-                        targetHeight = std::clamp(m_OriginalHeight - lowering, -0.50f, 0.50f);
+                        // fSuspensionRaise is consumed by vehicle physics. Re-grounding
+                        // once after an enable/slider change makes the new ride height
+                        // visible immediately instead of waiting for the car to move.
+                        static_cast<void>(Natives::SetVehicleOnGroundProperly(vehicle, 5.0f));
                     }
-                    else
-                    {
-                        // The wheel visual-height field uses positive values to lower.
-                        targetHeight = std::clamp(m_OriginalHeight + lowering, -0.25f, 0.35f);
-                    }
-
-                    m_LastWriteSucceeded.store(
-                        WriteValue(m_LastHeightAddress, targetHeight),
-                        std::memory_order_release);
                 }
             }
             else
             {
-                RestoreLastVehicle();
+                RestoreLastVehicle(false);
+                if (enabled)
+                    m_Supported.store(false, std::memory_order_release);
             }
 
             if (m_Enabled.load(std::memory_order_acquire)
@@ -533,7 +434,7 @@ namespace Tutones::Game::Mods
                 return;
             }
 
-            RestoreLastVehicle();
+            RestoreLastVehicle(false);
             m_Ticking.store(false, std::memory_order_release);
             if (m_Enabled.load(std::memory_order_acquire))
                 EnsureTicking();
@@ -543,15 +444,13 @@ namespace Tutones::Game::Mods
         std::atomic<float> m_LoweringAmount{0.08f};
         std::atomic<bool> m_Supported{false};
         std::atomic<bool> m_LastWriteSucceeded{false};
+        std::atomic<bool> m_RefreshRequested{false};
         std::atomic<bool> m_Ticking{false};
-        std::atomic<std::uint8_t> m_ActivePath{static_cast<std::uint8_t>(VehicleSuspensionPath::None)};
-        bool m_ResolutionAttempted{};
+        bool m_HandleResolutionAttempted{};
         HandleToPtrFn m_HandleToPtr{};
-        std::uint32_t m_WheelsPtrOffset{};
         Vehicle m_LastVehicle{};
-        float* m_LastHeightAddress{};
-        float m_OriginalHeight{};
-        VehicleSuspensionPath m_LastPath{VehicleSuspensionPath::None};
-        bool m_HasOriginalHeight{};
+        float* m_LastRaiseAddress{};
+        float m_OriginalRaise{};
+        bool m_HasOriginalRaise{};
     };
 }
