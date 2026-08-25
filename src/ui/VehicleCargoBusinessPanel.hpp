@@ -3,6 +3,7 @@
 #include "V11Description.hpp"
 #include "V11Theme.hpp"
 #include "../features/business/BusinessScriptMonitorRuntime.hpp"
+#include "../features/business/VehicleCargoAutoSourceRuntime.hpp"
 #include "../features/business/VehicleCargoTuningRuntime.hpp"
 
 #include <imgui.h>
@@ -14,11 +15,14 @@ namespace Tutones::UI
     inline void RenderVehicleCargoBusinessPanel() noexcept
     {
         using Game::Business::BusinessScriptMonitorRuntime;
+        using Game::Business::VehicleCargoAutoSourceRuntime;
         using Game::Business::VehicleCargoTuningProfile;
         using Game::Business::VehicleCargoTuningRuntime;
 
         auto& monitor = BusinessScriptMonitorRuntime::Get();
         const auto monitorState = monitor.Snapshot();
+        auto& autoSource = VehicleCargoAutoSourceRuntime::Get();
+        const auto autoSourceState = autoSource.Snapshot();
         auto& tuning = VehicleCargoTuningRuntime::Get();
         const auto tuningState = tuning.Snapshot();
 
@@ -37,8 +41,45 @@ namespace Tutones::UI
             ImGui::TextDisabled("Enhanced 1.73 / b1158.13");
             ImGui::Separator();
 
-            ImGui::TextWrapped("Vehicle Cargo tunables use the supplied Global_262145 offsets. Writes run on Tutones' GTA game-thread queue and are verified by immediate read-back.");
+            ImGui::TextWrapped("Vehicle Cargo uses Enhanced-only launcher and tunable data. All writes run on Tutones' GTA game-thread queue; no Legacy launcher offsets are used.");
             ImGui::Spacing();
+
+            if (ImGui::CollapsingHeader("Auto Source Vehicle Cargo", ImGuiTreeNodeFlags_DefaultOpen))
+            {
+                bool enabled = autoSourceState.enabled;
+                if (ImGui::Checkbox("Enable Auto Source", &enabled))
+                    autoSource.SetEnabled(enabled);
+                DescribeLastV11Item("Automatically requests the next Enhanced Vehicle Cargo source mission whenever gb_vehicle_export is idle. The controller debounces requests and never force-migrates am_launcher host ownership.");
+
+                ImGui::SameLine();
+                ImGui::BeginDisabled(autoSourceState.pending);
+                if (ImGui::Button("Source next vehicle now"))
+                    static_cast<void>(autoSource.QueueSourceNow());
+                ImGui::EndDisabled();
+                DescribeLastV11Item("Send one Enhanced Vehicle Cargo source request immediately, even when Auto Source is disabled.");
+
+                ImGui::SeparatorText("Auto Source Status");
+                ImGui::Text("Auto Source: %s", autoSourceState.enabled ? "ON" : "OFF");
+                ImGui::Text("GTA Online session: %s", autoSourceState.sessionReady ? "READY" : "WAITING");
+                ImGui::Text("am_launcher: %s", autoSourceState.launcherReady ? "READY" : "WAITING");
+                ImGui::Text("gb_vehicle_export: %s", autoSourceState.vehicleCargoRunning ? "RUNNING" : "IDLE");
+
+                if (autoSourceState.launcherState >= 0)
+                {
+                    ImGui::Text("Launcher state: %d | index: %d",
+                        autoSourceState.launcherState,
+                        autoSourceState.launcherIndex);
+                }
+
+                if (autoSourceState.pending)
+                    ImGui::TextDisabled("Checking Enhanced launcher state...");
+                else
+                    ImGui::TextWrapped("%s", autoSourceState.message.c_str());
+
+                ImGui::Spacing();
+                ImGui::TextDisabled("Enhanced source route: Global_2700113 + am_launcher local 270 + launcher index 73.");
+                ImGui::TextWrapped("For back-to-back sourcing without Rockstar's normal steal cooldown, set Steal cooldown to 0 below and apply the Vehicle Cargo globals. Auto Source itself does not overwrite your cooldown preference.");
+            }
 
             if (ImGui::CollapsingHeader("Vehicle Cargo Tunables", ImGuiTreeNodeFlags_DefaultOpen))
             {
@@ -127,21 +168,21 @@ namespace Tutones::UI
                 if (ImGui::Button("Refresh Vehicle Cargo script state", ImVec2(-1.0f, 0.0f)))
                     static_cast<void>(monitor.QueueRefresh());
                 ImGui::EndDisabled();
-                DescribeLastV11Item("Resolve the Enhanced gb_vehicle_export thread through Tutones' shared script runtime without writing unverified mission locals.");
+                DescribeLastV11Item("Resolve the Enhanced gb_vehicle_export thread through Tutones' shared script runtime.");
 
                 if (monitorState.pending)
                     ImGui::TextDisabled("%s", monitorState.message.c_str());
                 else if (monitorState.haveResult)
                     ImGui::TextDisabled("%s: %s", monitorState.lastSucceeded ? "Success" : "Failed", monitorState.message.c_str());
 
-                ImGui::SeparatorText("Mission Local Guard");
-                ImGui::TextWrapped("Source/sell mission locals remain protected until their current Enhanced 1.73 indices and expected values are independently verified. The tunables above are separate Global_262145 values.");
+                ImGui::SeparatorText("Mission Local Safety");
+                ImGui::TextWrapped("Auto Source writes only the independently verified Enhanced am_launcher host fields and the local player's verified LauncherClientData state. Mission-specific gb_vehicle_export locals remain untouched.");
             }
         }
 
         ImGui::EndChild();
         ImGui::PopStyleColor(2);
         ImGui::PopStyleVar(2);
-        SetV11Description("Vehicle Cargo / Import Export now includes supplied Enhanced 1.73 steal cooldown, sell cooldown and vehicle-range sell-price tunables with live read-back verification.");
+        SetV11Description("Vehicle Cargo / Import Export includes Enhanced-only automatic source requests, script-state monitoring and verified 1.73 tuning globals.");
     }
 }
