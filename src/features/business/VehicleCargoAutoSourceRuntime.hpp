@@ -38,8 +38,6 @@ namespace Tutones::Game::Business
     class VehicleCargoAutoSourceRuntime final
     {
     public:
-        // GTA5 Enhanced am_launcher host data. LauncherServerData is rooted at
-        // Global_2700113 and its CurrentScript occupies slots +3 through +7.
         static constexpr std::size_t LauncherServerGlobal = 2700113;
         static constexpr std::size_t LauncherFlagsOffset = 1;
         static constexpr std::size_t LauncherStateOffset = 2;
@@ -47,21 +45,24 @@ namespace Tutones::Game::Business
         static constexpr std::size_t CurrentScriptLauncherIndexOffset = 4;
         static constexpr std::size_t CurrentScriptTerminatedOffset = 7;
 
-        // Enhanced LauncherClientData is SCR_ARRAY<LauncherClientDataEntry, 32>
-        // at local 270. The first slot stores the array count and each entry is
-        // ClientState, Flags, LauncherState (three script slots).
+        // GTA5 Enhanced am_launcher.c declares uLocal_270 as a raw
+        // struct<3>[32]. There is no SCR_ARRAY count cell before player 0.
+        // Entry fields are: client state, flags, launcher phase.
         static constexpr std::size_t LauncherClientDataLocal = 270;
         static constexpr std::size_t LauncherClientEntrySize = 3;
-        static constexpr std::size_t LauncherClientStateOffset = 2;
+        static constexpr std::size_t LauncherClientMainStateOffset = 0;
+        static constexpr std::size_t LauncherClientPhaseOffset = 2;
         static constexpr int MaxPlayers = 32;
 
-        // Current Enhanced launcher table: 73 and 74 both resolve to
-        // GB_VEHICLE_EXPORT. The first entry is the source route; 74 is left
-        // untouched so Auto Source can never intentionally start a sell route.
+        // Enhanced am_launcher func_6 maps both 73 and 74 to
+        // GB_VEHICLE_EXPORT. func_453 maps 73 to the source activity (178)
+        // and 74 to the sell activity (188), so Auto Source only uses 73.
         static constexpr int VehicleCargoSourceLauncherIndex = 73;
 
-        static constexpr int LauncherStateEmpty = 0;
+        static constexpr int LauncherStateIdle = 0;
         static constexpr int LauncherStateStartScript = 6;
+        static constexpr int ClientStateRunning = 1;
+        static constexpr int ClientPhaseStartScript = 6;
         static constexpr int RunImmediatelyFlag = (1 << 1);
 
         static VehicleCargoAutoSourceRuntime& Get() noexcept
@@ -77,26 +78,15 @@ namespace Tutones::Game::Business
                 return;
 
             m_NextPollMs.store(0, std::memory_order_release);
+            if (enabled)
+                m_ResetRequested.store(true, std::memory_order_release);
 
             std::scoped_lock lock(m_Mutex);
-            if (enabled)
-            {
-                m_ResetRequested.store(true, std::memory_order_release);
-                m_SessionReady = false;
-                m_LauncherReady = false;
-                m_VehicleCargoRunning = false;
-                m_WaitingForStartSnapshot = false;
-                m_LastSucceeded = true;
-                m_LauncherStateSnapshot = -1;
-                m_LauncherIndexSnapshot = -1;
-                m_Message = "Auto Source armed; waiting for an idle Enhanced Vehicle Cargo launcher";
-            }
-            else
-            {
-                m_Message = m_WaitingForStartSnapshot
-                    ? "Auto Source is off; finishing the pending Enhanced source request"
-                    : "Auto Source is off";
-            }
+            m_Message = enabled
+                ? "Auto Source armed; waiting for Enhanced am_launcher"
+                : (m_WaitingForStartSnapshot
+                    ? "Auto Source is off; finishing pending source request"
+                    : "Auto Source is off");
         }
 
         [[nodiscard]] bool Enabled() const noexcept
@@ -112,49 +102,40 @@ namespace Tutones::Game::Business
         void Tick() noexcept
         {
             const bool enabled = m_Enabled.load(std::memory_order_acquire);
-            bool followPendingRequest = false;
+            bool followPending = false;
             if (!enabled)
             {
                 std::scoped_lock lock(m_Mutex);
-                followPendingRequest = m_WaitingForStartSnapshot;
+                followPending = m_WaitingForStartSnapshot;
             }
-
-            if (!enabled && !followPendingRequest)
+            if (!enabled && !followPending)
                 return;
 
-            const std::int64_t now = NowMs();
-            std::int64_t next = m_NextPollMs.load(std::memory_order_acquire);
+            const auto now = NowMs();
+            auto next = m_NextPollMs.load(std::memory_order_acquire);
             if (now < next)
                 return;
-
-            if (!m_NextPollMs.compare_exchange_strong(
-                    next,
-                    now + PollIntervalMs,
-                    std::memory_order_acq_rel,
-                    std::memory_order_acquire))
-            {
+            if (!m_NextPollMs.compare_exchange_strong(next, now + PollIntervalMs, std::memory_order_acq_rel))
                 return;
-            }
 
-            static_cast<void>(QueuePoll(!enabled && followPendingRequest));
+            static_cast<void>(QueuePoll(!enabled && followPending));
         }
 
         [[nodiscard]] VehicleCargoAutoSourceSnapshot Snapshot() const
         {
-            VehicleCargoAutoSourceSnapshot snapshot;
-            snapshot.enabled = m_Enabled.load(std::memory_order_acquire);
-            snapshot.pending = m_Pending.load(std::memory_order_acquire);
-
+            VehicleCargoAutoSourceSnapshot out;
+            out.enabled = m_Enabled.load(std::memory_order_acquire);
+            out.pending = m_Pending.load(std::memory_order_acquire);
             std::scoped_lock lock(m_Mutex);
-            snapshot.sessionReady = m_SessionReady;
-            snapshot.launcherReady = m_LauncherReady;
-            snapshot.vehicleCargoRunning = m_VehicleCargoRunning;
-            snapshot.waitingForStart = m_WaitingForStartSnapshot;
-            snapshot.lastSucceeded = m_LastSucceeded;
-            snapshot.launcherState = m_LauncherStateSnapshot;
-            snapshot.launcherIndex = m_LauncherIndexSnapshot;
-            snapshot.message = m_Message;
-            return snapshot;
+            out.sessionReady = m_SessionReady;
+            out.launcherReady = m_LauncherReady;
+            out.vehicleCargoRunning = m_VehicleCargoRunning;
+            out.waitingForStart = m_WaitingForStartSnapshot;
+            out.lastSucceeded = m_LastSucceeded;
+            out.launcherState = m_LauncherStateSnapshot;
+            out.launcherIndex = m_LauncherIndexSnapshot;
+            out.message = m_Message;
+            return out;
         }
 
     private:
@@ -171,42 +152,34 @@ namespace Tutones::Game::Business
         static_assert(offsetof(NativeProgram, nativeEntrypoints) == 0x40);
         static_assert(sizeof(NativeProgram) == 0x80);
 
-        // NETWORK_GET_HOST_OF_SCRIPT canonical 1D6A14F1F9A736FC maps to this
-        // current GTA5 Enhanced handler through the YimMenuV2 crossmap.
         static constexpr std::uint64_t NetworkGetHostOfScriptHash = 0xF1A4B8228C5E44B7ull;
-        static constexpr std::int64_t PollIntervalMs = 750;
-        static constexpr std::int64_t MissionStartTimeoutMs = 8000;
-        static constexpr std::int64_t RetryBackoffMs = 5000;
-        static constexpr std::int64_t MissionEndSettleMs = 2000;
+        static constexpr std::int64_t PollIntervalMs = 500;
+        static constexpr std::int64_t MissionStartTimeoutMs = 12000;
+        static constexpr std::int64_t RetryBackoffMs = 4000;
+        static constexpr std::int64_t MissionEndSettleMs = 1500;
 
         VehicleCargoAutoSourceRuntime() = default;
 
         [[nodiscard]] static std::int64_t NowMs() noexcept
         {
             return std::chrono::duration_cast<std::chrono::milliseconds>(
-                std::chrono::steady_clock::now().time_since_epoch())
-                .count();
+                std::chrono::steady_clock::now().time_since_epoch()).count();
         }
 
-        [[nodiscard]] static std::size_t LauncherClientStateLocal(int playerId) noexcept
+        [[nodiscard]] static std::size_t ClientBaseLocal(int playerId) noexcept
         {
-            return LauncherClientDataLocal
-                + 1
-                + (static_cast<std::size_t>(playerId) * LauncherClientEntrySize)
-                + LauncherClientStateOffset;
+            return LauncherClientDataLocal + (static_cast<std::size_t>(playerId) * LauncherClientEntrySize);
         }
 
         [[nodiscard]] static bool IsExecutable(std::uintptr_t address) noexcept
         {
-            if (address == 0)
+            if (!address)
                 return false;
-
             MEMORY_BASIC_INFORMATION memory{};
             if (::VirtualQuery(reinterpret_cast<const void*>(address), &memory, sizeof(memory)) != sizeof(memory))
                 return false;
-            if (memory.State != MEM_COMMIT || (memory.Protect & PAGE_GUARD) != 0 || memory.Protect == PAGE_NOACCESS)
+            if (memory.State != MEM_COMMIT || (memory.Protect & PAGE_GUARD) || memory.Protect == PAGE_NOACCESS)
                 return false;
-
             switch (memory.Protect & 0xFF)
             {
             case PAGE_EXECUTE:
@@ -225,7 +198,6 @@ namespace Tutones::Game::Business
                 return true;
             if (!Native::NativeRegistry::Get().CanInvokeOnCurrentThread())
                 return false;
-
             const auto init = GamePointers::Get().InitNativeTables();
             if (!init)
                 return false;
@@ -235,10 +207,8 @@ namespace Tutones::Game::Business
             program.nativeCount = 1;
             program.nativeEntrypoints = reinterpret_cast<Native::NativeHandler*>(&slot);
             init(&program);
-
             if (!IsExecutable(static_cast<std::uintptr_t>(slot)))
                 return false;
-
             m_NetworkGetHostOfScript = reinterpret_cast<Native::NativeHandler>(slot);
             return true;
         }
@@ -246,17 +216,11 @@ namespace Tutones::Game::Business
         bool LauncherHost(int& outHost) noexcept
         {
             outHost = -1;
-            if (!ResolveHostNative() || !m_NetworkGetHostOfScript)
+            if (!ResolveHostNative())
                 return false;
-
             Native::CallContext context;
-            if (!context.PushArg("am_launcher")
-                || !context.PushArg(std::int32_t{-1})
-                || !context.PushArg(std::int32_t{0}))
-            {
+            if (!context.PushArg("am_launcher") || !context.PushArg(std::int32_t{-1}) || !context.PushArg(std::int32_t{0}))
                 return false;
-            }
-
             m_NetworkGetHostOfScript(&context);
             context.FixVectors();
             outHost = context.GetReturnValue<std::int32_t>();
@@ -268,14 +232,8 @@ namespace Tutones::Game::Business
             bool expected = false;
             if (!m_Pending.compare_exchange_strong(expected, true, std::memory_order_acq_rel))
                 return false;
-
-            if (Runtime::GameRuntime::Get().Enqueue([this, manual] {
-                Evaluate(manual);
-            }))
-            {
+            if (Runtime::GameRuntime::Get().Enqueue([this, manual] { Evaluate(manual); }))
                 return true;
-            }
-
             Finish(false, false, false, false, false, -1, -1, "Game-thread queue unavailable");
             return false;
         }
@@ -302,205 +260,126 @@ namespace Tutones::Game::Business
 
             auto& scripts = Script::ScriptRuntime::Get();
             if (!scripts.IsReady())
-                return Finish(false, true, false, false, false, -1, -1, "Shared Enhanced script runtime is unavailable");
+                return Finish(false, true, false, false, false, -1, -1, "Enhanced script runtime unavailable");
 
-            const auto* vehicleCargo = scripts.FindThread(BusinessScriptMonitorRuntime::VehicleCargoScriptHash);
-            const bool vehicleCargoRunning = vehicleCargo && vehicleCargo->stack;
-            const std::int64_t now = NowMs();
+            const auto* cargo = scripts.FindThread(BusinessScriptMonitorRuntime::VehicleCargoScriptHash);
+            const bool cargoRunning = cargo && cargo->stack;
+            const auto now = NowMs();
 
-            if (vehicleCargoRunning)
+            if (cargoRunning)
             {
                 m_SawMissionRunning = true;
                 m_WaitingForStart = false;
                 m_WaitingSinceMs = 0;
-                return Finish(
-                    true,
-                    true,
-                    true,
-                    true,
-                    false,
-                    -1,
-                    VehicleCargoSourceLauncherIndex,
-                    "gb_vehicle_export is running; Auto Source is standing by");
+                return Finish(true, true, true, true, false, -1, VehicleCargoSourceLauncherIndex,
+                    "gb_vehicle_export is running; Auto Source standing by");
             }
 
             if (m_SawMissionRunning)
             {
                 m_SawMissionRunning = false;
                 m_NotBeforeMs = now + MissionEndSettleMs;
-                return Finish(
-                    true,
-                    true,
-                    true,
-                    false,
-                    false,
-                    -1,
-                    VehicleCargoSourceLauncherIndex,
-                    "Vehicle Cargo mission ended; allowing the Enhanced launcher to settle");
+                return Finish(true, true, true, false, false, -1, VehicleCargoSourceLauncherIndex,
+                    "Vehicle Cargo ended; waiting for launcher to settle");
             }
 
             constexpr std::uint32_t LauncherScriptHash = BusinessScriptMonitorDetail::Joaat("am_launcher");
             auto* launcher = scripts.FindThread(LauncherScriptHash);
             if (!launcher || !launcher->stack)
-                return Finish(false, true, false, false, m_WaitingForStart, -1, -1, "Enhanced am_launcher thread is unavailable");
+                return Finish(false, true, false, false, m_WaitingForStart, -1, -1, "Enhanced am_launcher thread unavailable");
 
-            auto playerId = Native::NativeInvoker::Invoke<std::int32_t>(Native::NativeId::PlayerId);
+            const auto playerId = Native::NativeInvoker::Invoke<std::int32_t>(Native::NativeId::PlayerId);
             if (!playerId || *playerId < 0 || *playerId >= MaxPlayers)
-                return Finish(false, true, true, false, m_WaitingForStart, -1, -1, "PLAYER_ID is unavailable on the GTA game thread");
+                return Finish(false, true, true, false, m_WaitingForStart, -1, -1, "PLAYER_ID unavailable");
 
-            // LauncherServerData is authoritative only on the am_launcher host.
-            // Do not force host migration. In a solo/invite-only session the local
-            // player normally owns this script; in a public session we wait until
-            // ownership is naturally local instead of writing data another host
-            // will immediately replicate over.
-            int launcherHost = -1;
-            if (!LauncherHost(launcherHost))
-                return Finish(false, true, false, false, m_WaitingForStart, -1, -1, "Unable to resolve the Enhanced am_launcher host");
-            if (launcherHost != *playerId)
-            {
-                return Finish(
-                    true,
-                    true,
-                    true,
-                    false,
-                    m_WaitingForStart,
-                    -1,
-                    -1,
-                    std::string("Auto Source waiting for local am_launcher ownership (host player ")
-                        + std::to_string(launcherHost) + ")");
-            }
+            int host = -1;
+            if (!LauncherHost(host))
+                return Finish(false, true, false, false, m_WaitingForStart, -1, -1, "Unable to resolve am_launcher host");
+            if (host != *playerId)
+                return Finish(true, true, true, false, m_WaitingForStart, -1, -1,
+                    std::string("Waiting for local am_launcher ownership; host player ") + std::to_string(host));
 
             auto* pages = GamePointers::Get().ScriptGlobals();
             if (!pages)
-                return Finish(false, true, true, false, m_WaitingForStart, -1, -1, "Enhanced script globals are unavailable");
+                return Finish(false, true, true, false, m_WaitingForStart, -1, -1, "Enhanced script globals unavailable");
 
             int* flags = Script::ScriptGlobal(LauncherServerGlobal).At(LauncherFlagsOffset).As<int>(pages);
-            int* launcherState = Script::ScriptGlobal(LauncherServerGlobal).At(LauncherStateOffset).As<int>(pages);
+            int* state = Script::ScriptGlobal(LauncherServerGlobal).At(LauncherStateOffset).As<int>(pages);
             int* eventIndex = Script::ScriptGlobal(LauncherServerGlobal).At(CurrentScriptEventIndexOffset).As<int>(pages);
             int* launcherIndex = Script::ScriptGlobal(LauncherServerGlobal).At(CurrentScriptLauncherIndexOffset).As<int>(pages);
             int* terminated = Script::ScriptGlobal(LauncherServerGlobal).At(CurrentScriptTerminatedOffset).As<int>(pages);
+            if (!flags || !state || !eventIndex || !launcherIndex || !terminated)
+                return Finish(false, true, true, false, m_WaitingForStart, -1, -1, "Enhanced launcher globals unavailable");
 
-            if (!flags || !launcherState || !eventIndex || !launcherIndex || !terminated)
-                return Finish(false, true, true, false, m_WaitingForStart, -1, -1, "Enhanced am_launcher globals are unavailable");
+            const std::size_t clientBase = ClientBaseLocal(*playerId);
+            const std::size_t clientPhase = clientBase + LauncherClientPhaseOffset;
+            if (clientPhase >= static_cast<std::size_t>(launcher->context.stackSize))
+                return Finish(false, true, true, false, m_WaitingForStart, *state, *launcherIndex,
+                    "Enhanced am_launcher local 270 layout does not fit live stack");
 
-            const std::size_t clientStateLocal = LauncherClientStateLocal(*playerId);
-            if (clientStateLocal >= static_cast<std::size_t>(launcher->context.stackSize))
-            {
-                return Finish(
-                    false,
-                    true,
-                    true,
-                    false,
-                    m_WaitingForStart,
-                    *launcherState,
-                    *launcherIndex,
-                    "Enhanced am_launcher local 270 layout does not fit the live stack");
-            }
+            auto* locals = static_cast<std::uint64_t*>(launcher->stack);
+            const int clientMainState = static_cast<int>(locals[clientBase + LauncherClientMainStateOffset]);
+            const int clientPhaseState = static_cast<int>(locals[clientPhase]);
 
-            auto* launcherLocals = static_cast<std::uint64_t*>(launcher->stack);
+            if (clientMainState != ClientStateRunning)
+                return Finish(true, true, true, false, m_WaitingForStart, *state, *launcherIndex,
+                    std::string("am_launcher client not ready; state=") + std::to_string(clientMainState));
 
             if (m_WaitingForStart)
             {
                 if ((now - m_WaitingSinceMs) < MissionStartTimeoutMs)
-                {
-                    return Finish(
-                        true,
-                        true,
-                        true,
-                        false,
-                        true,
-                        *launcherState,
-                        *launcherIndex,
-                        "Enhanced Vehicle Cargo source request accepted by local launcher host; waiting for gb_vehicle_export");
-                }
+                    return Finish(true, true, true, false, true, *state, *launcherIndex,
+                        std::string("Source request active; client phase=") + std::to_string(clientPhaseState));
 
-                if (*launcherState == LauncherStateStartScript
-                    && *launcherIndex == VehicleCargoSourceLauncherIndex)
+                if (*state == LauncherStateStartScript && *launcherIndex == VehicleCargoSourceLauncherIndex)
                 {
-                    *launcherState = LauncherStateEmpty;
+                    *state = LauncherStateIdle;
                     *launcherIndex = 0;
                     *eventIndex = 0;
                     *terminated = 0;
                     *flags &= ~RunImmediatelyFlag;
-                    launcherLocals[clientStateLocal] = static_cast<std::uint64_t>(LauncherStateEmpty);
+                    locals[clientPhase] = 0;
                 }
-
                 m_WaitingForStart = false;
                 m_WaitingSinceMs = 0;
                 m_NotBeforeMs = now + RetryBackoffMs;
-                return Finish(
-                    false,
-                    true,
-                    true,
-                    false,
-                    false,
-                    *launcherState,
-                    *launcherIndex,
-                    "Enhanced launcher did not start Vehicle Cargo; request cleared and retry backed off");
+                return Finish(false, true, true, false, false, *state, *launcherIndex,
+                    "Vehicle Cargo did not start; request cleared and backed off");
             }
 
             if (!manual && now < m_NotBeforeMs)
-            {
-                return Finish(
-                    true,
-                    true,
-                    true,
-                    false,
-                    false,
-                    *launcherState,
-                    *launcherIndex,
-                    "Auto Source is waiting before the next Enhanced launcher attempt");
-            }
+                return Finish(true, true, true, false, false, *state, *launcherIndex,
+                    "Auto Source waiting before next attempt");
 
-            if (*launcherState != LauncherStateEmpty)
-            {
-                return Finish(
-                    true,
-                    true,
-                    true,
-                    false,
-                    false,
-                    *launcherState,
-                    *launcherIndex,
-                    "am_launcher is busy; Auto Source will retry when it becomes idle");
-            }
+            if (*state != LauncherStateIdle)
+                return Finish(true, true, true, false, false, *state, *launcherIndex,
+                    "am_launcher busy; waiting for idle state");
 
+            // Drive the same phase am_launcher uses in func_481 case 6:
+            // Global_2700113.f_3.f_1 selects script 73, Global_2700113.f_2
+            // enters start-script state 6, and uLocal_270[player].f_2 tells
+            // the local participant to execute START_NEW_SCRIPT_WITH_ARGS.
             *flags |= RunImmediatelyFlag;
             *eventIndex = 0;
             *launcherIndex = VehicleCargoSourceLauncherIndex;
             *terminated = 0;
-            *launcherState = LauncherStateStartScript;
-            launcherLocals[clientStateLocal] = static_cast<std::uint64_t>(LauncherStateStartScript);
+            *state = LauncherStateStartScript;
+            locals[clientPhase] = static_cast<std::uint64_t>(ClientPhaseStartScript);
 
             m_WaitingForStart = true;
             m_WaitingSinceMs = now;
 
-            TUTONES_LOG_INFO(
-                "business.vehicle_cargo",
-                std::string("Enhanced Vehicle Cargo source requested via locally hosted am_launcher index ")
-                    + std::to_string(VehicleCargoSourceLauncherIndex)
-                    + " player=" + std::to_string(*playerId));
+            TUTONES_LOG_INFO("business.vehicle_cargo",
+                std::string("Enhanced Vehicle Cargo source requested: launcher=73 clientBase=")
+                    + std::to_string(clientBase)
+                    + " clientPhase=" + std::to_string(clientPhase));
 
-            Finish(
-                true,
-                true,
-                true,
-                false,
-                true,
-                *launcherState,
-                *launcherIndex,
-                "Enhanced Vehicle Cargo source request submitted by local am_launcher host");
+            Finish(true, true, true, false, true, *state, *launcherIndex,
+                "Enhanced Vehicle Cargo source request submitted");
         }
 
-        void Finish(
-            bool success,
-            bool sessionReady,
-            bool launcherReady,
-            bool vehicleCargoRunning,
-            bool waitingForStart,
-            int launcherState,
-            int launcherIndex,
-            std::string message)
+        void Finish(bool success, bool sessionReady, bool launcherReady, bool vehicleCargoRunning,
+            bool waitingForStart, int launcherState, int launcherIndex, std::string message)
         {
             {
                 std::scoped_lock lock(m_Mutex);
