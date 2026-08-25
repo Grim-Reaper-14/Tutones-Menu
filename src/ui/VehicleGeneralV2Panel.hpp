@@ -8,6 +8,7 @@
 #include "../features/vehicle/VehicleGeneralExtrasRuntime.hpp"
 #include "../features/vehicle/VehicleLoopFeatures.hpp"
 #include "../features/vehicle/VehicleModificationRuntime.hpp"
+#include "../features/vehicle/VehicleSuspensionRuntime.hpp"
 #include "../game/GameState.hpp"
 
 #include <imgui.h>
@@ -20,6 +21,7 @@ namespace Tutones::UI
         auto& hornBoost = Game::Mods::HornBoostRuntime::Get();
         auto& extras = Game::Mods::VehicleGeneralExtrasRuntime::Get();
         auto& runtime = Game::Mods::VehicleModificationRuntime::Get();
+        auto& suspension = Game::Mods::VehicleSuspensionRuntime::Get();
         const auto vehicleState = runtime.Snapshot();
         const auto gameState = Game::GameState::Get().Snapshot();
         const bool hasCurrentVehicle = gameState.inVehicle && gameState.vehicle != 0;
@@ -123,6 +125,23 @@ namespace Tutones::UI
                 ImGui::EndTable();
             }
 
+            ImGui::SeparatorText("Ride Height");
+            bool extraLowering = suspension.Enabled();
+            if (ImGui::Checkbox("Extra Suspension Lowering", &extraLowering))
+                suspension.SetEnabled(extraLowering);
+            DescribeLastV11Item("Add a visual suspension drop on top of the vehicle's existing LSC suspension setting. The original ride height is restored when disabled, when changing vehicles, or during teardown.");
+
+            float loweringAmount = suspension.LoweringAmount();
+            ImGui::BeginDisabled(!extraLowering);
+            ImGui::SetNextItemWidth(-1.0f);
+            if (ImGui::SliderFloat("##extra_suspension_lowering", &loweringAmount, 0.0f, 0.20f, "Extra drop %.3f"))
+                suspension.SetLoweringAmount(loweringAmount);
+            ImGui::EndDisabled();
+            DescribeLastV11Item("Higher positive values lower the visual wheel position farther. This is visual ride height only, so very low settings can cause body or wheel clipping on some vehicles.");
+
+            if (extraLowering && hasCurrentVehicle && !suspension.Supported())
+                ImGui::TextDisabled("Enhanced ride-height memory path is resolving...");
+
             ImGui::SeparatorText("Quick Vehicle Actions");
 
             ImGui::BeginDisabled(!runtime.IsRunning() || !hasCurrentVehicle);
@@ -210,6 +229,7 @@ namespace Tutones::UI
             ImGui::Text("Seatbelt: %s", extras.Seatbelt() ? "ON" : "OFF");
             ImGui::SameLine();
             ImGui::Text("  Engine Hold: %s", extras.KeepEngineRunning() ? "ON" : "OFF");
+            ImGui::Text("Extra Lowering: %s  |  Drop: %.3f", suspension.Enabled() ? "ON" : "OFF", suspension.LoweringAmount());
             if (vehicleState.lastAction != Game::Mods::VehicleModAction::None)
                 ImGui::TextDisabled("Last vehicle action: %s", vehicleState.lastActionSucceeded ? "SUCCESS" : "FAILED");
         }
@@ -218,6 +238,6 @@ namespace Tutones::UI
         ImGui::PopStyleColor(2);
         ImGui::PopStyleVar(2);
 
-        SetV11Description("Vehicle General - active-vehicle behavior: God Mode, Keep Fixed/Clean, Seatbelt, Horn Boost, stance, engine, lights, headgear, speed, locks, repair, upright and stealth controls.");
+        SetV11Description("Vehicle General - active-vehicle behavior: God Mode, Keep Fixed/Clean, Seatbelt, Horn Boost, stance, extra ride-height lowering, engine, lights, headgear, speed, locks, repair, upright and stealth controls.");
     }
 }
