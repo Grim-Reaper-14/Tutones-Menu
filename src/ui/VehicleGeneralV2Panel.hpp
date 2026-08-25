@@ -3,6 +3,7 @@
 #include "V11Description.hpp"
 #include "V11Theme.hpp"
 #include "../features/vehicle/HornBoostRuntime.hpp"
+#include "../features/vehicle/VehicleGeneralExtrasRuntime.hpp"
 #include "../features/vehicle/VehicleLoopFeatures.hpp"
 #include "../features/vehicle/VehicleModificationRuntime.hpp"
 #include "../game/GameState.hpp"
@@ -15,9 +16,11 @@ namespace Tutones::UI
     {
         auto& loop = Game::Mods::VehicleLoopFeatures::Get();
         auto& hornBoost = Game::Mods::HornBoostRuntime::Get();
+        auto& extras = Game::Mods::VehicleGeneralExtrasRuntime::Get();
         auto& runtime = Game::Mods::VehicleModificationRuntime::Get();
         const auto vehicleState = runtime.Snapshot();
         const auto gameState = Game::GameState::Get().Snapshot();
+        const bool hasCurrentVehicle = gameState.inVehicle && gameState.vehicle != 0;
 
         ImGui::SetCursorPos(ImVec2(226.0f, 16.0f));
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(14.0f, 12.0f));
@@ -29,33 +32,98 @@ namespace Tutones::UI
         {
             ImGui::TextColored(V11Theme::Accent, "Vehicle General");
             ImGui::SameLine();
-            ImGui::TextDisabled(gameState.inVehicle && gameState.vehicle != 0 ? "Current vehicle active" : "Enter a vehicle");
+            ImGui::TextDisabled(hasCurrentVehicle ? "Current vehicle active" : "Enter a vehicle");
             ImGui::Separator();
 
             ImGui::SeparatorText("Persistent Vehicle Features");
+            ImGui::TextDisabled("Current-vehicle behavior only. Spawning and garage tools stay in Vehicle Spawner.");
 
-            bool godMode = loop.VehicleGodMode();
-            if (ImGui::Checkbox("Vehicle God Mode", &godMode))
-                loop.SetVehicleGodMode(godMode);
-            DescribeLastV11Item("Keep the vehicle you are currently driving invincible. Protection follows you when you switch vehicles and is restored when disabled.");
+            if (ImGui::BeginTable("##vehicle_general_persistent", 2, ImGuiTableFlags_SizingStretchSame))
+            {
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0);
+                bool godMode = loop.VehicleGodMode();
+                if (ImGui::Checkbox("Vehicle God Mode", &godMode))
+                    loop.SetVehicleGodMode(godMode);
+                DescribeLastV11Item("Keep the vehicle you are currently driving invincible. Protection follows you to a new vehicle and is restored when disabled.");
 
-            bool keepClean = loop.KeepVehicleClean();
-            if (ImGui::Checkbox("Keep Vehicle Clean", &keepClean))
-                loop.SetKeepVehicleClean(keepClean);
-            DescribeLastV11Item("Continuously remove dirt and visible vehicle decals from the vehicle you are currently driving.");
+                ImGui::TableSetColumnIndex(1);
+                bool keepFixed = extras.KeepVehicleFixed();
+                if (ImGui::Checkbox("Keep Vehicle Fixed", &keepFixed))
+                    extras.SetKeepVehicleFixed(keepFixed);
+                DescribeLastV11Item("Continuously run GTA's full repair path when the current vehicle reports damage: body, entity health, engine, petrol tank, dirt and decals.");
 
-            bool hornBoostEnabled = hornBoost.Enabled();
-            if (ImGui::Checkbox("Horn Boost", &hornBoostEnabled))
-                hornBoost.SetEnabled(hornBoostEnabled);
-            DescribeLastV11Item("Hold the normal vehicle horn while driving to progressively accelerate the vehicle forward. The boost resets when the horn is released.");
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0);
+                bool keepClean = loop.KeepVehicleClean();
+                if (ImGui::Checkbox("Keep Vehicle Clean", &keepClean))
+                    loop.SetKeepVehicleClean(keepClean);
+                DescribeLastV11Item("Continuously remove dirt and visible decals from the vehicle you are currently driving.");
 
-            bool loweredStance = loop.LoweredStance();
-            if (ImGui::Checkbox("Lower Vehicle Stance", &loweredStance))
-                loop.SetLoweredStance(loweredStance);
-            DescribeLastV11Item("Continuously apply GTA's reduced-suspension state to supported vehicles and restore the previous vehicle when disabled.");
+                ImGui::TableSetColumnIndex(1);
+                bool seatbelt = extras.Seatbelt();
+                if (ImGui::Checkbox("Seatbelt", &seatbelt))
+                    extras.SetSeatbelt(seatbelt);
+                DescribeLastV11Item("Prevent the local player from flying through the windscreen or being knocked off the current vehicle, matching the current Enhanced seatbelt behavior.");
+
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0);
+                bool hornBoostEnabled = hornBoost.Enabled();
+                if (ImGui::Checkbox("Horn Boost", &hornBoostEnabled))
+                    hornBoost.SetEnabled(hornBoostEnabled);
+                DescribeLastV11Item("Hold the normal vehicle horn while driving to progressively accelerate forward. The boost resets when the horn is released.");
+
+                ImGui::TableSetColumnIndex(1);
+                bool loweredStance = loop.LoweredStance();
+                if (ImGui::Checkbox("Lower Vehicle Stance", &loweredStance))
+                    loop.SetLoweredStance(loweredStance);
+                DescribeLastV11Item("Continuously apply GTA's reduced-suspension state to supported vehicles and restore the previous vehicle when disabled.");
+
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0);
+                bool keepEngineRunning = extras.KeepEngineRunning();
+                if (ImGui::Checkbox("Keep Engine Running", &keepEngineRunning))
+                    extras.SetKeepEngineRunning(keepEngineRunning);
+                DescribeLastV11Item("Use GTA's LeaveEngineOnWhenExitingVehicles ped flag and keep the active vehicle engine running while enabled.");
+
+                ImGui::TableSetColumnIndex(1);
+                bool allowHats = extras.AllowHatsInVehicles();
+                if (ImGui::Checkbox("Keep Hats / Headgear", &allowHats))
+                    extras.SetAllowHatsInVehicles(allowHats);
+                DescribeLastV11Item("Apply GTA reset flag 337 each tick so supported hats and headgear stay equipped inside vehicles.");
+
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0);
+                bool headlights = extras.KeepHeadlightsOn();
+                if (ImGui::Checkbox("Headlights Always On", &headlights))
+                    extras.SetKeepHeadlightsOn(headlights);
+                DescribeLastV11Item("Continuously force the current vehicle headlights on using GTA's vehicle-light state native.");
+
+                ImGui::TableSetColumnIndex(1);
+                bool highBeams = extras.HighBeams();
+                if (ImGui::Checkbox("High Beams", &highBeams))
+                    extras.SetHighBeams(highBeams);
+                DescribeLastV11Item("Continuously force the current vehicle's full-beam headlights while enabled.");
+
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0);
+                bool speedReadout = extras.SpeedReadout();
+                if (ImGui::Checkbox("Live Speed Readout", &speedReadout))
+                    extras.SetSpeedReadout(speedReadout);
+                DescribeLastV11Item("Read the current vehicle speed every GTA tick and show MPH and KPH in the status block below.");
+
+                ImGui::TableSetColumnIndex(1);
+                if (speedReadout)
+                    ImGui::Text("%.0f MPH  /  %.0f KPH", extras.SpeedMph(), extras.SpeedKph());
+                else
+                    ImGui::TextDisabled("Speed readout off");
+
+                ImGui::EndTable();
+            }
 
             ImGui::SeparatorText("Quick Vehicle Actions");
-            ImGui::BeginDisabled(!runtime.IsRunning() || !gameState.inVehicle || gameState.vehicle == 0);
+
+            ImGui::BeginDisabled(!runtime.IsRunning() || !hasCurrentVehicle);
             if (ImGui::BeginTable("##vehicle_general_actions", 3, ImGuiTableFlags_SizingStretchSame))
             {
                 ImGui::TableNextRow();
@@ -76,6 +144,36 @@ namespace Tutones::UI
                 ImGui::EndTable();
             }
 
+            if (ImGui::BeginTable("##vehicle_general_engine", 2, ImGuiTableFlags_SizingStretchSame))
+            {
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0);
+                if (ImGui::Button("Engine On", ImVec2(-1.0f, 30.0f)))
+                    static_cast<void>(extras.QueueSetEngine(true));
+                DescribeLastV11Item("Immediately start the current vehicle engine.");
+
+                ImGui::TableSetColumnIndex(1);
+                if (ImGui::Button("Engine Off", ImVec2(-1.0f, 30.0f)))
+                    static_cast<void>(extras.QueueSetEngine(false));
+                DescribeLastV11Item("Immediately stop the current vehicle engine and disable automatic restart for that call.");
+                ImGui::EndTable();
+            }
+
+            if (ImGui::BeginTable("##vehicle_general_locks", 2, ImGuiTableFlags_SizingStretchSame))
+            {
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0);
+                if (ImGui::Button("Lock Doors", ImVec2(-1.0f, 30.0f)))
+                    static_cast<void>(extras.QueueSetDoorsLocked(true));
+                DescribeLastV11Item("Set the current vehicle's door-lock state to locked.");
+
+                ImGui::TableSetColumnIndex(1);
+                if (ImGui::Button("Unlock Doors", ImVec2(-1.0f, 30.0f)))
+                    static_cast<void>(extras.QueueSetDoorsLocked(false));
+                DescribeLastV11Item("Restore the current vehicle's door-lock state to unlocked.");
+                ImGui::EndTable();
+            }
+
             if (ImGui::BeginTable("##vehicle_general_stealth", 2, ImGuiTableFlags_SizingStretchSame))
             {
                 ImGui::TableNextRow();
@@ -92,15 +190,24 @@ namespace Tutones::UI
             }
             ImGui::EndDisabled();
 
+            ImGui::BeginDisabled(!Game::Native::NativeRegistry::Get().IsReady());
+            if (ImGui::Button("Enter Last Vehicle", ImVec2(-1.0f, 30.0f)))
+                static_cast<void>(extras.QueueEnterLastVehicle());
+            ImGui::EndDisabled();
+            DescribeLastV11Item("Warp the local player into the driver seat of the last GTA vehicle they occupied, when that entity still exists.");
+
             ImGui::SeparatorText("Current Vehicle Status");
             ImGui::Text("Vehicle: %d", gameState.vehicle);
-            ImGui::Text("In vehicle: %s", gameState.inVehicle ? "YES" : "NO");
-            ImGui::Text("God Mode: %s", godMode ? "ON" : "OFF");
             ImGui::SameLine();
-            ImGui::Text("  Clean: %s", keepClean ? "ON" : "OFF");
-            ImGui::Text("Horn Boost: %s", hornBoostEnabled ? "ON" : "OFF");
+            ImGui::Text("  In vehicle: %s", gameState.inVehicle ? "YES" : "NO");
+            if (extras.SpeedReadout())
+                ImGui::Text("Speed: %.0f MPH  |  %.0f KPH", extras.SpeedMph(), extras.SpeedKph());
+            ImGui::Text("God Mode: %s", loop.VehicleGodMode() ? "ON" : "OFF");
             ImGui::SameLine();
-            ImGui::Text("  Stance: %s", loweredStance ? "LOW" : "NORMAL");
+            ImGui::Text("  Fixed: %s", extras.KeepVehicleFixed() ? "ON" : "OFF");
+            ImGui::Text("Seatbelt: %s", extras.Seatbelt() ? "ON" : "OFF");
+            ImGui::SameLine();
+            ImGui::Text("  Engine Hold: %s", extras.KeepEngineRunning() ? "ON" : "OFF");
             if (vehicleState.lastAction != Game::Mods::VehicleModAction::None)
                 ImGui::TextDisabled("Last vehicle action: %s", vehicleState.lastActionSucceeded ? "SUCCESS" : "FAILED");
         }
@@ -109,6 +216,6 @@ namespace Tutones::UI
         ImGui::PopStyleColor(2);
         ImGui::PopStyleVar(2);
 
-        SetV11Description("Vehicle General - active-vehicle behavior only: God Mode, Keep Vehicle Clean, Horn Boost, lowered stance, repair, clean, upright and stealth controls.");
+        SetV11Description("Vehicle General - active-vehicle behavior: God Mode, Keep Fixed/Clean, Seatbelt, Horn Boost, stance, engine, lights, headgear, speed, locks, repair, upright and stealth controls.");
     }
 }
