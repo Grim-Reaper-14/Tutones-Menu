@@ -41,7 +41,7 @@ namespace Tutones::UI
             ImGui::TextDisabled("Enhanced 1.73 / b1158.13");
             ImGui::Separator();
 
-            ImGui::TextWrapped("Vehicle Cargo uses Enhanced-only launcher and tunable data. All writes run on Tutones' GTA game-thread queue; no Legacy launcher offsets are used.");
+            ImGui::TextWrapped("Vehicle Cargo uses the Enhanced freemode mission-launch path and current tunable data. All actions run on Tutones' GTA game-thread queue; no Legacy launcher offsets are used.");
             ImGui::Spacing();
 
             if (ImGui::CollapsingHeader("Auto Source Vehicle Cargo", ImGuiTreeNodeFlags_DefaultOpen))
@@ -49,7 +49,7 @@ namespace Tutones::UI
                 bool enabled = autoSourceState.enabled;
                 if (ImGui::Checkbox("Enable Auto Source", &enabled))
                     autoSource.SetEnabled(enabled);
-                DescribeLastV11Item("Automatically requests the next Enhanced Vehicle Cargo source mission whenever gb_vehicle_export is idle. The controller debounces requests and never force-migrates am_launcher host ownership.");
+                DescribeLastV11Item("Automatically requests the next Enhanced Vehicle Cargo source mission whenever gb_vehicle_export is idle. It mirrors Rockstar's freemode source-event path and never force-migrates script host ownership.");
 
                 ImGui::SameLine();
                 ImGui::BeginDisabled(autoSourceState.pending);
@@ -61,23 +61,23 @@ namespace Tutones::UI
                 ImGui::SeparatorText("Auto Source Status");
                 ImGui::Text("Auto Source: %s", autoSourceState.enabled ? "ON" : "OFF");
                 ImGui::Text("GTA Online session: %s", autoSourceState.sessionReady ? "READY" : "WAITING");
-                ImGui::Text("am_launcher: %s", autoSourceState.launcherReady ? "READY" : "WAITING");
+                ImGui::Text("Freemode launch route: %s", autoSourceState.launcherReady ? "READY" : "WAITING");
                 ImGui::Text("gb_vehicle_export: %s", autoSourceState.vehicleCargoRunning ? "RUNNING" : "IDLE");
 
                 if (autoSourceState.launcherState >= 0)
                 {
-                    ImGui::Text("Launcher state: %d | index: %d",
+                    ImGui::Text("Freemode host: %d | source launcher: %d",
                         autoSourceState.launcherState,
                         autoSourceState.launcherIndex);
                 }
 
                 if (autoSourceState.pending)
-                    ImGui::TextDisabled("Checking Enhanced launcher state...");
+                    ImGui::TextDisabled("Checking Enhanced Vehicle Cargo source route...");
                 else
                     ImGui::TextWrapped("%s", autoSourceState.message.c_str());
 
                 ImGui::Spacing();
-                ImGui::TextDisabled("Enhanced source route: Global_2700113 + am_launcher local 270 + launcher index 73.");
+                ImGui::TextDisabled("Enhanced source route: mission 178 -> TU event 1613825825 -> freemode host -> launcher 73 -> GB_VEHICLE_EXPORT.");
                 ImGui::TextWrapped("For back-to-back sourcing without Rockstar's normal steal cooldown, set Steal cooldown to 0 below and apply the Vehicle Cargo globals. Auto Source itself does not overwrite your cooldown preference.");
             }
 
@@ -175,8 +175,8 @@ namespace Tutones::UI
                 else if (monitorState.haveResult)
                     ImGui::TextDisabled("%s: %s", monitorState.lastSucceeded ? "Success" : "Failed", monitorState.message.c_str());
 
-                ImGui::SeparatorText("Mission Local Safety");
-                ImGui::TextWrapped("Auto Source writes only the independently verified Enhanced am_launcher host fields and the local player's verified LauncherClientData state. Mission-specific gb_vehicle_export locals remain untouched.");
+                ImGui::SeparatorText("Mission Launch Safety");
+                ImGui::TextWrapped("Auto Source no longer writes am_launcher globals or local 270 directly. It mirrors the Enhanced Terrorbyte flow: set the local source-mission request, forward the live Import/Export setup values in GTA's TU event, and let the freemode host drive launcher 73. Mission-specific gb_vehicle_export locals remain untouched.");
             }
         }
 
