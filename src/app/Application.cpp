@@ -229,9 +229,9 @@ namespace Tutones::App
 
         StagePersistedMenuSettings();
 
-        // Renderer, hooks, GTA scheduler/native runtime, and input are the only
-        // application-critical services. Gameplay feature lifecycle is centralized
-        // behind BackendHub and remains fail-soft.
+        // Renderer, hooks, and input are the application-critical menu shell.
+        // GTA pointer/native/runtime failures are fail-soft so V2 remains visible
+        // and the logger can explain which gameplay capabilities are unavailable.
         TUTONES_LOG_INFO("app", "Core services ready; starting renderer bootstrap");
         if (!Render::Renderer::Get().Initialize())
         {
@@ -260,45 +260,55 @@ namespace Tutones::App
             return false;
         }
 
-        TUTONES_LOG_INFO("app", "Render hooks ready; initializing GTA Enhanced game runtime");
-        if (!Runtime::GameRuntime::Get().Initialize())
-        {
-            TUTONES_LOG_ERROR("app", "GTA Enhanced game runtime initialization failed");
-            Runtime::GameRuntime::Get().Shutdown();
-            Hooking::HookManager::Get().Shutdown();
-            Render::Renderer::Get().Shutdown();
-            Core::Services::Get().Shutdown();
-            return false;
-        }
-
-        TUTONES_LOG_INFO("app", "Game runtime ready; initializing menu input routing");
+        // Input must come up with the render shell, not after the GTA gameplay
+        // runtime. That keeps F4 alive even if an Enhanced pointer or script hook
+        // is temporarily unavailable on a new game build.
+        TUTONES_LOG_INFO("app", "Render hooks ready; initializing menu input routing");
         if (!UI::Input::Get().Initialize())
         {
             TUTONES_LOG_ERROR("app", "Menu input initialization failed");
             UI::Input::Get().Shutdown();
-            Runtime::GameRuntime::Get().Shutdown();
             Hooking::HookManager::Get().Shutdown();
             Render::Renderer::Get().Shutdown();
             Core::Services::Get().Shutdown();
             return false;
         }
 
-        TUTONES_LOG_INFO("app", "Core runtime ready; starting centralized BackendHub");
-        if (!Backend::BackendHub::Get().Initialize())
+        TUTONES_LOG_INFO("app", "Menu shell ready; initializing GTA Enhanced game runtime");
+        const bool gameRuntimeReady = Runtime::GameRuntime::Get().Initialize();
+        if (!gameRuntimeReady)
         {
-            // BackendHub is deliberately fail-soft. Keeping the render/input/core alive
-            // preserves diagnostics and prevents one feature-layer failure from unloading
-            // the DLL. All hub-managed gameplay features remain unavailable until fixed.
             TUTONES_LOG_ERROR(
                 "app",
-                "BackendHub initialization failed; menu core will remain available for diagnostics");
+                "GTA Enhanced game runtime initialization failed; Tutones V2 UI and F4 input will remain active for diagnostics");
+        }
+
+        if (gameRuntimeReady)
+        {
+            TUTONES_LOG_INFO("app", "Game runtime ready; starting centralized BackendHub");
+            if (!Backend::BackendHub::Get().Initialize())
+            {
+                // BackendHub is deliberately fail-soft. Keeping the render/input/core alive
+                // preserves diagnostics and prevents one feature-layer failure from unloading
+                // the DLL. All hub-managed gameplay features remain unavailable until fixed.
+                TUTONES_LOG_ERROR(
+                    "app",
+                    "BackendHub initialization failed; menu core will remain available for diagnostics");
+            }
+        }
+        else
+        {
+            TUTONES_LOG_WARN(
+                "app",
+                "Skipping BackendHub startup because the GTA game runtime is unavailable; UI-only diagnostics remain active");
         }
 
         const auto backend = Backend::BackendHub::Get().Snapshot();
-        TUTONES_LOG_INFO(
-            "app",
-            std::string("Tutones Menu initialized; BackendHub features registered=")
-                + std::to_string(backend.features.size()));
+        std::string readyMessage("Tutones Menu initialized; game runtime=");
+        readyMessage += gameRuntimeReady ? "READY" : "UNAVAILABLE";
+        readyMessage += ", BackendHub features registered=";
+        readyMessage += std::to_string(backend.features.size());
+        TUTONES_LOG_INFO("app", readyMessage);
         TUTONES_LOG_DEBUG(
             "app",
             "Runtime is waiting for primary render state and the first GTA script-thread tick");
