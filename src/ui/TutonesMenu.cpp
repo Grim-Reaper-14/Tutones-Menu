@@ -8,6 +8,7 @@
 #include "ProtectionPanel.hpp"
 #include "SelfV2Panel.hpp"
 #include "WorldPanel.hpp"
+#include "../features/business/VehicleCargoAutoSourceRuntime.hpp"
 #include "../features/recovery/RecoveryRuntime.hpp"
 #include "../features/vehicle/VehicleModificationRuntime.hpp"
 #include "../features/world/WorldRuntime.hpp"
@@ -130,6 +131,7 @@ namespace Tutones::UI
         void RenderTutonesRuntimeOverlays() noexcept
         {
             Input::Get().PollFallbackHotkeys();
+            Game::Business::VehicleCargoAutoSourceRuntime::Get().Tick();
             static_cast<void>(Game::Protections::ProtectionRuntime::Get().Start());
             Game::Recovery::CasinoSlotMachineRuntime::Get().Tick();
             RenderMiscOverlay();
