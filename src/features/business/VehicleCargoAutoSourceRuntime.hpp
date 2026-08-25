@@ -3,10 +3,13 @@
 #include "BusinessScriptMonitorRuntime.hpp"
 #include "../../core/logging/Logger.hpp"
 #include "../../game/GamePointers.hpp"
+#include "../../game/native/NativeCallContext.hpp"
 #include "../../game/native/NativeInvoker.hpp"
 #include "../../game/script/ScriptGlobal.hpp"
 #include "../../game/script/ScriptRuntime.hpp"
 #include "../../runtime/GameRuntime.hpp"
+
+#include <Windows.h>
 
 #include <atomic>
 #include <chrono>
@@ -35,7 +38,8 @@ namespace Tutones::Game::Business
     class VehicleCargoAutoSourceRuntime final
     {
     public:
-        // Enhanced am_launcher host data from the current Enhanced decompile.
+        // GTA5 Enhanced am_launcher host data. LauncherServerData is rooted at
+        // Global_2700113 and its CurrentScript occupies slots +3 through +7.
         static constexpr std::size_t LauncherServerGlobal = 2700113;
         static constexpr std::size_t LauncherFlagsOffset = 1;
         static constexpr std::size_t LauncherStateOffset = 2;
@@ -43,17 +47,17 @@ namespace Tutones::Game::Business
         static constexpr std::size_t CurrentScriptLauncherIndexOffset = 4;
         static constexpr std::size_t CurrentScriptTerminatedOffset = 7;
 
-        // Enhanced am_launcher LauncherClientData starts at local 270.
-        // SCR_ARRAY stores its length in the first slot, then each player entry
-        // occupies ClientState, Flags and LauncherState (three 64-bit slots).
+        // Enhanced LauncherClientData is SCR_ARRAY<LauncherClientDataEntry, 32>
+        // at local 270. The first slot stores the array count and each entry is
+        // ClientState, Flags, LauncherState (three script slots).
         static constexpr std::size_t LauncherClientDataLocal = 270;
         static constexpr std::size_t LauncherClientEntrySize = 3;
         static constexpr std::size_t LauncherClientStateOffset = 2;
         static constexpr int MaxPlayers = 32;
 
-        // Enhanced launcher table contains GB_VEHICLE_EXPORT twice (73 and 74).
-        // The first route is the one returned by the current Enhanced launcher
-        // lookup and is used here for sourcing. We intentionally do not touch 74.
+        // Current Enhanced launcher table: 73 and 74 both resolve to
+        // GB_VEHICLE_EXPORT. The first entry is the source route; 74 is left
+        // untouched so Auto Source can never intentionally start a sell route.
         static constexpr int VehicleCargoSourceLauncherIndex = 73;
 
         static constexpr int LauncherStateEmpty = 0;
@@ -89,9 +93,6 @@ namespace Tutones::Game::Business
             }
             else
             {
-                // If a START_SCRIPT request is already in flight, Tick continues
-                // tracking it until gb_vehicle_export starts or the owned request
-                // times out and is safely cleaned up.
                 m_Message = m_WaitingForStartSnapshot
                     ? "Auto Source is off; finishing the pending Enhanced source request"
                     : "Auto Source is off";
@@ -157,6 +158,22 @@ namespace Tutones::Game::Business
         }
 
     private:
+        struct NativeProgram final
+        {
+            std::byte pad00[0x2C]{};
+            std::uint32_t nativeCount{};
+            std::byte pad30[0x10]{};
+            Native::NativeHandler* nativeEntrypoints{};
+            std::byte pad48[0x38]{};
+        };
+
+        static_assert(offsetof(NativeProgram, nativeCount) == 0x2C);
+        static_assert(offsetof(NativeProgram, nativeEntrypoints) == 0x40);
+        static_assert(sizeof(NativeProgram) == 0x80);
+
+        // NETWORK_GET_HOST_OF_SCRIPT canonical 1D6A14F1F9A736FC maps to this
+        // current GTA5 Enhanced handler through the YimMenuV2 crossmap.
+        static constexpr std::uint64_t NetworkGetHostOfScriptHash = 0xF1A4B8228C5E44B7ull;
         static constexpr std::int64_t PollIntervalMs = 750;
         static constexpr std::int64_t MissionStartTimeoutMs = 8000;
         static constexpr std::int64_t RetryBackoffMs = 5000;
@@ -177,6 +194,73 @@ namespace Tutones::Game::Business
                 + 1
                 + (static_cast<std::size_t>(playerId) * LauncherClientEntrySize)
                 + LauncherClientStateOffset;
+        }
+
+        [[nodiscard]] static bool IsExecutable(std::uintptr_t address) noexcept
+        {
+            if (address == 0)
+                return false;
+
+            MEMORY_BASIC_INFORMATION memory{};
+            if (::VirtualQuery(reinterpret_cast<const void*>(address), &memory, sizeof(memory)) != sizeof(memory))
+                return false;
+            if (memory.State != MEM_COMMIT || (memory.Protect & PAGE_GUARD) != 0 || memory.Protect == PAGE_NOACCESS)
+                return false;
+
+            switch (memory.Protect & 0xFF)
+            {
+            case PAGE_EXECUTE:
+            case PAGE_EXECUTE_READ:
+            case PAGE_EXECUTE_READWRITE:
+            case PAGE_EXECUTE_WRITECOPY:
+                return true;
+            default:
+                return false;
+            }
+        }
+
+        bool ResolveHostNative() noexcept
+        {
+            if (m_NetworkGetHostOfScript)
+                return true;
+            if (!Native::NativeRegistry::Get().CanInvokeOnCurrentThread())
+                return false;
+
+            const auto init = GamePointers::Get().InitNativeTables();
+            if (!init)
+                return false;
+
+            std::uint64_t slot = NetworkGetHostOfScriptHash;
+            NativeProgram program{};
+            program.nativeCount = 1;
+            program.nativeEntrypoints = reinterpret_cast<Native::NativeHandler*>(&slot);
+            init(&program);
+
+            if (!IsExecutable(static_cast<std::uintptr_t>(slot)))
+                return false;
+
+            m_NetworkGetHostOfScript = reinterpret_cast<Native::NativeHandler>(slot);
+            return true;
+        }
+
+        bool LauncherHost(int& outHost) noexcept
+        {
+            outHost = -1;
+            if (!ResolveHostNative() || !m_NetworkGetHostOfScript)
+                return false;
+
+            Native::CallContext context;
+            if (!context.PushArg("am_launcher")
+                || !context.PushArg(std::int32_t{-1})
+                || !context.PushArg(std::int32_t{0}))
+            {
+                return false;
+            }
+
+            m_NetworkGetHostOfScript(&context);
+            context.FixVectors();
+            outHost = context.GetReturnValue<std::int32_t>();
+            return true;
         }
 
         bool QueuePoll(bool manual)
@@ -260,13 +344,35 @@ namespace Tutones::Game::Business
             if (!launcher || !launcher->stack)
                 return Finish(false, true, false, false, m_WaitingForStart, -1, -1, "Enhanced am_launcher thread is unavailable");
 
-            auto* pages = GamePointers::Get().ScriptGlobals();
-            if (!pages)
-                return Finish(false, true, true, false, m_WaitingForStart, -1, -1, "Enhanced script globals are unavailable");
-
             auto playerId = Native::NativeInvoker::Invoke<std::int32_t>(Native::NativeId::PlayerId);
             if (!playerId || *playerId < 0 || *playerId >= MaxPlayers)
                 return Finish(false, true, true, false, m_WaitingForStart, -1, -1, "PLAYER_ID is unavailable on the GTA game thread");
+
+            // LauncherServerData is authoritative only on the am_launcher host.
+            // Do not force host migration. In a solo/invite-only session the local
+            // player normally owns this script; in a public session we wait until
+            // ownership is naturally local instead of writing data another host
+            // will immediately replicate over.
+            int launcherHost = -1;
+            if (!LauncherHost(launcherHost))
+                return Finish(false, true, false, false, m_WaitingForStart, -1, -1, "Unable to resolve the Enhanced am_launcher host");
+            if (launcherHost != *playerId)
+            {
+                return Finish(
+                    true,
+                    true,
+                    true,
+                    false,
+                    m_WaitingForStart,
+                    -1,
+                    -1,
+                    std::string("Auto Source waiting for local am_launcher ownership (host player ")
+                        + std::to_string(launcherHost) + ")");
+            }
+
+            auto* pages = GamePointers::Get().ScriptGlobals();
+            if (!pages)
+                return Finish(false, true, true, false, m_WaitingForStart, -1, -1, "Enhanced script globals are unavailable");
 
             int* flags = Script::ScriptGlobal(LauncherServerGlobal).At(LauncherFlagsOffset).As<int>(pages);
             int* launcherState = Script::ScriptGlobal(LauncherServerGlobal).At(LauncherStateOffset).As<int>(pages);
@@ -305,12 +411,9 @@ namespace Tutones::Game::Business
                         true,
                         *launcherState,
                         *launcherIndex,
-                        "Enhanced Vehicle Cargo source request sent; waiting for gb_vehicle_export");
+                        "Enhanced Vehicle Cargo source request accepted by local launcher host; waiting for gb_vehicle_export");
                 }
 
-                // Only undo a stale START_SCRIPT request if it is still exactly the
-                // Vehicle Cargo request this runtime submitted. Never reset another
-                // launcher operation and never force am_launcher host migration.
                 if (*launcherState == LauncherStateStartScript
                     && *launcherIndex == VehicleCargoSourceLauncherIndex)
                 {
@@ -333,7 +436,7 @@ namespace Tutones::Game::Business
                     false,
                     *launcherState,
                     *launcherIndex,
-                    "Enhanced launcher did not accept the source request; backing off before retry");
+                    "Enhanced launcher did not start Vehicle Cargo; request cleared and retry backed off");
             }
 
             if (!manual && now < m_NotBeforeMs)
@@ -374,7 +477,7 @@ namespace Tutones::Game::Business
 
             TUTONES_LOG_INFO(
                 "business.vehicle_cargo",
-                std::string("Enhanced Vehicle Cargo source requested via am_launcher index ")
+                std::string("Enhanced Vehicle Cargo source requested via locally hosted am_launcher index ")
                     + std::to_string(VehicleCargoSourceLauncherIndex)
                     + " player=" + std::to_string(*playerId));
 
@@ -386,7 +489,7 @@ namespace Tutones::Game::Business
                 true,
                 *launcherState,
                 *launcherIndex,
-                "Enhanced Vehicle Cargo source request sent");
+                "Enhanced Vehicle Cargo source request submitted by local am_launcher host");
         }
 
         void Finish(
@@ -418,12 +521,11 @@ namespace Tutones::Game::Business
         std::atomic<bool> m_ResetRequested{false};
         std::atomic<std::int64_t> m_NextPollMs{0};
 
-        // The following cycle fields are only touched by queued GTA game-thread
-        // callbacks, with ResetRequested providing the cross-thread reset signal.
         bool m_WaitingForStart{};
         std::int64_t m_WaitingSinceMs{};
         bool m_SawMissionRunning{};
         std::int64_t m_NotBeforeMs{};
+        Native::NativeHandler m_NetworkGetHostOfScript{};
 
         mutable std::mutex m_Mutex;
         bool m_SessionReady{};
