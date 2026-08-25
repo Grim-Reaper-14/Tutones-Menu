@@ -185,6 +185,9 @@ namespace Tutones::UI
         if (!IsInitialized())
             return;
 
+        if (ImGui::GetCurrentContext())
+            ImGui::GetIO().MouseDrawCursor = IsMenuOpen();
+
         const bool down = (::GetAsyncKeyState(VK_F4) & 0x8000) != 0;
         const bool wasDown = m_F4FallbackDown.exchange(down, std::memory_order_acq_rel);
         if (down && !wasDown)
@@ -232,8 +235,10 @@ namespace Tutones::UI
         {
             if (wParam == VK_F4)
             {
-                input.m_F4FallbackDown.store(true, std::memory_order_release);
-                if (!IsRepeat(lParam))
+                // The render-frame fallback and WndProc can observe the same physical
+                // press in either order. Only the first rising edge owns the toggle.
+                const bool wasDown = input.m_F4FallbackDown.exchange(true, std::memory_order_acq_rel);
+                if (!IsRepeat(lParam) && !wasDown)
                     input.ToggleMenu();
                 return true;
             }
