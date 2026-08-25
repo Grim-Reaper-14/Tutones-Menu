@@ -92,7 +92,7 @@ namespace Tutones::UI
             {"V", "VEHICLES",
                 {{"Vehicle Hub", "Customization", "Garage", nullptr}},
                 {{"V", "R", "G", nullptr}},
-                {{"Spawn vehicles, work with the current vehicle, repair/clean it, change plates, clone nearby vehicles and manage decompiled-script website availability.", "Paint, custom RGB, LSC modifications, wheels, lighting, neon and tire settings are grouped into one customization workspace.", "All stored-vehicle tools stay together: Rockstar personal garages and Tutones local saved vehicles.", nullptr}}, 3, true},
+                {{"Spawn vehicles, work with the current vehicle, repair/clean it, change plates, clone nearby vehicles and manage decompiled-script website availability.", "One unified vehicle editor for paint, custom RGB, LSC modifications, wheels, lighting, neon and tire settings.", "All stored-vehicle tools stay together: Rockstar personal garages, Tutones local saved vehicles and service-vehicle delivery.", nullptr}}, 3, true},
             {"O", "ONLINE",
                 {{"Session", "Players", "Services", "Player State"}},
                 {{"G", "P", "N", "S"}},
@@ -150,6 +150,7 @@ namespace Tutones::UI
 #undef SetCursorPos
 #include "TutonesMenu.v12pages.inc"
 #include "TutonesMenu.v12tools.inc"
+#include "VehicleCustomizationV2Panel.hpp"
 #include "VehicleMenuV2Panel.hpp"
 
 namespace Tutones::UI
@@ -223,6 +224,13 @@ namespace Tutones::UI
         {
             RenderV12MiscPanel(index);
         }
+
+        void RenderVehicleCustomizationNavigationPanel() noexcept
+        {
+            RenderV12PageSurfaceWithGuide(
+                [] { DrawV12VehicleGuide(); },
+                [] { RenderVehicleCustomizationV2Panel(); });
+        }
     }
 }
 
@@ -232,9 +240,9 @@ namespace Tutones::UI
 #define RenderPlayerOnlinePanel() RenderV12PlayerOnlinePanel()
 #define RenderWeaponPanel(index) RenderV12WeaponPanel(index)
 #define RenderVehicleGeneralPanel() RenderVehicleHubV2()
-#define RenderVehiclePaintPanel() RenderV12VehiclePaintPanel()
-#define RenderVehicleModificationPanel() RenderV12VehicleModificationPanel()
-#define RenderPersonalVehiclePanel() RenderV12PersonalVehiclePanel()
+#define RenderVehiclePaintPanel() RenderVehicleCustomizationNavigationPanel()
+#define RenderVehicleModificationPanel() RenderVehicleGarageV2()
+#define RenderPersonalVehiclePanel() RenderVehicleGarageV2()
 #define RenderGamePanel(index) RenderOnlineNavigationPanel(index)
 #define RenderWorldPanel(index) RenderV12WorldPanel(index)
 #define RenderRecoveryPanel(index) RenderBusinessNavigationPanel(index)
