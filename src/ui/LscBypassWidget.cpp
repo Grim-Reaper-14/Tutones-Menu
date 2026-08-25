@@ -3,7 +3,6 @@
 #include "V11Description.hpp"
 #include "V11Theme.hpp"
 #include "../features/vehicle/LscBypassRuntime.hpp"
-#include "../features/vehicle/VehicleLoopFeatures.hpp"
 
 #include <imgui.h>
 
@@ -56,31 +55,6 @@ namespace Tutones::UI
             ImGui::TextDisabled("Available: both current Enhanced carmod_shop restriction patterns are verified.");
         }
 
-        ImGui::TextDisabled("This is separate from Tutones' direct native mod apply path and removes the real script-side LSC restrictions.");
-
-        ImGui::SeparatorText("Persistent Vehicle Features");
-        auto& vehicleFeatures = Game::Mods::VehicleLoopFeatures::Get();
-
-        bool godMode = vehicleFeatures.VehicleGodMode();
-        if (ImGui::Checkbox("Vehicle God Mode", &godMode))
-            vehicleFeatures.SetVehicleGodMode(godMode);
-        DescribeLastV11Item("Blocks incoming damage to the vehicle you are currently using. Protection follows you to a new vehicle and is removed from the old vehicle when you switch, exit, disable the toggle, or unload Tutones.");
-
-        bool keepClean = vehicleFeatures.KeepVehicleClean();
-        if (ImGui::Checkbox("Keep Vehicle Clean", &keepClean))
-            vehicleFeatures.SetKeepVehicleClean(keepClean);
-        DescribeLastV11Item("Continuously removes dirt and vehicle decals from the vehicle you are currently using. This does not grant invincibility or repair mechanical/body damage.");
-
-        bool loweredStance = vehicleFeatures.LoweredStance();
-        if (ImGui::Checkbox("Lowered Stance", &loweredStance))
-            vehicleFeatures.SetLoweredStance(loweredStance);
-        DescribeLastV11Item("Continuously applies the reduced-suspension stance to supported vehicles. Turning this off restores normal suspension on the last affected vehicle.");
-
-        if (godMode)
-            ImGui::TextDisabled("Vehicle God Mode is active for your current vehicle.");
-        if (keepClean)
-            ImGui::TextDisabled("Vehicle cleaning loop is active: dirt and decals are continuously removed.");
-        if (loweredStance)
-            ImGui::TextDisabled("Lowered stance is active; only vehicles supported by GTA's suspension native will visibly change.");
+        ImGui::TextDisabled("Persistent driving features now live under Vehicles > General. This section only controls real carmod_shop restrictions.");
     }
 }
