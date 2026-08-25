@@ -18,6 +18,8 @@ namespace Tutones::UI::V11Theme
     inline ImVec4 Separator{90.0f / 255.0f, 94.0f / 255.0f, 103.0f / 255.0f, 0.26f};
     inline ImVec4 ControlBg{12.0f / 255.0f, 16.0f / 255.0f, 22.0f / 255.0f, 1.0f};
     inline ImVec4 ControlHover{35.0f / 255.0f, 18.0f / 255.0f, 23.0f / 255.0f, 1.0f};
+    inline ImVec4 HoverBg{35.0f / 255.0f, 18.0f / 255.0f, 23.0f / 255.0f, 1.0f};
+    inline ImVec4 ActiveBg{74.0f / 255.0f, 10.0f / 255.0f, 15.0f / 255.0f, 1.0f};
     inline ImVec4 MutedText{151.0f / 255.0f, 157.0f / 255.0f, 168.0f / 255.0f, 1.0f};
 
     // V12 dashboard shell. HeaderHeight now represents the top dashboard chrome
