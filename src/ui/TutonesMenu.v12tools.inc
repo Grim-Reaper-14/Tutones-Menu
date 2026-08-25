@@ -1,4 +1,5 @@
 #include "DeveloperDiagnosticsPanel.hpp"
+#include "EnhancedUtilityPanel.hpp"
 
 namespace Tutones::UI
 {
@@ -63,6 +64,11 @@ namespace Tutones::UI
             row("Bodyguards", bodyguards);
             row("Last native probe", probe, state.lastProbeResolved);
             row("Action", state.pending ? "PENDING" : (state.haveResult ? (state.lastSucceeded ? "SUCCESS" : "FAILED") : "READY"), state.lastSucceeded);
+
+            // Vehicle and World native pages now expose the larger Enhanced
+            // utility suite in a separate window so the existing panel layout
+            // remains stable while the new controls have room to breathe.
+            RenderEnhancedUtilityLauncher(page);
         }
     }
 }
