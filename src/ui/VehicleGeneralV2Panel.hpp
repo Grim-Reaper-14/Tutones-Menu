@@ -129,7 +129,7 @@ namespace Tutones::UI
             bool extraLowering = suspension.Enabled();
             if (ImGui::Checkbox("Extra Suspension Lowering", &extraLowering))
                 suspension.SetEnabled(extraLowering);
-            DescribeLastV11Item("Add a visual suspension drop on top of the vehicle's existing LSC suspension setting. The original ride height is restored when disabled, when changing vehicles, or during teardown.");
+            DescribeLastV11Item("Lower the current Enhanced vehicle through its CHandlingData fSuspensionRaise value. The original ride height is restored when disabled, when changing vehicles, or during teardown.");
 
             float loweringAmount = suspension.LoweringAmount();
             ImGui::BeginDisabled(!extraLowering);
@@ -137,10 +137,22 @@ namespace Tutones::UI
             if (ImGui::SliderFloat("##extra_suspension_lowering", &loweringAmount, 0.0f, 0.20f, "Extra drop %.3f"))
                 suspension.SetLoweringAmount(loweringAmount);
             ImGui::EndDisabled();
-            DescribeLastV11Item("Higher positive values lower the visual wheel position farther. This is visual ride height only, so very low settings can cause body or wheel clipping on some vehicles.");
+            DescribeLastV11Item("Higher values lower the Enhanced vehicle farther. Very low settings can cause body or wheel clipping on some vehicles.");
 
-            if (extraLowering && hasCurrentVehicle && !suspension.Supported())
-                ImGui::TextDisabled("Enhanced ride-height memory path is resolving...");
+            if (extraLowering && hasCurrentVehicle)
+            {
+                if (suspension.Supported())
+                {
+                    ImGui::TextDisabled(
+                        "Ride-height path: %s | write: %s",
+                        suspension.ActivePathName(),
+                        suspension.LastWriteSucceeded() ? "OK" : "FAILED");
+                }
+                else
+                {
+                    ImGui::TextDisabled("Ride-height path: resolving Enhanced handling data...");
+                }
+            }
 
             ImGui::SeparatorText("Quick Vehicle Actions");
 
@@ -230,6 +242,13 @@ namespace Tutones::UI
             ImGui::SameLine();
             ImGui::Text("  Engine Hold: %s", extras.KeepEngineRunning() ? "ON" : "OFF");
             ImGui::Text("Extra Lowering: %s  |  Drop: %.3f", suspension.Enabled() ? "ON" : "OFF", suspension.LoweringAmount());
+            if (suspension.Enabled())
+            {
+                ImGui::TextDisabled(
+                    "Lowering backend: %s | write: %s",
+                    suspension.ActivePathName(),
+                    suspension.LastWriteSucceeded() ? "OK" : "WAITING/FAILED");
+            }
             if (vehicleState.lastAction != Game::Mods::VehicleModAction::None)
                 ImGui::TextDisabled("Last vehicle action: %s", vehicleState.lastActionSucceeded ? "SUCCESS" : "FAILED");
         }
