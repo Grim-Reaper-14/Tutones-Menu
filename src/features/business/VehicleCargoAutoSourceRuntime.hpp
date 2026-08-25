@@ -72,20 +72,30 @@ namespace Tutones::Game::Business
             if (previous == enabled)
                 return;
 
-            m_ResetRequested.store(true, std::memory_order_release);
             m_NextPollMs.store(0, std::memory_order_release);
 
             std::scoped_lock lock(m_Mutex);
-            m_SessionReady = false;
-            m_LauncherReady = false;
-            m_VehicleCargoRunning = false;
-            m_WaitingForStartSnapshot = false;
-            m_LastSucceeded = true;
-            m_LauncherStateSnapshot = -1;
-            m_LauncherIndexSnapshot = -1;
-            m_Message = enabled
-                ? "Auto Source armed; waiting for an idle Enhanced Vehicle Cargo launcher"
-                : "Auto Source is off";
+            if (enabled)
+            {
+                m_ResetRequested.store(true, std::memory_order_release);
+                m_SessionReady = false;
+                m_LauncherReady = false;
+                m_VehicleCargoRunning = false;
+                m_WaitingForStartSnapshot = false;
+                m_LastSucceeded = true;
+                m_LauncherStateSnapshot = -1;
+                m_LauncherIndexSnapshot = -1;
+                m_Message = "Auto Source armed; waiting for an idle Enhanced Vehicle Cargo launcher";
+            }
+            else
+            {
+                // If a START_SCRIPT request is already in flight, Tick continues
+                // tracking it until gb_vehicle_export starts or the owned request
+                // times out and is safely cleaned up.
+                m_Message = m_WaitingForStartSnapshot
+                    ? "Auto Source is off; finishing the pending Enhanced source request"
+                    : "Auto Source is off";
+            }
         }
 
         [[nodiscard]] bool Enabled() const noexcept
@@ -100,7 +110,15 @@ namespace Tutones::Game::Business
 
         void Tick() noexcept
         {
-            if (!m_Enabled.load(std::memory_order_acquire))
+            const bool enabled = m_Enabled.load(std::memory_order_acquire);
+            bool followPendingRequest = false;
+            if (!enabled)
+            {
+                std::scoped_lock lock(m_Mutex);
+                followPendingRequest = m_WaitingForStartSnapshot;
+            }
+
+            if (!enabled && !followPendingRequest)
                 return;
 
             const std::int64_t now = NowMs();
@@ -117,7 +135,7 @@ namespace Tutones::Game::Business
                 return;
             }
 
-            static_cast<void>(QueuePoll(false));
+            static_cast<void>(QueuePoll(!enabled && followPendingRequest));
         }
 
         [[nodiscard]] VehicleCargoAutoSourceSnapshot Snapshot() const
