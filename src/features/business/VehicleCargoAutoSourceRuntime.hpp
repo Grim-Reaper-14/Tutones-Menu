@@ -39,29 +39,43 @@ namespace Tutones::Game::Business
     class VehicleCargoAutoSourceRuntime final
     {
     public:
-        // GTA5 Enhanced decompiled flow:
-        //   apphackertruck -> mission 178 -> TU event 1613825825 -> freemode host
-        //   -> am_launcher activity 73 -> GB_VEHICLE_EXPORT.
-        // Activity 188 / launcher 74 is the sell route and is never used here.
+        // GTA5 Enhanced b1158.13 decompiled flow:
+        // apphackertruck -> activity 178 -> TU event 1613825825 -> freemode host
+        // -> launcher 73 -> GB_VEHICLE_EXPORT. Activity 188 / launcher 74 is sell.
         static constexpr int VehicleCargoSourceMissionId = 178;
         static constexpr int VehicleCargoSellMissionId = 188;
         static constexpr int VehicleCargoSourceLauncherIndex = 73;
         static constexpr std::uint32_t VehicleCargoLaunchEvent = 1613825825u;
 
         // apphackertruck func_425/426/427 forwards these three Import/Export
-        // setup slots with the launch event. Source does not manufacture its own
-        // values; it forwards the live Enhanced session values exactly as GTA does.
+        // setup slots with the launch event.
         static constexpr std::size_t FreemodeBusinessGlobal = 2733326;
         static constexpr std::size_t ImportExportSetupRootOffset = 3989;
         static constexpr std::size_t ImportExportSetupAOffset = 348;
         static constexpr std::size_t ImportExportSetupBOffset = 349;
         static constexpr std::size_t ImportExportSetupCOffset = 350;
 
-        // apphackertruck func_431 sets the local boss mission request before it
-        // sends the TU event. Global_1893070 is a counted player array.
+        // GPBD_FM_3: Global_1893070[player /*615*/].f_10 is BOSS_GOON.
+        // apphackertruck func_431 writes f_33 = activity, while func_435 writes
+        // VEHICLE_EXPORT at f_188 before it sends the TU launch event.
         static constexpr std::size_t PlayerOrganizationGlobal = 1893070;
         static constexpr std::size_t PlayerOrganizationEntrySize = 615;
         static constexpr std::size_t PlayerOrganizationMissionOffset = 10 + 33;
+        static constexpr std::size_t PlayerOrganizationVehicleExportOffset = 10 + 188;
+        static constexpr std::size_t VehicleExportArraySize = 4;
+        static constexpr std::size_t VehicleExportPadOffset = 5;
+
+        // GPBD_FM: Global_1845347[player /*884*/].f_260 is PROPERTY_DATA.
+        // PROPERTY_DATA::IEWarehouseData starts at f_156 and is:
+        // Index, NumVehicles, SCR_ARRAY<40> Vehicles, PAD, variation.
+        static constexpr std::size_t PlayerFreemodeGlobal = 1845347;
+        static constexpr std::size_t PlayerFreemodeEntrySize = 884;
+        static constexpr std::size_t PropertyDataOffset = 260;
+        static constexpr std::size_t IEWarehouseDataOffset = 156;
+        static constexpr std::size_t IEWarehouseIndexOffset = 0;
+        static constexpr std::size_t IEWarehouseVehicleCountOffset = 1;
+        static constexpr std::size_t IEWarehouseVehiclesOffset = 2;
+        static constexpr int IEWarehouseVehicleSlots = 40;
         static constexpr int MaxPlayers = 32;
 
         static VehicleCargoAutoSourceRuntime& Get() noexcept
@@ -153,12 +167,8 @@ namespace Tutones::Game::Business
         static_assert(offsetof(NativeProgram, nativeEntrypoints) == 0x40);
         static_assert(sizeof(NativeProgram) == 0x80);
 
-        // Current GTA5 Enhanced target for NETWORK_GET_HOST_OF_SCRIPT.
-        // Canonical 0x1D6A14F1F9A736FC -> 0xF1A4B8228C5E44B7.
+        // Current GTA5 Enhanced targets.
         static constexpr std::uint64_t NetworkGetHostOfScriptHash = 0xF1A4B8228C5E44B7ull;
-
-        // _SEND_TU_SCRIPT_EVENT_NEW was introduced with the newer script event
-        // path and remains 0x71A6F836422FDD2B in the current Enhanced crossmap.
         static constexpr std::uint64_t SendTuScriptEventNewHash = 0x71A6F836422FDD2Bull;
 
         static constexpr std::int64_t PollIntervalMs = 500;
@@ -264,51 +274,236 @@ namespace Tutones::Game::Business
             return false;
         }
 
+        void ClearCapturedSourceState() noexcept
+        {
+            m_PreviousMissionState = -1;
+            m_PreviousVehicleExportState.fill(0);
+            m_CapturedPlayerId = -1;
+            m_RequestedSourceVariation = 0;
+            m_HavePreviousSourceState = false;
+        }
+
+        void RestoreSourceLaunchState() noexcept
+        {
+            if (!m_HavePreviousSourceState)
+                return;
+
+            auto* pages = GamePointers::Get().ScriptGlobals();
+            if (pages && m_CapturedPlayerId >= 0 && m_CapturedPlayerId < MaxPlayers)
+            {
+                const auto orgEntry = Script::ScriptGlobal(PlayerOrganizationGlobal)
+                    .At(static_cast<std::size_t>(m_CapturedPlayerId), PlayerOrganizationEntrySize);
+                int* mission = orgEntry.At(PlayerOrganizationMissionOffset).As<int>(pages);
+                const auto exportArray = orgEntry.At(PlayerOrganizationVehicleExportOffset);
+                int* exportCount = exportArray.As<int>(pages);
+                std::array<int*, VehicleExportArraySize> slots{};
+                for (std::size_t i = 0; i < slots.size(); ++i)
+                    slots[i] = exportArray.At(i, 1).As<int>(pages);
+                int* exportPad = orgEntry.At(PlayerOrganizationVehicleExportOffset + VehicleExportPadOffset).As<int>(pages);
+
+                if (mission && *mission == VehicleCargoSourceMissionId)
+                    *mission = m_PreviousMissionState;
+
+                bool canRestoreExport = exportCount && *exportCount == static_cast<int>(VehicleExportArraySize) && exportPad;
+                for (const auto* slot : slots)
+                    canRestoreExport = canRestoreExport && slot != nullptr;
+
+                if (canRestoreExport
+                    && *slots[0] == m_RequestedSourceVariation
+                    && *slots[1] == 0
+                    && *slots[2] == 0
+                    && *slots[3] == 0
+                    && *exportPad == 0)
+                {
+                    for (std::size_t i = 0; i < slots.size(); ++i)
+                        *slots[i] = m_PreviousVehicleExportState[i];
+                    *exportPad = m_PreviousVehicleExportState[VehicleExportArraySize];
+                }
+            }
+
+            ClearCapturedSourceState();
+        }
+
         void ResetCycleState() noexcept
         {
+            RestoreSourceLaunchState();
             m_WaitingForStart = false;
             m_WaitingSinceMs = 0;
             m_SawMissionRunning = false;
             m_NotBeforeMs = 0;
-            m_PreviousMissionState = -1;
-            m_HavePreviousMissionState = false;
         }
 
-        void RestoreLocalMissionState() noexcept
+        [[nodiscard]] static bool StoredCodeMatches(int stored, int candidate) noexcept
         {
-            if (!m_HavePreviousMissionState)
-                return;
+            return stored == candidate || stored == 1000 + candidate;
+        }
 
-            auto* pages = GamePointers::Get().ScriptGlobals();
-            const auto playerId = Native::NativeInvoker::Invoke<std::int32_t>(Native::NativeId::PlayerId);
-            if (pages && playerId && *playerId >= 0 && *playerId < MaxPlayers)
+        bool SelectSourceVariation(std::int64_t** pages, int playerId, int& outVariation,
+            int& outWarehouseVehicleCount, std::string& outFailure) noexcept
+        {
+            outVariation = 0;
+            outWarehouseVehicleCount = 0;
+
+            if (!pages || playerId < 0 || playerId >= MaxPlayers)
             {
-                int* mission = Script::ScriptGlobal(PlayerOrganizationGlobal)
-                    .At(static_cast<std::size_t>(*playerId), PlayerOrganizationEntrySize)
-                    .At(PlayerOrganizationMissionOffset)
-                    .As<int>(pages);
-
-                if (mission && *mission == VehicleCargoSourceMissionId)
-                    *mission = m_PreviousMissionState;
+                outFailure = "Enhanced Vehicle Warehouse globals unavailable";
+                return false;
             }
 
-            m_PreviousMissionState = -1;
-            m_HavePreviousMissionState = false;
+            const auto playerEntry = Script::ScriptGlobal(PlayerFreemodeGlobal)
+                .At(static_cast<std::size_t>(playerId), PlayerFreemodeEntrySize);
+            const auto warehouseBase = playerEntry.At(PropertyDataOffset + IEWarehouseDataOffset);
+
+            int* warehouseIndex = warehouseBase.At(IEWarehouseIndexOffset).As<int>(pages);
+            int* vehicleCount = warehouseBase.At(IEWarehouseVehicleCountOffset).As<int>(pages);
+            const auto vehicles = warehouseBase.At(IEWarehouseVehiclesOffset);
+            int* vehiclesCountHeader = vehicles.As<int>(pages);
+
+            if (!warehouseIndex || !vehicleCount || !vehiclesCountHeader || *vehiclesCountHeader != IEWarehouseVehicleSlots)
+            {
+                outFailure = "Enhanced Vehicle Warehouse layout validation failed";
+                return false;
+            }
+
+            if (*warehouseIndex == 0)
+            {
+                outFailure = "Purchase a Vehicle Warehouse before using Auto Source";
+                return false;
+            }
+
+            int count = *vehicleCount;
+            if (count < 0)
+                count = 0;
+            if (count > IEWarehouseVehicleSlots)
+                count = IEWarehouseVehicleSlots;
+            outWarehouseVehicleCount = count;
+
+            std::array<int, IEWarehouseVehicleSlots> stored{};
+            for (int i = 0; i < IEWarehouseVehicleSlots; ++i)
+            {
+                int* value = vehicles.At(static_cast<std::size_t>(i), 1).As<int>(pages);
+                if (!value)
+                {
+                    outFailure = "Enhanced Vehicle Warehouse inventory is unavailable";
+                    return false;
+                }
+                stored[static_cast<std::size_t>(i)] = *value;
+            }
+
+            const auto isPresent = [&stored](int candidate) noexcept {
+                for (const int value : stored)
+                    if (VehicleCargoAutoSourceRuntime::StoredCodeMatches(value, candidate))
+                        return true;
+                return false;
+            };
+
+            // apphackertruck::func_447 encodes 32 source groups x three tiers
+            // as 1..96. func_446 rejects an entire group while stock < 32;
+            // at 32+ vehicles func_445 rejects only the exact occupied tier.
+            const std::uint64_t seed = static_cast<std::uint64_t>(NowMs())
+                + (static_cast<std::uint64_t>(m_SourceVariationNonce++) * 29ull);
+            const int start = static_cast<int>(seed % 96ull);
+
+            for (int attempt = 0; attempt < 96; ++attempt)
+            {
+                const int candidate = ((start + (attempt * 17)) % 96) + 1;
+                bool blocked = false;
+
+                if (count < 32)
+                {
+                    const int groupStart = (((candidate - 1) / 3) * 3) + 1;
+                    blocked = isPresent(groupStart) || isPresent(groupStart + 1) || isPresent(groupStart + 2);
+                }
+                else
+                {
+                    blocked = isPresent(candidate);
+                }
+
+                if (!blocked)
+                {
+                    outVariation = candidate;
+                    return true;
+                }
+            }
+
+            outFailure = "No valid Enhanced Vehicle Cargo source variation is available";
+            return false;
         }
 
-        bool SendFreemodeSourceRequest(int playerId, int& outFreemodeHost, int& outSetupA, int& outSetupB, int& outSetupC)
+        bool ApplySourceLaunchState(std::int64_t** pages, int playerId, int sourceVariation,
+            std::string& outFailure) noexcept
+        {
+            if (!pages || playerId < 0 || playerId >= MaxPlayers || sourceVariation < 1 || sourceVariation > 96)
+            {
+                outFailure = "Enhanced Vehicle Cargo source state is invalid";
+                return false;
+            }
+            if (m_HavePreviousSourceState)
+            {
+                outFailure = "A Vehicle Cargo source request is already pending";
+                return false;
+            }
+
+            const auto orgEntry = Script::ScriptGlobal(PlayerOrganizationGlobal)
+                .At(static_cast<std::size_t>(playerId), PlayerOrganizationEntrySize);
+            int* mission = orgEntry.At(PlayerOrganizationMissionOffset).As<int>(pages);
+            const auto exportArray = orgEntry.At(PlayerOrganizationVehicleExportOffset);
+            int* exportCount = exportArray.As<int>(pages);
+            std::array<int*, VehicleExportArraySize> slots{};
+            for (std::size_t i = 0; i < slots.size(); ++i)
+                slots[i] = exportArray.At(i, 1).As<int>(pages);
+            int* exportPad = orgEntry.At(PlayerOrganizationVehicleExportOffset + VehicleExportPadOffset).As<int>(pages);
+
+            bool valid = mission && exportCount && *exportCount == static_cast<int>(VehicleExportArraySize) && exportPad;
+            for (const auto* slot : slots)
+                valid = valid && slot != nullptr;
+            if (!valid)
+            {
+                outFailure = "Enhanced VehicleExport layout validation failed";
+                return false;
+            }
+
+            m_PreviousMissionState = *mission;
+            for (std::size_t i = 0; i < slots.size(); ++i)
+                m_PreviousVehicleExportState[i] = *slots[i];
+            m_PreviousVehicleExportState[VehicleExportArraySize] = *exportPad;
+            m_CapturedPlayerId = playerId;
+            m_RequestedSourceVariation = sourceVariation;
+            m_HavePreviousSourceState = true;
+
+            // apphackertruck::func_435(variation, 0, 0, 0, 0), then func_431(178).
+            *slots[0] = sourceVariation;
+            *slots[1] = 0;
+            *slots[2] = 0;
+            *slots[3] = 0;
+            *exportPad = 0;
+            *mission = VehicleCargoSourceMissionId;
+            return true;
+        }
+
+        bool SendFreemodeSourceRequest(int playerId, int& outFreemodeHost, int& outSetupA, int& outSetupB,
+            int& outSetupC, int& outSourceVariation, int& outWarehouseVehicleCount, std::string& outFailure)
         {
             outFreemodeHost = -1;
             outSetupA = 0;
             outSetupB = 0;
             outSetupC = 0;
+            outSourceVariation = 0;
+            outWarehouseVehicleCount = 0;
+            outFailure.clear();
 
             if (!ResolveLaunchNatives() || !ScriptHost("freemode", outFreemodeHost))
+            {
+                outFailure = "Enhanced freemode host is unavailable";
                 return false;
+            }
 
             auto* pages = GamePointers::Get().ScriptGlobals();
             if (!pages)
+            {
+                outFailure = "Enhanced script globals are unavailable";
                 return false;
+            }
 
             int* setupA = Script::ScriptGlobal(FreemodeBusinessGlobal)
                 .At(ImportExportSetupRootOffset + ImportExportSetupAOffset)
@@ -319,26 +514,21 @@ namespace Tutones::Game::Business
             int* setupC = Script::ScriptGlobal(FreemodeBusinessGlobal)
                 .At(ImportExportSetupRootOffset + ImportExportSetupCOffset)
                 .As<int>(pages);
-            int* localMission = Script::ScriptGlobal(PlayerOrganizationGlobal)
-                .At(static_cast<std::size_t>(playerId), PlayerOrganizationEntrySize)
-                .At(PlayerOrganizationMissionOffset)
-                .As<int>(pages);
 
-            if (!setupA || !setupB || !setupC || !localMission)
+            if (!setupA || !setupB || !setupC)
+            {
+                outFailure = "Enhanced Import/Export setup globals are unavailable";
                 return false;
+            }
 
             outSetupA = *setupA;
             outSetupB = *setupB;
             outSetupC = *setupC;
 
-            if (!m_HavePreviousMissionState)
-            {
-                m_PreviousMissionState = *localMission;
-                m_HavePreviousMissionState = true;
-            }
-
-            // apphackertruck::func_431 mirrors this before func_424 sends the event.
-            *localMission = VehicleCargoSourceMissionId;
+            if (!SelectSourceVariation(pages, playerId, outSourceVariation, outWarehouseVehicleCount, outFailure))
+                return false;
+            if (!ApplySourceLaunchState(pages, playerId, outSourceVariation, outFailure))
+                return false;
 
             std::array<std::int64_t, 8> eventData{};
             eventData[0] = static_cast<std::int64_t>(VehicleCargoLaunchEvent);
@@ -359,13 +549,21 @@ namespace Tutones::Game::Business
                 || !context.PushArg(static_cast<std::int32_t>(recipientMask))
                 || !context.PushArg(VehicleCargoLaunchEvent))
             {
-                RestoreLocalMissionState();
+                outFailure = "Unable to build the Enhanced Vehicle Cargo TU event";
+                RestoreSourceLaunchState();
                 return false;
             }
 
             m_SendTuScriptEventNew(&context);
             context.FixVectors();
             return true;
+        }
+
+        void CancelWaitingRequest() noexcept
+        {
+            RestoreSourceLaunchState();
+            m_WaitingForStart = false;
+            m_WaitingSinceMs = 0;
         }
 
         void Evaluate(bool manual)
@@ -378,11 +576,19 @@ namespace Tutones::Game::Business
 
             bool* sessionStarted = GamePointers::Get().IsSessionStarted();
             if (!sessionStarted || !*sessionStarted)
+            {
+                if (m_WaitingForStart)
+                    CancelWaitingRequest();
                 return Finish(false, false, false, false, false, -1, -1, "Join GTA Online before using Auto Source");
+            }
 
             auto& scripts = Script::ScriptRuntime::Get();
             if (!scripts.IsReady())
+            {
+                if (m_WaitingForStart)
+                    CancelWaitingRequest();
                 return Finish(false, true, false, false, false, -1, -1, "Enhanced script runtime unavailable");
+            }
 
             const auto* cargo = scripts.FindThread(BusinessScriptMonitorRuntime::VehicleCargoScriptHash);
             const bool cargoRunning = cargo && cargo->stack;
@@ -393,8 +599,7 @@ namespace Tutones::Game::Business
                 m_SawMissionRunning = true;
                 m_WaitingForStart = false;
                 m_WaitingSinceMs = 0;
-                m_PreviousMissionState = -1;
-                m_HavePreviousMissionState = false;
+                ClearCapturedSourceState();
                 return Finish(true, true, true, true, false, -1, VehicleCargoSourceLauncherIndex,
                     "gb_vehicle_export is running; Enhanced source request accepted");
             }
@@ -410,12 +615,19 @@ namespace Tutones::Game::Business
             constexpr std::uint32_t FreemodeScriptHash = BusinessScriptMonitorDetail::Joaat("freemode");
             const auto* freemode = scripts.FindThread(FreemodeScriptHash);
             if (!freemode || !freemode->stack)
-                return Finish(false, true, false, false, m_WaitingForStart, -1, -1,
-                    "Enhanced freemode thread unavailable");
+            {
+                if (m_WaitingForStart)
+                    CancelWaitingRequest();
+                return Finish(false, true, false, false, false, -1, -1, "Enhanced freemode thread unavailable");
+            }
 
             const auto playerId = Native::NativeInvoker::Invoke<std::int32_t>(Native::NativeId::PlayerId);
             if (!playerId || *playerId < 0 || *playerId >= MaxPlayers)
-                return Finish(false, true, false, false, m_WaitingForStart, -1, -1, "PLAYER_ID unavailable");
+            {
+                if (m_WaitingForStart)
+                    CancelWaitingRequest();
+                return Finish(false, true, false, false, false, -1, -1, "PLAYER_ID unavailable");
+            }
 
             if (m_WaitingForStart)
             {
@@ -425,16 +637,16 @@ namespace Tutones::Game::Business
                 if ((now - m_WaitingSinceMs) < MissionStartTimeoutMs)
                 {
                     return Finish(true, true, true, false, true, host, VehicleCargoSourceLauncherIndex,
-                        std::string("Freemode accepted source event 178; waiting for GB_VEHICLE_EXPORT (host ")
+                        std::string("Freemode accepted source 178 variation ")
+                            + std::to_string(m_RequestedSourceVariation)
+                            + "; waiting for GB_VEHICLE_EXPORT (host "
                             + std::to_string(host) + ")");
                 }
 
-                RestoreLocalMissionState();
-                m_WaitingForStart = false;
-                m_WaitingSinceMs = 0;
+                CancelWaitingRequest();
                 m_NotBeforeMs = now + RetryBackoffMs;
                 return Finish(false, true, true, false, false, host, VehicleCargoSourceLauncherIndex,
-                    "Enhanced freemode did not start Vehicle Cargo; backed off before retry");
+                    "Enhanced freemode did not start Vehicle Cargo; source globals restored before retry");
             }
 
             if (!manual && now < m_NotBeforeMs)
@@ -445,27 +657,33 @@ namespace Tutones::Game::Business
             int setupA = 0;
             int setupB = 0;
             int setupC = 0;
-            if (!SendFreemodeSourceRequest(*playerId, freemodeHost, setupA, setupB, setupC))
+            int sourceVariation = 0;
+            int warehouseVehicleCount = 0;
+            std::string failure;
+            if (!SendFreemodeSourceRequest(*playerId, freemodeHost, setupA, setupB, setupC,
+                    sourceVariation, warehouseVehicleCount, failure))
             {
-                RestoreLocalMissionState();
+                RestoreSourceLaunchState();
                 m_NotBeforeMs = now + RetryBackoffMs;
                 return Finish(false, true, false, false, false, freemodeHost, VehicleCargoSourceLauncherIndex,
-                    "Unable to submit the Enhanced Vehicle Cargo freemode event");
+                    failure.empty() ? "Unable to submit the Enhanced Vehicle Cargo freemode event" : std::move(failure));
             }
 
             m_WaitingForStart = true;
             m_WaitingSinceMs = now;
 
             TUTONES_LOG_INFO("business.vehicle_cargo",
-                std::string("Enhanced Vehicle Cargo source event submitted: mission=178 launcher=73 freemodeHost=")
-                    + std::to_string(freemodeHost)
+                std::string("Enhanced Vehicle Cargo source submitted: mission=178 launcher=73 variation=")
+                    + std::to_string(sourceVariation)
+                    + " warehouseStock=" + std::to_string(warehouseVehicleCount)
+                    + " freemodeHost=" + std::to_string(freemodeHost)
                     + " setup=" + std::to_string(setupA)
                     + "," + std::to_string(setupB)
                     + "," + std::to_string(setupC));
 
             Finish(true, true, true, false, true, freemodeHost, VehicleCargoSourceLauncherIndex,
-                std::string("Enhanced Vehicle Cargo source event 178 sent to freemode host ")
-                    + std::to_string(freemodeHost));
+                std::string("Enhanced source 178 variation ") + std::to_string(sourceVariation)
+                    + " sent to freemode host " + std::to_string(freemodeHost));
         }
 
         void Finish(bool success, bool sessionReady, bool launcherReady, bool vehicleCargoRunning,
@@ -494,8 +712,13 @@ namespace Tutones::Game::Business
         std::int64_t m_WaitingSinceMs{};
         bool m_SawMissionRunning{};
         std::int64_t m_NotBeforeMs{};
+
         int m_PreviousMissionState{-1};
-        bool m_HavePreviousMissionState{};
+        std::array<int, VehicleExportArraySize + 1> m_PreviousVehicleExportState{};
+        int m_CapturedPlayerId{-1};
+        int m_RequestedSourceVariation{};
+        bool m_HavePreviousSourceState{};
+        std::uint32_t m_SourceVariationNonce{};
 
         Native::NativeHandler m_NetworkGetHostOfScript{};
         Native::NativeHandler m_SendTuScriptEventNew{};
