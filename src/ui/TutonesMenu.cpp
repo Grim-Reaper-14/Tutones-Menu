@@ -90,9 +90,9 @@ namespace Tutones::UI
                 {{"X", "B", "X", "E"}},
                 {{"Weapon runtime capabilities and general weapon controls.", "Infinite ammo and infinite clip controls.", "Assisted-aim controls and target handling.", "Impact-driven bullet-effect configuration."}}, 4, true},
             {"V", "VEHICLES",
-                {{"Vehicle Hub", "Customization", "Garage", nullptr}},
-                {{"V", "R", "G", nullptr}},
-                {{"Spawn vehicles, work with the current vehicle, repair/clean it, change plates, clone nearby vehicles and manage decompiled-script website availability.", "One unified vehicle editor for paint, custom RGB, LSC modifications, wheels, lighting, neon and tire settings.", "All stored-vehicle tools stay together: Rockstar personal garages, Tutones local saved vehicles and service-vehicle delivery.", nullptr}}, 3, true},
+                {{"General", "Vehicle Spawner", "Customization", nullptr}},
+                {{"V", "S", "R", nullptr}},
+                {{"Active-vehicle features: Vehicle God Mode, Keep Vehicle Clean, Horn Boost, lowered stance, repair, upright and stealth controls.", "Spawn vehicles, Clone Current, Clone Nearest, request Rockstar personal vehicles and save the current vehicle to a personal garage.", "One unified vehicle editor for paint, custom RGB, LSC modifications, wheels, lighting, neon, tires, liveries and detailed mod slots.", nullptr}}, 3, true},
             {"O", "ONLINE",
                 {{"Session", "Players", "Services", "Player State"}},
                 {{"G", "P", "N", "S"}},
@@ -151,6 +151,8 @@ namespace Tutones::UI
 #include "TutonesMenu.v12pages.inc"
 #include "TutonesMenu.v12tools.inc"
 #include "VehicleCustomizationV2Panel.hpp"
+#include "VehicleGeneralV2Panel.hpp"
+#include "VehicleSpawnerV2Panel.hpp"
 #include "VehicleMenuV2Panel.hpp"
 
 namespace Tutones::UI
@@ -225,7 +227,21 @@ namespace Tutones::UI
             RenderV12MiscPanel(index);
         }
 
-        void RenderVehicleCustomizationNavigationPanel() noexcept
+        void RenderVehicleGeneralNavigationPanel() noexcept
+        {
+            RenderV12PageSurfaceWithGuide(
+                [] { DrawV12VehicleGuide(); },
+                [] { RenderVehicleGeneralV2Panel(); });
+        }
+
+        void RenderVehicleSpawnerNavigationPanel() noexcept
+        {
+            RenderV12PageSurfaceWithGuide(
+                [] { DrawV12VehicleGuide(); },
+                [] { RenderVehicleSpawnerV2Panel(); });
+        }
+
+        void RenderVehicleCustomizationPageNavigationPanel() noexcept
         {
             RenderV12PageSurfaceWithGuide(
                 [] { DrawV12VehicleGuide(); },
@@ -239,10 +255,13 @@ namespace Tutones::UI
 #define RenderPlayerPanel(index) ((index) == 0 ? RenderSelfV2Panel() : RenderV12PlayerPanel(index))
 #define RenderPlayerOnlinePanel() RenderV12PlayerOnlinePanel()
 #define RenderWeaponPanel(index) RenderV12WeaponPanel(index)
-#define RenderVehicleGeneralPanel() RenderVehicleHubV2()
-#define RenderVehiclePaintPanel() RenderVehicleCustomizationNavigationPanel()
-#define RenderVehicleModificationPanel() RenderVehicleGarageV2()
-#define RenderPersonalVehiclePanel() RenderVehicleGarageV2()
+#define RenderVehicleHubV2() RenderVehicleGeneralNavigationPanel()
+#define RenderVehicleCustomizationNavigationPanel() RenderVehicleSpawnerNavigationPanel()
+#define RenderVehicleGarageV2() RenderVehicleCustomizationPageNavigationPanel()
+#define RenderVehicleGeneralPanel() RenderVehicleGeneralNavigationPanel()
+#define RenderVehiclePaintPanel() RenderVehicleSpawnerNavigationPanel()
+#define RenderVehicleModificationPanel() RenderVehicleCustomizationPageNavigationPanel()
+#define RenderPersonalVehiclePanel() RenderVehicleSpawnerNavigationPanel()
 #define RenderGamePanel(index) RenderOnlineNavigationPanel(index)
 #define RenderWorldPanel(index) RenderV12WorldPanel(index)
 #define RenderRecoveryPanel(index) RenderBusinessNavigationPanel(index)
@@ -272,6 +291,9 @@ namespace Tutones::UI
 #undef RenderVehicleModificationPanel
 #undef RenderVehiclePaintPanel
 #undef RenderVehicleGeneralPanel
+#undef RenderVehicleGarageV2
+#undef RenderVehicleCustomizationNavigationPanel
+#undef RenderVehicleHubV2
 #undef RenderWeaponPanel
 #undef RenderPlayerOnlinePanel
 #undef RenderPlayerPanel
