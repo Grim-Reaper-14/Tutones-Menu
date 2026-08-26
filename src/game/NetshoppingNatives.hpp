@@ -58,6 +58,12 @@ namespace Tutones::Game::NetshoppingNatives
             return handlers;
         }
 
+        inline bool& BasketOwnedByTutones() noexcept
+        {
+            static bool owned{};
+            return owned;
+        }
+
         inline bool ResolveHandlers() noexcept
         {
             auto& handlers = Handlers();
@@ -180,8 +186,14 @@ namespace Tutones::Game::NetshoppingNatives
         if (!Detail::ResolveHandlers())
             return std::nullopt;
 
+        // Never cancel a basket opened by GTA or another feature. Instant Garage
+        // simply backs off when the shared netshop basket is already occupied.
+        if (!Detail::BasketOwnedByTutones())
+            return false;
+
         Native::CallContext context;
         Detail::Handlers()[Detail::BasketEnd](&context);
+        Detail::BasketOwnedByTutones() = false;
         return true;
     }
 
@@ -205,7 +217,10 @@ namespace Tutones::Game::NetshoppingNatives
 
         Detail::Handlers()[Detail::BasketStart](&context);
         context.FixVectors();
-        return context.GetReturnValue<std::int32_t>() != 0;
+        const bool started = context.GetReturnValue<std::int32_t>() != 0;
+        if (started)
+            Detail::BasketOwnedByTutones() = true;
+        return started;
     }
 
     [[nodiscard]] inline std::optional<bool> BasketAddItem(BasketItem* item, int quantity) noexcept
@@ -232,6 +247,9 @@ namespace Tutones::Game::NetshoppingNatives
             return std::nullopt;
 
         Detail::Handlers()[Detail::CheckoutStart](&context);
-        return context.GetReturnValue<std::int32_t>() != 0;
+        const bool started = context.GetReturnValue<std::int32_t>() != 0;
+        if (started)
+            Detail::BasketOwnedByTutones() = false;
+        return started;
     }
 }
