@@ -9,6 +9,7 @@
 #include "SelfV2Panel.hpp"
 #include "WorldPanel.hpp"
 #include "../features/business/VehicleCargoAutoSourceRuntime.hpp"
+#include "../features/business/VehicleCargoInstantGarageRuntime.hpp"
 #include "../features/recovery/RecoveryRuntime.hpp"
 #include "../features/vehicle/VehicleModificationRuntime.hpp"
 #include "../features/world/WorldRuntime.hpp"
@@ -117,7 +118,7 @@ namespace Tutones::UI
             {"C", "SETTINGS",
                 {{"General", "Theme", "Controls", nullptr}},
                 {{"C", "T", "C", nullptr}},
-                {{"Save, load and reload persistent menu settings.", "Named themes, banner/background images and Windows font selection.", "Menu input and resource refresh controls.", nullptr}}, 3, true},
+                {{"Save, load and reload persistent menu settings.", "Named themes, banner/background images and Windows font selection.", "Menu input and resource refresh controls."}}, 3, true},
             {"M", "UTILITIES",
                 {{"General", "HUD", "Camera & Player", nullptr}},
                 {{"M", "H", "C", nullptr}},
@@ -132,6 +133,7 @@ namespace Tutones::UI
         {
             Input::Get().PollFallbackHotkeys();
             Game::Business::VehicleCargoAutoSourceRuntime::Get().Tick();
+            Game::Business::VehicleCargoInstantGarageRuntime::Get().Tick();
             static_cast<void>(Game::Protections::ProtectionRuntime::Get().Start());
             Game::Recovery::CasinoSlotMachineRuntime::Get().Tick();
             RenderMiscOverlay();
