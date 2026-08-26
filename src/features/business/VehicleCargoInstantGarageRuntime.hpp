@@ -1,11 +1,16 @@
 #pragma once
 
 #include "BusinessScriptMonitorRuntime.hpp"
+#include "VehicleCargoAutoSourceRuntime.hpp"
 #include "../../core/logging/Logger.hpp"
 #include "../../game/GamePointers.hpp"
-#include "../../game/NetshoppingNatives.hpp"
+#include "../../game/Natives.hpp"
 #include "../../game/Stats.hpp"
+#include "../../game/VehicleNatives.hpp"
+#include "../../game/native/NativeCallContext.hpp"
+#include "../../game/native/NativeHandlerValidation.hpp"
 #include "../../game/native/NativeInvoker.hpp"
+#include "../../game/native/NativeRegistry.hpp"
 #include "../../game/script/ScriptGlobal.hpp"
 #include "../../game/script/ScriptRuntime.hpp"
 #include "../../runtime/GameRuntime.hpp"
@@ -17,6 +22,7 @@
 #include <cstdint>
 #include <mutex>
 #include <string>
+#include <string_view>
 #include <utility>
 
 namespace Tutones::Game::Business
@@ -27,29 +33,19 @@ namespace Tutones::Game::Business
         bool pending{};
         bool sessionReady{};
         bool warehouseReady{};
-        bool transactionReady{};
+        bool missionRunning{};
+        bool sourceVehicleReady{};
+        bool deliveryIssued{};
         bool lastSucceeded{};
-        int warehouseSlot{-1};
+        int warehouseProperty{};
         int sourceVariation{};
         int warehouseStock{};
-        int transactionId{-1};
-        std::string message{"Instant Garage is off"};
+        std::string message{"Instant Delivery is off"};
     };
 
     class VehicleCargoInstantGarageRuntime final
     {
     public:
-        // Enhanced GPBD_FM / PROPERTY_DATA / IE_WAREHOUSE_DATA.
-        static constexpr std::size_t PlayerFreemodeGlobal = 1845347;
-        static constexpr std::size_t PlayerFreemodeEntrySize = 884;
-        static constexpr std::size_t PropertyDataOffset = 260;
-        static constexpr std::size_t IEWarehouseDataOffset = 156;
-        static constexpr std::size_t IEWarehouseIndexOffset = 0;
-        static constexpr std::size_t IEWarehouseVehicleCountOffset = 1;
-        static constexpr std::size_t IEWarehouseVehiclesOffset = 2;
-        static constexpr int IEWarehouseVehicleSlots = 40;
-        static constexpr int MaxPlayers = 32;
-
         static VehicleCargoInstantGarageRuntime& Get() noexcept
         {
             static VehicleCargoInstantGarageRuntime instance;
@@ -62,11 +58,20 @@ namespace Tutones::Game::Business
             if (previous == enabled)
                 return;
 
+            // Instant Delivery owns source scheduling while it is enabled. Keep the
+            // normal repeating Auto Source switch off, then issue one real Rockstar
+            // source request at a time through QueueSourceNow().
+            if (enabled)
+                VehicleCargoAutoSourceRuntime::Get().SetEnabled(false);
+
             m_NextPollMs.store(0, std::memory_order_release);
+            if (!enabled)
+                ResetCycle();
+
             std::scoped_lock lock(m_Mutex);
             m_Snapshot.message = enabled
-                ? "Instant Garage armed; sourced vehicles will be stored directly"
-                : "Instant Garage is off";
+                ? "Instant Delivery armed; starting a real source mission and waiting for the sourced car"
+                : "Instant Delivery is off";
         }
 
         [[nodiscard]] bool Enabled() const noexcept
@@ -74,15 +79,21 @@ namespace Tutones::Game::Business
             return m_Enabled.load(std::memory_order_acquire);
         }
 
+        // Kept for the existing V2 UI. This starts one source/delivery cycle even
+        // when automatic repeating is disabled.
         bool QueueStoreNow()
         {
-            return QueueStore(true);
+            m_ManualCycleActive.store(true, std::memory_order_release);
+            return QueueEvaluate(true);
         }
 
         void Tick() noexcept
         {
-            if (!m_Enabled.load(std::memory_order_acquire))
+            if (!m_Enabled.load(std::memory_order_acquire)
+                && !m_ManualCycleActive.load(std::memory_order_acquire))
+            {
                 return;
+            }
 
             const auto now = NowMs();
             auto next = m_NextPollMs.load(std::memory_order_acquire);
@@ -91,7 +102,7 @@ namespace Tutones::Game::Business
             if (!m_NextPollMs.compare_exchange_strong(next, now + PollIntervalMs, std::memory_order_acq_rel))
                 return;
 
-            static_cast<void>(QueueStore(false));
+            static_cast<void>(QueueEvaluate(false));
         }
 
         [[nodiscard]] VehicleCargoInstantGarageSnapshot Snapshot() const
@@ -104,49 +115,116 @@ namespace Tutones::Game::Business
         }
 
     private:
-        static constexpr std::uint32_t ShopControllerHash = 0x39DA738Bu;
-
-        // appimportexport stores MP_STAT_IE_WH_OWNED_VEHICLE_<slot>_v0 through
-        // this server basket. These are category/action hashes, not tunables.
-        static constexpr std::uint32_t VehicleWarehouseBasketCategory = 0xA6E56D90u;
-        static constexpr std::uint32_t VehicleWarehouseBasketAction = 0xD548DED3u;
-
-        static constexpr std::int64_t PollIntervalMs = 750;
-        static constexpr std::int64_t SuccessfulStoreSpacingMs = 5000;
-        static constexpr std::int64_t FailureBackoffMs = 5000;
-
-        class ScriptTlsScope final
+        struct NativeProgram final
         {
-        public:
-            ScriptTlsScope(Types::TlsContext* tls, Types::ScriptThread* thread) noexcept
-                : m_Tls(tls)
-            {
-                if (!m_Tls || !thread)
-                    return;
-
-                m_OriginalThread = m_Tls->currentScriptThread;
-                m_OriginalActive = m_Tls->scriptThreadActive;
-                m_Tls->currentScriptThread = thread;
-                m_Tls->scriptThreadActive = true;
-                m_Active = true;
-            }
-
-            ~ScriptTlsScope()
-            {
-                if (!m_Active)
-                    return;
-                m_Tls->scriptThreadActive = m_OriginalActive;
-                m_Tls->currentScriptThread = m_OriginalThread;
-            }
-
-            [[nodiscard]] bool Active() const noexcept { return m_Active; }
-
-        private:
-            Types::TlsContext* m_Tls{};
-            Types::ScriptThread* m_OriginalThread{};
-            bool m_OriginalActive{};
-            bool m_Active{};
+            std::byte pad00[0x2C]{};
+            std::uint32_t nativeCount{};
+            std::byte pad30[0x10]{};
+            Native::NativeHandler* nativeEntrypoints{};
+            std::byte pad48[0x38]{};
         };
+
+        static_assert(offsetof(NativeProgram, nativeCount) == 0x2C);
+        static_assert(offsetof(NativeProgram, nativeEntrypoints) == 0x40);
+        static_assert(sizeof(NativeProgram) == 0x80);
+
+        enum DeliveryHandlerIndex : std::size_t
+        {
+            RequestCollision,
+            SetEntityCoords,
+            FreezeEntity,
+            SetEntityVelocity,
+            DeliveryHandlerCount,
+        };
+
+        struct WarehouseTarget final
+        {
+            float x{};
+            float y{};
+            float z{};
+        };
+
+        // Current Enhanced mappings already used by Tutones' TeleportRuntime.
+        static constexpr std::array<std::uint64_t, DeliveryHandlerCount> DeliveryHandlerHashes{
+            0xEA2D52183C7EA9CFull, // REQUEST_COLLISION_AT_COORD
+            0x62C438C53BB57AFDull, // SET_ENTITY_COORDS_NO_OFFSET
+            0x5D7CD709B34C90F0ull, // FREEZE_ENTITY_POSITION
+            0x1AB7223AC0702871ull, // SET_ENTITY_VELOCITY
+        };
+
+        // MPX_PROP_IE_WAREHOUSE values 115..124. These are the current Vehicle
+        // Warehouse entrance coordinates used by current business-manager data.
+        static constexpr std::array<WarehouseTarget, 10> WarehouseTargets{{
+            {-631.693f, -1778.812f, 22.980f},
+            {1007.344f, -1854.104f, 30.055f},
+            {-72.690f, -1820.721f, 25.960f},
+            {36.290f, -1283.851f, 28.300f},
+            {1213.935f, -1251.067f, 35.340f},
+            {808.9337f, -2226.6355f, 30.5702f},
+            {1755.0826f, -1652.7717f, 113.9896f},
+            {144.163f, -3006.280f, 6.025f},
+            {-514.9109f, -2200.7783f, 8.504f},
+            {-1157.2069f, -2167.5227f, 14.6173f},
+        }};
+
+        // Import/Export has 32 vehicle models and three plate variants per model.
+        // Variation n maps to Models[(n - 1) / 3] and Plates[n - 1].
+        static constexpr std::array<const char*, 32> Models{{
+            "prototipo", "tyrus", "bestiagts", "t20", "sheava", "osiris", "fmj", "reaper",
+            "pfister811", "alpha", "mamba", "tampa", "btype3", "feltzer3", "ztype", "tropos",
+            "entityxf", "sultanrs", "zentorno", "omnis", "coquette3", "seven70", "verlierer2", "feltzer2",
+            "coquette2", "cheetah", "nightshade", "banshee2", "turismor", "massacro", "sabregt2", "jester",
+        }};
+
+        static constexpr std::array<const char*, 96> Plates{{
+            "FUTUR3", "M4K3B4NK", "TURB0",
+            "C1TRUS", "B35TL4P", "TR3X",
+            "BE4STY", "5T34LTH", "5M00TH",
+            "CAR4M3L", "T0PSP33D", "D3V1L",
+            "B1GB0Y", "M0N4RCH", "PR3TTY",
+            "OH3LL0", "PH4R40H", "SL33K",
+            "C4TCHM3", "J0K3R", "H0T4U",
+            "2FA5T4U", "D34TH4U", "GR1M",
+            "M1DL1F3", "R3G4L", "SL1CK",
+            "V1S1ONRY", "L0NG80Y", "R31GN",
+            "0LDBLU3", "BLKM4MB4", "V1P",
+            "CH4RG3D", "CRU151N", "MU5CL3",
+            "L4WLE55", "0LDT1M3R", "V4L0R",
+            "M4J3ST1C", "T0UR3R", "R4LLY",
+            "B1GMON3Y", "K1NGP1N", "CE0",
+            "1MS0RAD", "31GHT135", "1985",
+            "IML4TE", "0V3RFL0D", "W1DEB0Y",
+            "SN0WFLK3", "F1D3L1TY", "5H0W0FF",
+            "W1NN1NG", "0LDN3W5", "H3R0",
+            "0BEYM3", "W1D3B0D", "D1RTY",
+            "V1NT4G3", "W1P30UT", "BLKF1N",
+            "FRU1TY", "4LL0Y5", "SP33DY",
+            "PR3C1OUS", "0UTFR0NT", "CURV35",
+            "P0W3RFUL", "K3YL1M3", "R4C3R",
+            "T0PL3SS", "T0FF33", "CL45SY",
+            "BUZZ3D", "M1DN1GHT", "B1GC4T",
+            "DE4DLY", "TH37OS", "E4TM3",
+            "DR1FT3R", "D0M1N0", "H0WL3R",
+            "IN4H4ZE", "M1LKYW4Y", "TPD4WG",
+            "TR0P1CAL", "B4N4N4", "B055",
+            "GUNZ0UT", "0R1G1N4L", "B0UNC3",
+            "H0TP1NK", "T0PCL0WN", "NOF00L",
+        }};
+
+        // GPBD_FM_3: current activity at f_10.f_33 and VEHICLE_EXPORT at f_10.f_188.
+        static constexpr std::size_t PlayerOrganizationGlobal = 1893070;
+        static constexpr std::size_t PlayerOrganizationEntrySize = 615;
+        static constexpr std::size_t CurrentActivityOffset = 10 + 33;
+        static constexpr std::size_t VehicleExportOffset = 10 + 188;
+        static constexpr std::size_t VehicleExportArraySize = 4;
+        static constexpr int SourceActivity = 178;
+        static constexpr int MaxPlayers = 32;
+
+        static constexpr std::int64_t PollIntervalMs = 250;
+        static constexpr std::int64_t SourceLaunchTimeoutMs = 20000;
+        static constexpr std::int64_t DeliveryRetryMs = 1500;
+        static constexpr std::int64_t NextSourceDelayMs = 2000;
+        static constexpr int MaxDeliveryAttempts = 5;
 
         VehicleCargoInstantGarageRuntime() = default;
 
@@ -156,323 +234,428 @@ namespace Tutones::Game::Business
                 std::chrono::steady_clock::now().time_since_epoch()).count();
         }
 
-        [[nodiscard]] static bool StoredCodeMatches(int stored, int candidate) noexcept
+        [[nodiscard]] static std::string NormalizePlate(std::string_view plate)
         {
-            return stored == candidate || stored == 1000 + candidate;
+            std::string out;
+            out.reserve(plate.size());
+            for (char c : plate)
+            {
+                if (c == ' ' || c == '\t' || c == '\r' || c == '\n')
+                    continue;
+                if (c >= 'a' && c <= 'z')
+                    c = static_cast<char>(c - 'a' + 'A');
+                out.push_back(c);
+            }
+            return out;
         }
 
-        bool QueueStore(bool manual)
+        [[nodiscard]] static bool ReadWarehouse(int& outProperty, int& outStock, WarehouseTarget& outTarget)
+        {
+            outProperty = 0;
+            outStock = 0;
+
+            const auto property = Stats::GetInt("MPX_PROP_IE_WAREHOUSE");
+            if (!property || *property < 115 || *property > 124)
+                return false;
+
+            outProperty = *property;
+            outTarget = WarehouseTargets[static_cast<std::size_t>(*property - 115)];
+
+            for (int slot = 0; slot < 40; ++slot)
+            {
+                const auto value = Stats::GetInt(
+                    std::string("MPX_IE_WH_OWNED_VEHICLE_") + std::to_string(slot));
+                if (value && *value != 0)
+                    ++outStock;
+            }
+            return true;
+        }
+
+        [[nodiscard]] static int CurrentActivity(std::int64_t** pages, int playerId) noexcept
+        {
+            if (!pages || playerId < 0 || playerId >= MaxPlayers)
+                return -1;
+
+            const auto entry = Script::ScriptGlobal(PlayerOrganizationGlobal)
+                .At(static_cast<std::size_t>(playerId), PlayerOrganizationEntrySize);
+            const int* activity = entry.At(CurrentActivityOffset).As<int>(pages);
+            return activity ? *activity : -1;
+        }
+
+        [[nodiscard]] static int RequestedVariation(std::int64_t** pages, int playerId) noexcept
+        {
+            if (!pages || playerId < 0 || playerId >= MaxPlayers)
+                return 0;
+
+            const auto entry = Script::ScriptGlobal(PlayerOrganizationGlobal)
+                .At(static_cast<std::size_t>(playerId), PlayerOrganizationEntrySize);
+            const auto exportArray = entry.At(VehicleExportOffset);
+            const int* count = exportArray.As<int>(pages);
+            const int* variation = exportArray.At(0, 1).As<int>(pages);
+            if (!count || *count != static_cast<int>(VehicleExportArraySize) || !variation)
+                return 0;
+            return *variation >= 1 && *variation <= 96 ? *variation : 0;
+        }
+
+        [[nodiscard]] static bool MatchesVariation(Vehicle vehicle, int variation) noexcept
+        {
+            if (vehicle == 0 || variation < 1 || variation > 96)
+                return false;
+
+            const auto model = Natives::GetEntityModel(vehicle);
+            const auto plate = VehicleNatives::GetVehicleNumberPlateText(vehicle);
+            if (!model || !plate)
+                return false;
+
+            const std::size_t index = static_cast<std::size_t>(variation - 1);
+            const std::uint32_t expectedModel = Stats::Detail::Joaat(Models[index / 3]);
+            return *model == expectedModel && NormalizePlate(*plate) == Plates[index];
+        }
+
+        [[nodiscard]] static Vehicle CurrentPlayerVehicle() noexcept
+        {
+            const auto ped = Natives::PlayerPedId();
+            if (!ped || *ped == 0)
+                return 0;
+
+            const auto inVehicle = Natives::IsPedInAnyVehicle(*ped, false);
+            if (!inVehicle || !*inVehicle)
+                return 0;
+
+            const auto vehicle = VehicleNatives::GetVehiclePedIsUsing(*ped);
+            return vehicle ? *vehicle : 0;
+        }
+
+        [[nodiscard]] bool ResolveDeliveryHandlers() noexcept
+        {
+            bool ready = true;
+            for (const auto handler : m_DeliveryHandlers)
+                ready = ready && handler != nullptr;
+            if (ready)
+                return true;
+
+            if (!Native::NativeRegistry::Get().CanInvokeOnCurrentThread())
+                return false;
+
+            const auto init = GamePointers::Get().InitNativeTables();
+            if (!init)
+                return false;
+
+            auto slots = DeliveryHandlerHashes;
+            NativeProgram program{};
+            program.nativeCount = static_cast<std::uint32_t>(slots.size());
+            program.nativeEntrypoints = reinterpret_cast<Native::NativeHandler*>(slots.data());
+            init(&program);
+
+            return Native::AssignValidatedHandlers(slots, m_DeliveryHandlers);
+        }
+
+        template<typename... Args>
+        [[nodiscard]] bool CallDeliveryVoid(std::size_t index, Args... args) const noexcept
+        {
+            if (index >= m_DeliveryHandlers.size() || !m_DeliveryHandlers[index])
+                return false;
+
+            Native::CallContext context;
+            if (!(context.PushArg(args) && ...))
+                return false;
+            m_DeliveryHandlers[index](&context);
+            context.FixVectors();
+            return true;
+        }
+
+        [[nodiscard]] bool DeliverToWarehouse(Vehicle vehicle, const WarehouseTarget& target) noexcept
+        {
+            const auto exists = Natives::DoesEntityExist(vehicle);
+            if (vehicle == 0 || !exists || !*exists || !ResolveDeliveryHandlers())
+                return false;
+
+            const float z = target.z + 0.35f;
+            static_cast<void>(CallDeliveryVoid(RequestCollision, target.x, target.y, z));
+            static_cast<void>(CallDeliveryVoid(FreezeEntity, vehicle, std::int32_t{1}));
+
+            const bool moved = CallDeliveryVoid(
+                SetEntityCoords,
+                vehicle,
+                target.x,
+                target.y,
+                z,
+                std::int32_t{1},
+                std::int32_t{1},
+                std::int32_t{1});
+
+            static_cast<void>(CallDeliveryVoid(SetEntityVelocity, vehicle, 0.0f, 0.0f, 0.0f));
+            static_cast<void>(CallDeliveryVoid(RequestCollision, target.x, target.y, z));
+            static_cast<void>(CallDeliveryVoid(FreezeEntity, vehicle, std::int32_t{0}));
+            return moved;
+        }
+
+        bool QueueEvaluate(bool manual)
         {
             bool expected = false;
             if (!m_Pending.compare_exchange_strong(expected, true, std::memory_order_acq_rel))
                 return false;
 
-            if (Runtime::GameRuntime::Get().Enqueue([this, manual] { ExecuteOnGameThread(manual); }))
+            if (Runtime::GameRuntime::Get().Enqueue([this, manual] { Evaluate(manual); }))
                 return true;
 
-            Finish(false, false, false, false, -1, 0, 0, -1, "Game-thread queue unavailable");
+            m_Pending.store(false, std::memory_order_release);
+            StoreSnapshot(false, false, false, false, false, false, 0, 0, 0,
+                "Game-thread queue unavailable");
             return false;
         }
 
-        bool ResolveWarehouse(
-            std::int64_t** pages,
-            int playerId,
-            int& outFreeSlot,
-            int& outVariation,
-            int& outStock,
-            int*& outVehicleCount,
-            int*& outFreeSlotGlobal,
-            std::string& outFailure) noexcept
+        void ResetCycle() noexcept
         {
-            outFreeSlot = -1;
-            outVariation = 0;
-            outStock = 0;
-            outVehicleCount = nullptr;
-            outFreeSlotGlobal = nullptr;
-            outFailure.clear();
-
-            if (!pages || playerId < 0 || playerId >= MaxPlayers)
-            {
-                outFailure = "Enhanced Vehicle Warehouse globals unavailable";
-                return false;
-            }
-
-            const auto playerEntry = Script::ScriptGlobal(PlayerFreemodeGlobal)
-                .At(static_cast<std::size_t>(playerId), PlayerFreemodeEntrySize);
-            const auto warehouseBase = playerEntry.At(PropertyDataOffset + IEWarehouseDataOffset);
-
-            int* warehouseIndex = warehouseBase.At(IEWarehouseIndexOffset).As<int>(pages);
-            int* vehicleCount = warehouseBase.At(IEWarehouseVehicleCountOffset).As<int>(pages);
-            const auto vehicles = warehouseBase.At(IEWarehouseVehiclesOffset);
-            int* vehiclesCountHeader = vehicles.As<int>(pages);
-
-            if (!warehouseIndex || !vehicleCount || !vehiclesCountHeader
-                || *vehiclesCountHeader != IEWarehouseVehicleSlots)
-            {
-                outFailure = "Enhanced Vehicle Warehouse layout validation failed";
-                return false;
-            }
-
-            if (*warehouseIndex == 0)
-            {
-                outFailure = "Purchase a Vehicle Warehouse before using Instant Garage";
-                return false;
-            }
-
-            std::array<int, IEWarehouseVehicleSlots> stored{};
-            int actualStock = 0;
-            for (int i = 0; i < IEWarehouseVehicleSlots; ++i)
-            {
-                int* value = vehicles.At(static_cast<std::size_t>(i), 1).As<int>(pages);
-                if (!value)
-                {
-                    outFailure = "Enhanced Vehicle Warehouse inventory is unavailable";
-                    return false;
-                }
-
-                stored[static_cast<std::size_t>(i)] = *value;
-                if (*value != 0)
-                    ++actualStock;
-                else if (outFreeSlot < 0)
-                {
-                    outFreeSlot = i;
-                    outFreeSlotGlobal = value;
-                }
-            }
-
-            if (outFreeSlot < 0 || !outFreeSlotGlobal || actualStock >= IEWarehouseVehicleSlots)
-            {
-                outFailure = "Vehicle Warehouse is full (40/40)";
-                return false;
-            }
-
-            int selectionCount = *vehicleCount;
-            if (selectionCount < 0)
-                selectionCount = actualStock;
-            if (selectionCount > IEWarehouseVehicleSlots)
-                selectionCount = IEWarehouseVehicleSlots;
-            if (selectionCount < actualStock)
-                selectionCount = actualStock;
-
-            const auto isPresent = [&stored](int candidate) noexcept {
-                for (const int value : stored)
-                    if (VehicleCargoInstantGarageRuntime::StoredCodeMatches(value, candidate))
-                        return true;
-                return false;
-            };
-
-            const std::uint64_t seed = static_cast<std::uint64_t>(NowMs())
-                + (static_cast<std::uint64_t>(m_SourceVariationNonce++) * 29ull);
-            const int start = static_cast<int>(seed % 96ull);
-
-            for (int attempt = 0; attempt < 96; ++attempt)
-            {
-                const int candidate = ((start + (attempt * 17)) % 96) + 1;
-                bool blocked = false;
-
-                if (selectionCount < 32)
-                {
-                    const int groupStart = (((candidate - 1) / 3) * 3) + 1;
-                    blocked = isPresent(groupStart) || isPresent(groupStart + 1) || isPresent(groupStart + 2);
-                }
-                else
-                {
-                    blocked = isPresent(candidate);
-                }
-
-                if (!blocked)
-                {
-                    outVariation = candidate;
-                    outStock = actualStock;
-                    outVehicleCount = vehicleCount;
-                    return true;
-                }
-            }
-
-            outFailure = "No valid Vehicle Cargo source variation is available";
-            return false;
+            m_LaunchRequested = false;
+            m_LaunchRequestedAtMs = 0;
+            m_MissionWasRunning = false;
+            m_DeliveryIssued = false;
+            m_DeliveryAttempts = 0;
+            m_LastDeliveryAtMs = 0;
+            m_LastDeliveredVehicle = 0;
+            m_RequestedVariation = 0;
         }
 
-        [[nodiscard]] static std::uint32_t VehicleWarehouseStatHash(int slot)
+        void CompleteOneShot() noexcept
         {
-            const std::string statName = std::string("MP_STAT_IE_WH_OWNED_VEHICLE_")
-                + std::to_string(slot) + "_v0";
-            return Stats::Detail::Joaat(statName);
+            if (!m_Enabled.load(std::memory_order_acquire))
+                m_ManualCycleActive.store(false, std::memory_order_release);
         }
 
-        void ExecuteOnGameThread(bool manual) noexcept
+        void Evaluate(bool manual)
         {
-            if (!manual && !m_Enabled.load(std::memory_order_acquire))
-                return Finish(true, false, false, false, -1, 0, 0, -1, "Instant Garage is off");
+            if (manual)
+                m_ManualCycleActive.store(true, std::memory_order_release);
+
+            const bool active = m_Enabled.load(std::memory_order_acquire)
+                || m_ManualCycleActive.load(std::memory_order_acquire);
+            if (!active)
+                return Finish(true, false, false, false, false, false, 0, 0, 0, "Instant Delivery is off");
 
             bool* sessionStarted = GamePointers::Get().IsSessionStarted();
             if (!sessionStarted || !*sessionStarted)
             {
-                m_NotBeforeMs = NowMs() + FailureBackoffMs;
-                return Finish(false, false, false, false, -1, 0, 0, -1,
-                    "Join GTA Online before using Instant Garage");
-            }
-
-            const auto now = NowMs();
-            if (!manual && now < m_NotBeforeMs)
-                return Finish(true, true, true, true, -1, 0, 0, -1,
-                    "Instant Garage waiting before the next warehouse transaction");
-
-            const auto playerId = Native::NativeInvoker::Invoke<std::int32_t>(Native::NativeId::PlayerId);
-            if (!playerId || *playerId < 0 || *playerId >= MaxPlayers)
-            {
-                m_NotBeforeMs = now + FailureBackoffMs;
-                return Finish(false, true, false, false, -1, 0, 0, -1, "PLAYER_ID unavailable");
-            }
-
-            auto* pages = GamePointers::Get().ScriptGlobals();
-            int freeSlot = -1;
-            int variation = 0;
-            int stock = 0;
-            int* vehicleCount = nullptr;
-            int* freeSlotGlobal = nullptr;
-            std::string failure;
-            if (!ResolveWarehouse(pages, *playerId, freeSlot, variation, stock,
-                    vehicleCount, freeSlotGlobal, failure))
-            {
-                m_NotBeforeMs = now + FailureBackoffMs;
-                if (failure.find("full") != std::string::npos)
-                    m_Enabled.store(false, std::memory_order_release);
-                return Finish(false, true, false, false, freeSlot, variation, stock, -1,
-                    failure.empty() ? "Unable to resolve Vehicle Warehouse" : std::move(failure));
-            }
-
-            const auto useServerTransactions = NetshoppingNatives::UseServerTransactions();
-            if (!useServerTransactions || !*useServerTransactions)
-            {
-                m_NotBeforeMs = now + FailureBackoffMs;
-                return Finish(false, true, true, false, freeSlot, variation, stock, -1,
-                    "Enhanced server transactions are unavailable");
+                ResetCycle();
+                CompleteOneShot();
+                return Finish(false, false, false, false, false, false, 0, 0, 0,
+                    "Join GTA Online before using Instant Delivery");
             }
 
             auto& scripts = Script::ScriptRuntime::Get();
-            auto* shopController = scripts.FindThread(ShopControllerHash);
-            if (!scripts.IsReady() || !shopController || !shopController->stack)
+            if (!scripts.IsReady())
+                return Finish(false, true, false, false, false, false, 0, 0, 0,
+                    "Enhanced script runtime unavailable");
+
+            const auto playerId = Native::NativeInvoker::Invoke<std::int32_t>(Native::NativeId::PlayerId);
+            if (!playerId || *playerId < 0 || *playerId >= MaxPlayers)
+                return Finish(false, true, false, false, false, false, 0, 0, 0, "PLAYER_ID unavailable");
+
+            WarehouseTarget warehouse{};
+            int warehouseProperty = 0;
+            int warehouseStock = 0;
+            if (!ReadWarehouse(warehouseProperty, warehouseStock, warehouse))
             {
-                m_NotBeforeMs = now + FailureBackoffMs;
-                return Finish(false, true, true, false, freeSlot, variation, stock, -1,
-                    "shop_controller is unavailable");
+                ResetCycle();
+                CompleteOneShot();
+                return Finish(false, true, false, false, false, false, 0, 0, 0,
+                    "Purchase a Vehicle Warehouse before using Instant Delivery");
             }
 
-            auto* tls = Types::TlsContext::Get();
-            ScriptTlsScope scope(tls, shopController);
-            if (!scope.Active())
+            if (warehouseStock >= 40)
             {
-                m_NotBeforeMs = now + FailureBackoffMs;
-                return Finish(false, true, true, false, freeSlot, variation, stock, -1,
-                    "Unable to enter shop_controller script context");
+                m_Enabled.store(false, std::memory_order_release);
+                ResetCycle();
+                CompleteOneShot();
+                return Finish(false, true, true, false, false, false,
+                    warehouseProperty, 0, warehouseStock, "Vehicle Warehouse is full (40/40)");
             }
 
-            const auto basketActive = NetshoppingNatives::BasketIsActive();
-            if (!basketActive)
-            {
-                m_NotBeforeMs = now + FailureBackoffMs;
-                return Finish(false, true, true, false, freeSlot, variation, stock, -1,
-                    "Unable to query the Enhanced netshop basket");
-            }
-            if (*basketActive)
-                static_cast<void>(NetshoppingNatives::BasketEnd());
+            const auto* cargo = scripts.FindThread(BusinessScriptMonitorRuntime::VehicleCargoScriptHash);
+            const bool cargoRunning = cargo && cargo->stack;
+            const auto now = NowMs();
+            auto* pages = GamePointers::Get().ScriptGlobals();
+            const int activity = CurrentActivity(pages, *playerId);
 
-            int transactionId{-1};
-            const auto began = NetshoppingNatives::BasketStart(
-                &transactionId,
-                static_cast<Hash>(VehicleWarehouseBasketCategory),
-                static_cast<Hash>(VehicleWarehouseBasketAction),
-                4);
-            if (!began || !*began || transactionId < 0)
+            if (!cargoRunning)
             {
-                static_cast<void>(NetshoppingNatives::BasketEnd());
-                m_NotBeforeMs = now + FailureBackoffMs;
-                return Finish(false, true, true, true, freeSlot, variation, stock, transactionId,
-                    "Vehicle Warehouse basket start failed");
-            }
+                if (m_MissionWasRunning)
+                {
+                    ResetCycle();
+                    m_NotBeforeMs = now + NextSourceDelayMs;
+                    CompleteOneShot();
+                    return Finish(true, true, true, false, false, false,
+                        warehouseProperty, 0, warehouseStock,
+                        "Vehicle Cargo mission ended; Rockstar owns the warehouse save");
+                }
 
-            NetshoppingNatives::BasketItem item{};
-            item.primaryHash = static_cast<std::int64_t>(VehicleWarehouseStatHash(freeSlot));
-            item.secondaryHash = 0;
-            item.value = 0;
-            item.statValue = 0;
+                if (m_LaunchRequested)
+                {
+                    if ((now - m_LaunchRequestedAtMs) < SourceLaunchTimeoutMs)
+                    {
+                        return Finish(true, true, true, false, false, false,
+                            warehouseProperty, m_RequestedVariation, warehouseStock,
+                            "Real Vehicle Cargo source request sent; waiting for GB_VEHICLE_EXPORT");
+                    }
 
-            const auto added = NetshoppingNatives::BasketAddItem(&item, variation);
-            if (!added || !*added)
-            {
-                static_cast<void>(NetshoppingNatives::BasketEnd());
-                m_NotBeforeMs = now + FailureBackoffMs;
-                return Finish(false, true, true, true, freeSlot, variation, stock, transactionId,
-                    "Vehicle Warehouse basket item failed");
-            }
+                    ResetCycle();
+                    m_NotBeforeMs = now + NextSourceDelayMs;
+                    if (!m_Enabled.load(std::memory_order_acquire))
+                        CompleteOneShot();
+                    return Finish(false, true, true, false, false, false,
+                        warehouseProperty, 0, warehouseStock,
+                        "Vehicle Cargo source did not start; request reset for retry");
+                }
 
-            const auto checkout = NetshoppingNatives::CheckoutStart(transactionId);
-            if (!checkout || !*checkout)
-            {
-                static_cast<void>(NetshoppingNatives::BasketEnd());
-                m_NotBeforeMs = now + FailureBackoffMs;
-                return Finish(false, true, true, true, freeSlot, variation, stock, transactionId,
-                    "Vehicle Warehouse checkout failed");
-            }
+                if (now < m_NotBeforeMs)
+                    return Finish(true, true, true, false, false, false,
+                        warehouseProperty, 0, warehouseStock,
+                        "Instant Delivery waiting before the next source request");
 
-            // Mirror the accepted basket into GPBD_FM immediately. The server basket
-            // owns persistence; this write only keeps the live warehouse display/state
-            // in sync until Rockstar refreshes the player business data.
-            if (freeSlotGlobal && *freeSlotGlobal == 0)
-                *freeSlotGlobal = variation;
-            if (vehicleCount)
-            {
-                int nextCount = stock + 1;
-                if (nextCount > IEWarehouseVehicleSlots)
-                    nextCount = IEWarehouseVehicleSlots;
-                *vehicleCount = nextCount;
+                // Do not turn normal Auto Source on. Queue exactly one genuine source
+                // request, then wait for the mission and the actual mission vehicle.
+                auto& autoSource = VehicleCargoAutoSourceRuntime::Get();
+                autoSource.SetEnabled(false);
+                if (!autoSource.QueueSourceNow())
+                    return Finish(false, true, true, false, false, false,
+                        warehouseProperty, 0, warehouseStock,
+                        "Vehicle Cargo source queue is busy; retrying shortly");
+
+                m_LaunchRequested = true;
+                m_LaunchRequestedAtMs = now;
+                return Finish(true, true, true, false, false, false,
+                    warehouseProperty, 0, warehouseStock,
+                    "Starting a real Vehicle Cargo source mission");
             }
 
-            m_NotBeforeMs = now + SuccessfulStoreSpacingMs;
+            m_MissionWasRunning = true;
+            m_LaunchRequested = true;
+
+            // gb_vehicle_export handles both steal and sell. Instant Delivery only
+            // touches activity 178 so it can never teleport a sell/export vehicle.
+            if (activity != SourceActivity)
+            {
+                return Finish(true, true, true, true, false, false,
+                    warehouseProperty, 0, warehouseStock,
+                    "A Vehicle Cargo export/sell mission is running; Instant Delivery is standing by");
+            }
+
+            const int variation = RequestedVariation(pages, *playerId);
+            if (variation > 0)
+                m_RequestedVariation = variation;
+
+            if (m_RequestedVariation <= 0)
+            {
+                return Finish(false, true, true, true, false, false,
+                    warehouseProperty, 0, warehouseStock,
+                    "Source mission is running, but its VehicleExport variation is not available yet");
+            }
+
+            const Vehicle vehicle = CurrentPlayerVehicle();
+            if (vehicle == 0 || !MatchesVariation(vehicle, m_RequestedVariation))
+            {
+                return Finish(true, true, true, true, false, false,
+                    warehouseProperty, m_RequestedVariation, warehouseStock,
+                    std::string("Source variation ") + std::to_string(m_RequestedVariation)
+                        + " is active; obtain and enter the marked source vehicle");
+            }
+
+            const bool canDeliver = !m_DeliveryIssued
+                || (vehicle == m_LastDeliveredVehicle
+                    && m_DeliveryAttempts < MaxDeliveryAttempts
+                    && (now - m_LastDeliveryAtMs) >= DeliveryRetryMs);
+
+            if (!canDeliver)
+            {
+                return Finish(true, true, true, true, true, m_DeliveryIssued,
+                    warehouseProperty, m_RequestedVariation, warehouseStock,
+                    "Source vehicle acquired; waiting for Rockstar's warehouse delivery trigger");
+            }
+
+            if (!DeliverToWarehouse(vehicle, warehouse))
+            {
+                return Finish(false, true, true, true, true, false,
+                    warehouseProperty, m_RequestedVariation, warehouseStock,
+                    "Source vehicle found, but the Enhanced delivery teleport natives are unavailable");
+            }
+
+            m_DeliveryIssued = true;
+            m_LastDeliveredVehicle = vehicle;
+            m_LastDeliveryAtMs = now;
+            ++m_DeliveryAttempts;
 
             TUTONES_LOG_INFO("business.vehicle_cargo",
-                std::string("Instant Vehicle Cargo stored: slot=") + std::to_string(freeSlot)
-                    + " variation=" + std::to_string(variation)
-                    + " stock=" + std::to_string(stock + 1)
-                    + " transaction=" + std::to_string(transactionId));
+                std::string("Instant source delivery: variation=") + std::to_string(m_RequestedVariation)
+                    + " property=" + std::to_string(warehouseProperty)
+                    + " stock=" + std::to_string(warehouseStock)
+                    + " attempt=" + std::to_string(m_DeliveryAttempts));
 
-            Finish(true, true, true, true, freeSlot, variation, stock + 1, transactionId,
-                std::string("Vehicle Cargo variation ") + std::to_string(variation)
-                    + " stored in warehouse slot " + std::to_string(freeSlot + 1));
+            Finish(true, true, true, true, true, true,
+                warehouseProperty, m_RequestedVariation, warehouseStock,
+                std::string("Source vehicle delivered to Vehicle Warehouse entrance; attempt ")
+                    + std::to_string(m_DeliveryAttempts)
+                    + ". Rockstar will perform the actual storage/save.");
+        }
+
+        void StoreSnapshot(
+            bool success,
+            bool sessionReady,
+            bool warehouseReady,
+            bool missionRunning,
+            bool sourceVehicleReady,
+            bool deliveryIssued,
+            int warehouseProperty,
+            int sourceVariation,
+            int warehouseStock,
+            std::string message) noexcept
+        {
+            std::scoped_lock lock(m_Mutex);
+            m_Snapshot.sessionReady = sessionReady;
+            m_Snapshot.warehouseReady = warehouseReady;
+            m_Snapshot.missionRunning = missionRunning;
+            m_Snapshot.sourceVehicleReady = sourceVehicleReady;
+            m_Snapshot.deliveryIssued = deliveryIssued;
+            m_Snapshot.lastSucceeded = success;
+            m_Snapshot.warehouseProperty = warehouseProperty;
+            m_Snapshot.sourceVariation = sourceVariation;
+            m_Snapshot.warehouseStock = warehouseStock;
+            m_Snapshot.message = std::move(message);
         }
 
         void Finish(
             bool success,
             bool sessionReady,
             bool warehouseReady,
-            bool transactionReady,
-            int warehouseSlot,
+            bool missionRunning,
+            bool sourceVehicleReady,
+            bool deliveryIssued,
+            int warehouseProperty,
             int sourceVariation,
-            int stock,
-            int transactionId,
+            int warehouseStock,
             std::string message) noexcept
         {
-            {
-                std::scoped_lock lock(m_Mutex);
-                m_Snapshot.sessionReady = sessionReady;
-                m_Snapshot.warehouseReady = warehouseReady;
-                m_Snapshot.transactionReady = transactionReady;
-                m_Snapshot.lastSucceeded = success;
-                m_Snapshot.warehouseSlot = warehouseSlot;
-                m_Snapshot.sourceVariation = sourceVariation;
-                m_Snapshot.warehouseStock = stock;
-                m_Snapshot.transactionId = transactionId;
-                m_Snapshot.message = std::move(message);
-            }
+            StoreSnapshot(success, sessionReady, warehouseReady, missionRunning,
+                sourceVehicleReady, deliveryIssued, warehouseProperty,
+                sourceVariation, warehouseStock, std::move(message));
             m_Pending.store(false, std::memory_order_release);
         }
 
         std::atomic<bool> m_Enabled{false};
+        std::atomic<bool> m_ManualCycleActive{false};
         std::atomic<bool> m_Pending{false};
         std::atomic<std::int64_t> m_NextPollMs{0};
+
+        bool m_LaunchRequested{};
+        std::int64_t m_LaunchRequestedAtMs{};
+        bool m_MissionWasRunning{};
+        bool m_DeliveryIssued{};
+        int m_DeliveryAttempts{};
+        std::int64_t m_LastDeliveryAtMs{};
         std::int64_t m_NotBeforeMs{};
-        std::uint32_t m_SourceVariationNonce{};
+        Vehicle m_LastDeliveredVehicle{};
+        int m_RequestedVariation{};
+
+        std::array<Native::NativeHandler, DeliveryHandlerCount> m_DeliveryHandlers{};
 
         mutable std::mutex m_Mutex;
         VehicleCargoInstantGarageSnapshot m_Snapshot{};
