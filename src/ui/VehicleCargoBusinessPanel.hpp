@@ -4,6 +4,7 @@
 #include "V11Theme.hpp"
 #include "../features/business/BusinessScriptMonitorRuntime.hpp"
 #include "../features/business/VehicleCargoAutoSourceRuntime.hpp"
+#include "../features/business/VehicleCargoInstantGarageRuntime.hpp"
 #include "../features/business/VehicleCargoTuningRuntime.hpp"
 
 #include <imgui.h>
@@ -16,6 +17,7 @@ namespace Tutones::UI
     {
         using Game::Business::BusinessScriptMonitorRuntime;
         using Game::Business::VehicleCargoAutoSourceRuntime;
+        using Game::Business::VehicleCargoInstantGarageRuntime;
         using Game::Business::VehicleCargoTuningProfile;
         using Game::Business::VehicleCargoTuningRuntime;
 
@@ -23,10 +25,14 @@ namespace Tutones::UI
         const auto monitorState = monitor.Snapshot();
         auto& autoSource = VehicleCargoAutoSourceRuntime::Get();
         const auto autoSourceState = autoSource.Snapshot();
+        auto& instantGarage = VehicleCargoInstantGarageRuntime::Get();
+        instantGarage.Tick();
+        const auto instantGarageState = instantGarage.Snapshot();
         auto& tuning = VehicleCargoTuningRuntime::Get();
         const auto tuningState = tuning.Snapshot();
 
         static VehicleCargoTuningProfile profile{};
+        static bool instantGarageMode = true;
 
         ImGui::SetCursorPos(ImVec2(226.0f, 52.0f));
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(14.0f, 12.0f));
@@ -41,44 +47,105 @@ namespace Tutones::UI
             ImGui::TextDisabled("Enhanced 1.73 / b1158.13");
             ImGui::Separator();
 
-            ImGui::TextWrapped("Vehicle Cargo uses the Enhanced freemode mission-launch path and current tunable data. All actions run on Tutones' GTA game-thread queue; no Legacy launcher offsets are used.");
+            ImGui::TextWrapped("Vehicle Cargo uses Enhanced freemode mission routing and Rockstar-style warehouse transactions. All actions run on Tutones' GTA game-thread queue; no Legacy launcher offsets are used.");
             ImGui::Spacing();
 
             if (ImGui::CollapsingHeader("Auto Source Vehicle Cargo", ImGuiTreeNodeFlags_DefaultOpen))
             {
-                bool enabled = autoSourceState.enabled;
+                if (ImGui::Checkbox("Instant Garage mode", &instantGarageMode))
+                {
+                    if (instantGarageMode)
+                        autoSource.SetEnabled(false);
+                    else
+                        instantGarage.SetEnabled(false);
+                }
+                DescribeLastV11Item("When enabled, sourcing skips the steal/drive-back mission and stores one valid Vehicle Cargo entry directly in the first free Vehicle Warehouse slot through Rockstar's netshop basket path.");
+
+                bool enabled = instantGarageMode ? instantGarageState.enabled : autoSourceState.enabled;
                 if (ImGui::Checkbox("Enable Auto Source", &enabled))
-                    autoSource.SetEnabled(enabled);
-                DescribeLastV11Item("Automatically requests the next Enhanced Vehicle Cargo source mission whenever gb_vehicle_export is idle. It mirrors Rockstar's freemode source-event path and never force-migrates script host ownership.");
+                {
+                    if (instantGarageMode)
+                    {
+                        autoSource.SetEnabled(false);
+                        instantGarage.SetEnabled(enabled);
+                    }
+                    else
+                    {
+                        instantGarage.SetEnabled(false);
+                        autoSource.SetEnabled(enabled);
+                    }
+                }
+                DescribeLastV11Item(instantGarageMode
+                    ? "Automatically deposits a valid source vehicle into the next free warehouse slot. It stops automatically at 40/40."
+                    : "Automatically requests the next Enhanced Vehicle Cargo source mission whenever gb_vehicle_export is idle.");
 
                 ImGui::SameLine();
-                ImGui::BeginDisabled(autoSourceState.pending);
-                if (ImGui::Button("Source next vehicle now"))
-                    static_cast<void>(autoSource.QueueSourceNow());
+                const bool sourcePending = instantGarageMode ? instantGarageState.pending : autoSourceState.pending;
+                ImGui::BeginDisabled(sourcePending);
+                if (ImGui::Button(instantGarageMode ? "Store next vehicle now" : "Source next vehicle now"))
+                {
+                    if (instantGarageMode)
+                        static_cast<void>(instantGarage.QueueStoreNow());
+                    else
+                        static_cast<void>(autoSource.QueueSourceNow());
+                }
                 ImGui::EndDisabled();
-                DescribeLastV11Item("Send one Enhanced Vehicle Cargo source request immediately, even when Auto Source is disabled.");
+                DescribeLastV11Item(instantGarageMode
+                    ? "Store one valid Vehicle Cargo variation directly in the first free Vehicle Warehouse slot."
+                    : "Send one Enhanced Vehicle Cargo source request immediately, even when Auto Source is disabled.");
 
                 ImGui::SeparatorText("Auto Source Status");
-                ImGui::Text("Auto Source: %s", autoSourceState.enabled ? "ON" : "OFF");
-                ImGui::Text("GTA Online session: %s", autoSourceState.sessionReady ? "READY" : "WAITING");
-                ImGui::Text("Freemode launch route: %s", autoSourceState.launcherReady ? "READY" : "WAITING");
-                ImGui::Text("gb_vehicle_export: %s", autoSourceState.vehicleCargoRunning ? "RUNNING" : "IDLE");
 
-                if (autoSourceState.launcherState >= 0)
+                if (instantGarageMode)
                 {
-                    ImGui::Text("Freemode host: %d | source launcher: %d",
-                        autoSourceState.launcherState,
-                        autoSourceState.launcherIndex);
+                    ImGui::Text("Mode: INSTANT GARAGE");
+                    ImGui::Text("Auto Source: %s", instantGarageState.enabled ? "ON" : "OFF");
+                    ImGui::Text("GTA Online session: %s", instantGarageState.sessionReady ? "READY" : "WAITING");
+                    ImGui::Text("Vehicle Warehouse: %s", instantGarageState.warehouseReady ? "READY" : "WAITING");
+                    ImGui::Text("Server transaction: %s", instantGarageState.transactionReady ? "READY" : "WAITING");
+
+                    if (instantGarageState.warehouseStock > 0 || instantGarageState.warehouseSlot >= 0)
+                    {
+                        ImGui::Text("Warehouse stock: %d / 40", instantGarageState.warehouseStock);
+                        ImGui::Text("Last slot: %d | variation: %d | transaction: %d",
+                            instantGarageState.warehouseSlot >= 0 ? instantGarageState.warehouseSlot + 1 : 0,
+                            instantGarageState.sourceVariation,
+                            instantGarageState.transactionId);
+                    }
+
+                    if (instantGarageState.pending)
+                        ImGui::TextDisabled("Submitting Vehicle Warehouse basket transaction...");
+                    else
+                        ImGui::TextWrapped("%s", instantGarageState.message.c_str());
+
+                    ImGui::Spacing();
+                    ImGui::TextDisabled("Instant route: valid 1-96 source variation -> first free warehouse slot -> MP_STAT_IE_WH_OWNED_VEHICLE_<slot>_v0 -> netshop basket -> checkout.");
+                    ImGui::TextWrapped("The netshop transaction owns persistence; Tutones mirrors the accepted slot into live GPBD_FM so the warehouse state updates immediately.");
                 }
-
-                if (autoSourceState.pending)
-                    ImGui::TextDisabled("Checking Enhanced Vehicle Cargo source route...");
                 else
-                    ImGui::TextWrapped("%s", autoSourceState.message.c_str());
+                {
+                    ImGui::Text("Mode: ROCKSTAR SOURCE MISSION");
+                    ImGui::Text("Auto Source: %s", autoSourceState.enabled ? "ON" : "OFF");
+                    ImGui::Text("GTA Online session: %s", autoSourceState.sessionReady ? "READY" : "WAITING");
+                    ImGui::Text("Freemode launch route: %s", autoSourceState.launcherReady ? "READY" : "WAITING");
+                    ImGui::Text("gb_vehicle_export: %s", autoSourceState.vehicleCargoRunning ? "RUNNING" : "IDLE");
 
-                ImGui::Spacing();
-                ImGui::TextDisabled("Enhanced source route: mission 178 -> TU event 1613825825 -> freemode host -> launcher 73 -> GB_VEHICLE_EXPORT.");
-                ImGui::TextWrapped("For back-to-back sourcing without Rockstar's normal steal cooldown, set Steal cooldown to 0 below and apply the Vehicle Cargo globals. Auto Source itself does not overwrite your cooldown preference.");
+                    if (autoSourceState.launcherState >= 0)
+                    {
+                        ImGui::Text("Freemode host: %d | source launcher: %d",
+                            autoSourceState.launcherState,
+                            autoSourceState.launcherIndex);
+                    }
+
+                    if (autoSourceState.pending)
+                        ImGui::TextDisabled("Checking Enhanced Vehicle Cargo source route...");
+                    else
+                        ImGui::TextWrapped("%s", autoSourceState.message.c_str());
+
+                    ImGui::Spacing();
+                    ImGui::TextDisabled("Enhanced source route: mission 178 -> TU event 1613825825 -> freemode host -> launcher 73 -> GB_VEHICLE_EXPORT.");
+                    ImGui::TextWrapped("For back-to-back sourcing without Rockstar's normal steal cooldown, set Steal cooldown to 0 below and apply the Vehicle Cargo globals.");
+                }
             }
 
             if (ImGui::CollapsingHeader("Vehicle Cargo Tunables", ImGuiTreeNodeFlags_DefaultOpen))
@@ -176,13 +243,13 @@ namespace Tutones::UI
                     ImGui::TextDisabled("%s: %s", monitorState.lastSucceeded ? "Success" : "Failed", monitorState.message.c_str());
 
                 ImGui::SeparatorText("Mission Launch Safety");
-                ImGui::TextWrapped("Auto Source no longer writes am_launcher globals or local 270 directly. It mirrors the Enhanced Terrorbyte flow: set the local source-mission request, forward the live Import/Export setup values in GTA's TU event, and let the freemode host drive launcher 73. Mission-specific gb_vehicle_export locals remain untouched.");
+                ImGui::TextWrapped("Rockstar Source Mission mode mirrors the Enhanced freemode launch path without writing am_launcher locals. Instant Garage mode does not fake mission completion; it uses the Vehicle Warehouse server basket and only mirrors the accepted slot into live GPBD_FM.");
             }
         }
 
         ImGui::EndChild();
         ImGui::PopStyleColor(2);
         ImGui::PopStyleVar(2);
-        SetV11Description("Vehicle Cargo / Import Export includes Enhanced-only automatic source requests, script-state monitoring and verified 1.73 tuning globals.");
+        SetV11Description("Vehicle Cargo / Import Export includes Enhanced source missions, persistent Instant Garage storage, script-state monitoring and verified 1.73 tuning globals.");
     }
 }
