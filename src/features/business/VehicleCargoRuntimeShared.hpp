@@ -134,8 +134,11 @@ namespace Tutones::Game::Business::VehicleCargoRuntimeShared
         return *variation >= 1 && *variation <= 96 ? *variation : 0;
     }
 
-    // Mirrors freemode func_7780/7781. The local player's f_178 resolves
-    // the contraband owner, whose f_468 must be the Vehicle Cargo type.
+    // Mirrors the current Enhanced freemode func_8315/8316 warehouse check.
+    // During genuine source activity 178, keep the two transient Rockstar
+    // access fields coherent so freemode recognizes the mission vehicle as
+    // Vehicle Cargo instead of returning IE_WH_VEH_BLCK. This intentionally
+    // does NOT alter activity 178 and does NOT write warehouse stock.
     [[nodiscard]] inline bool RockstarWarehouseGateReady(std::int64_t** pages, int playerId) noexcept
     {
         if (!pages || playerId < 0 || playerId >= MaxPlayers)
@@ -143,12 +146,40 @@ namespace Tutones::Game::Business::VehicleCargoRuntimeShared
 
         const auto localEntry = Script::ScriptGlobal(PlayerOrganizationGlobal)
             .At(static_cast<std::size_t>(playerId), PlayerOrganizationEntrySize);
-        const int* ownerPlayer = localEntry.At(ContrabandOwnerPlayerOffset).As<int>(pages);
-        if (!ownerPlayer || *ownerPlayer < 0 || *ownerPlayer >= MaxPlayers)
+        int* ownerPlayer = localEntry.At(ContrabandOwnerPlayerOffset).As<int>(pages);
+        if (!ownerPlayer)
+            return false;
+
+        int owner = *ownerPlayer;
+
+        // gb_vehicle_export/freemode can expose the source entity before these
+        // replicated access fields have converged. While source activity 178 is
+        // genuinely active, repair only the exact values freemode itself uses.
+        if (CurrentActivity(pages, playerId) == SourceActivity)
+        {
+            if (owner < 0 || owner >= MaxPlayers)
+            {
+                owner = playerId;
+                *ownerPlayer = owner;
+            }
+
+            const auto ownerEntry = Script::ScriptGlobal(PlayerOrganizationGlobal)
+                .At(static_cast<std::size_t>(owner), PlayerOrganizationEntrySize);
+            int* deliveryType = ownerEntry.At(ContrabandDeliveryTypeOffset).As<int>(pages);
+            if (!deliveryType)
+                return false;
+
+            if (*deliveryType != VehicleCargoDeliveryType)
+                *deliveryType = VehicleCargoDeliveryType;
+
+            return *ownerPlayer == owner && *deliveryType == VehicleCargoDeliveryType;
+        }
+
+        if (owner < 0 || owner >= MaxPlayers)
             return false;
 
         const auto ownerEntry = Script::ScriptGlobal(PlayerOrganizationGlobal)
-            .At(static_cast<std::size_t>(*ownerPlayer), PlayerOrganizationEntrySize);
+            .At(static_cast<std::size_t>(owner), PlayerOrganizationEntrySize);
         const int* deliveryType = ownerEntry.At(ContrabandDeliveryTypeOffset).As<int>(pages);
         return deliveryType && *deliveryType == VehicleCargoDeliveryType;
     }
