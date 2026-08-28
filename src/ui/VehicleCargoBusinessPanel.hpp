@@ -4,7 +4,9 @@
 #include "V11Theme.hpp"
 #include "../features/business/BusinessScriptMonitorRuntime.hpp"
 #include "../features/business/VehicleCargoAutoSourceRuntime.hpp"
+#include "../features/business/VehicleCargoDeliveryRuntime.hpp"
 #include "../features/business/VehicleCargoInstantGarageRuntime.hpp"
+#include "../features/business/VehicleCargoInstantSourceRuntime.hpp"
 #include "../features/business/VehicleCargoTuningRuntime.hpp"
 
 #include <imgui.h>
@@ -17,7 +19,9 @@ namespace Tutones::UI
     {
         using Game::Business::BusinessScriptMonitorRuntime;
         using Game::Business::VehicleCargoAutoSourceRuntime;
+        using Game::Business::VehicleCargoDeliveryRuntime;
         using Game::Business::VehicleCargoInstantGarageRuntime;
+        using Game::Business::VehicleCargoInstantSourceRuntime;
         using Game::Business::VehicleCargoTuningProfile;
         using Game::Business::VehicleCargoTuningRuntime;
 
@@ -25,13 +29,16 @@ namespace Tutones::UI
         const auto monitorState = monitor.Snapshot();
         auto& autoSource = VehicleCargoAutoSourceRuntime::Get();
         const auto autoSourceState = autoSource.Snapshot();
-        auto& instantGarage = VehicleCargoInstantGarageRuntime::Get();
-        const auto instantGarageState = instantGarage.Snapshot();
+        auto& source = VehicleCargoInstantSourceRuntime::Get();
+        const auto sourceState = source.Snapshot();
+        auto& delivery = VehicleCargoDeliveryRuntime::Get();
+        const auto deliveryState = delivery.Snapshot();
+        auto& pipeline = VehicleCargoInstantGarageRuntime::Get();
+        const auto pipelineState = pipeline.Snapshot();
         auto& tuning = VehicleCargoTuningRuntime::Get();
         const auto tuningState = tuning.Snapshot();
 
         static VehicleCargoTuningProfile profile{};
-        static bool instantGarageMode = true;
 
         ImGui::SetCursorPos(ImVec2(226.0f, 52.0f));
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(14.0f, 12.0f));
@@ -46,107 +53,125 @@ namespace Tutones::UI
             ImGui::TextDisabled("Enhanced 1.73 / b1158.13");
             ImGui::Separator();
 
-            ImGui::TextWrapped("Vehicle Cargo uses the genuine Enhanced freemode source route. Instant Source + Delivery follows Rockstar's live Vehicle Cargo target blip/entity, verifies the exact requested Import/Export model and plate, acquires that car, and uses Rockstar's real warehouse-delivery path.");
+            ImGui::TextWrapped(
+                "Vehicle Cargo is split into independent runtimes. Source owns activity 178, target resolution and acquisition. Delivery only accepts an already-acquired Rockstar source car and owns warehouse validation/transition. The full pipeline only coordinates those two stages.");
             ImGui::Spacing();
 
-            if (ImGui::CollapsingHeader("Auto Source Vehicle Cargo", ImGuiTreeNodeFlags_DefaultOpen))
+            if (ImGui::CollapsingHeader("Vehicle Cargo Automation", ImGuiTreeNodeFlags_DefaultOpen))
             {
-                if (ImGui::Checkbox("Instant Source + Delivery mode", &instantGarageMode))
+                ImGui::SeparatorText("Full Pipeline Coordinator");
+                bool fullAuto = pipelineState.enabled;
+                if (ImGui::Checkbox("Full Auto Source + Delivery", &fullAuto))
                 {
-                    if (instantGarageMode)
-                        autoSource.SetEnabled(false);
-                    else
-                        instantGarage.SetEnabled(false);
-                }
-                DescribeLastV11Item("Starts a genuine Vehicle Cargo source mission, follows Rockstar's source-vehicle target blip/entity, verifies the exact requested model and unique Import/Export plate, takes network control, warps you into that mission car, then sends it to your owned Vehicle Warehouse entrance for Rockstar to store normally.");
-
-                bool enabled = instantGarageMode ? instantGarageState.enabled : autoSourceState.enabled;
-                if (ImGui::Checkbox("Enable Auto Source", &enabled))
-                {
-                    if (instantGarageMode)
+                    if (fullAuto)
                     {
                         autoSource.SetEnabled(false);
-                        instantGarage.SetEnabled(enabled);
+                        pipeline.SetEnabled(true);
                     }
                     else
                     {
-                        instantGarage.SetEnabled(false);
-                        autoSource.SetEnabled(enabled);
+                        pipeline.SetEnabled(false);
                     }
                 }
-                DescribeLastV11Item(instantGarageMode
-                    ? "Repeats fully automatic source cycles one at a time: launch mission, resolve Rockstar's exact source entity, acquire it, instant-deliver it, then wait for Rockstar's save before starting the next one."
-                    : "Automatically requests the next Enhanced Vehicle Cargo source mission whenever gb_vehicle_export is idle.");
+                DescribeLastV11Item(
+                    "Coordinates the dedicated Instant Source runtime and dedicated Instant Delivery runtime. The coordinator contains no source natives and no warehouse movement code.");
 
                 ImGui::SameLine();
-                const bool sourcePending = instantGarageMode ? instantGarageState.pending : autoSourceState.pending;
-                ImGui::BeginDisabled(sourcePending);
-                if (ImGui::Button(instantGarageMode ? "Instant source + store" : "Source next vehicle now"))
+                ImGui::BeginDisabled(pipelineState.pending);
+                if (ImGui::Button("Run one full cycle"))
+                    static_cast<void>(pipeline.QueueStoreNow());
+                ImGui::EndDisabled();
+                DescribeLastV11Item("Run exactly one source -> acquire -> delivery cycle through the two independent runtimes.");
+
+                ImGui::Text("Pipeline: %s", pipelineState.enabled ? "AUTO" : "MANUAL/OFF");
+                ImGui::TextWrapped("%s", pipelineState.message.c_str());
+
+                ImGui::SeparatorText("Independent Instant Source Runtime");
+                ImGui::BeginDisabled(sourceState.active || sourceState.pending || pipelineState.enabled);
+                if (ImGui::Button("Source + acquire vehicle", ImVec2(250.0f, 0.0f)))
                 {
-                    if (instantGarageMode)
-                        static_cast<void>(instantGarage.QueueStoreNow());
-                    else
-                        static_cast<void>(autoSource.QueueSourceNow());
+                    autoSource.SetEnabled(false);
+                    static_cast<void>(source.QueueSourceNow());
                 }
                 ImGui::EndDisabled();
-                DescribeLastV11Item(instantGarageMode
-                    ? "Run one fully automatic source cycle now. You do not need to travel to or manually enter the sourced vehicle."
-                    : "Send one Enhanced Vehicle Cargo source request immediately, even when Auto Source is disabled.");
+                ImGui::SameLine();
+                ImGui::BeginDisabled(!sourceState.active);
+                if (ImGui::Button("Cancel source", ImVec2(-1.0f, 0.0f)))
+                    source.Cancel();
+                ImGui::EndDisabled();
+                DescribeLastV11Item(
+                    "Source-only action. Launches genuine activity 178, resolves Rockstar's exact source entity, obtains network control and acquires the driver seat. It never reads or touches a warehouse entrance.");
 
-                ImGui::SeparatorText("Auto Source Status");
+                ImGui::Text("Source runtime: %s", sourceState.active ? "ACTIVE" : "IDLE");
+                ImGui::Text("Source mission: %s", sourceState.missionRunning ? "RUNNING" : "WAITING");
+                ImGui::Text("Target entity: %s", sourceState.targetResolved ? "RESOLVED" : "WAITING");
+                ImGui::Text("Source vehicle: %s", sourceState.vehicleReady ? "ACQUIRED" : "NOT READY");
+                if (sourceState.variation > 0)
+                    ImGui::Text("Variation: %d / 96 | entity: %d", sourceState.variation, sourceState.vehicle);
+                ImGui::TextWrapped("%s", sourceState.message.c_str());
 
-                if (instantGarageMode)
+                ImGui::SeparatorText("Independent Instant Delivery Runtime");
+                const bool haveSourceForDelivery = sourceState.vehicleReady
+                    && sourceState.vehicle != 0
+                    && sourceState.variation > 0;
+                ImGui::BeginDisabled(!haveSourceForDelivery || deliveryState.active || pipelineState.enabled);
+                if (ImGui::Button("Deliver acquired source vehicle", ImVec2(250.0f, 0.0f)))
                 {
-                    ImGui::Text("Mode: INSTANT SOURCE + ROCKSTAR SAVE");
-                    ImGui::Text("Auto Source: %s", instantGarageState.enabled ? "ON" : "OFF");
-                    ImGui::Text("GTA Online session: %s", instantGarageState.sessionReady ? "READY" : "WAITING");
-                    ImGui::Text("Vehicle Warehouse: %s", instantGarageState.warehouseReady ? "READY" : "WAITING");
-                    ImGui::Text("Source mission: %s", instantGarageState.missionRunning ? "RUNNING" : "IDLE");
-                    ImGui::Text("Instant source vehicle: %s", instantGarageState.sourceVehicleReady ? "ACQUIRED" : "TARGET WAIT");
-                    ImGui::Text("Instant delivery: %s", instantGarageState.deliveryIssued ? "SENT" : "WAITING");
-
-                    if (instantGarageState.warehouseProperty != 0)
-                    {
-                        ImGui::Text("Warehouse property: %d | stock: %d / 40",
-                            instantGarageState.warehouseProperty,
-                            instantGarageState.warehouseStock);
-                    }
-                    if (instantGarageState.sourceVariation > 0)
-                        ImGui::Text("Source variation: %d / 96", instantGarageState.sourceVariation);
-
-                    if (instantGarageState.pending)
-                        ImGui::TextDisabled("Checking Rockstar Vehicle Cargo target-blip state...");
-                    else
-                        ImGui::TextWrapped("%s", instantGarageState.message.c_str());
-
-                    ImGui::Spacing();
-                    ImGui::TextDisabled("Automatic route: source 178 -> GB_VEHICLE_EXPORT -> Rockstar target blip/entity -> exact model + plate -> network control -> driver-seat acquire -> warehouse entrance -> Rockstar delivery/save.");
-                    ImGui::TextWrapped("Instant Source does not write Vehicle Warehouse inventory globals or persistent vehicle slots. Sell/export activity 188 is ignored completely.");
+                    if (delivery.QueueDelivery(sourceState.vehicle, sourceState.variation))
+                        source.ClearResult();
                 }
-                else
+                ImGui::EndDisabled();
+                ImGui::SameLine();
+                ImGui::BeginDisabled(!deliveryState.active);
+                if (ImGui::Button("Cancel delivery", ImVec2(-1.0f, 0.0f)))
+                    delivery.Cancel();
+                ImGui::EndDisabled();
+                DescribeLastV11Item(
+                    "Delivery-only action. Requires an already-acquired source car. It validates Rockstar's ContrabandDeliveryType and the exact model/plate before moving anything toward the real warehouse transition.");
+
+                ImGui::Text("Delivery runtime: %s", deliveryState.active ? "ACTIVE" : "IDLE");
+                ImGui::Text("Rockstar warehouse gate: %s", deliveryState.rockstarGateReady ? "READY" : "WAITING");
+                ImGui::Text("Validated source vehicle: %s", deliveryState.sourceVehicleValid ? "YES" : "WAITING");
+                ImGui::Text("Warehouse movement: %s", deliveryState.deliveryIssued ? "ISSUED" : "NOT ISSUED");
+                if (deliveryState.warehouseProperty != 0)
                 {
-                    ImGui::Text("Mode: ROCKSTAR SOURCE MISSION");
-                    ImGui::Text("Auto Source: %s", autoSourceState.enabled ? "ON" : "OFF");
-                    ImGui::Text("GTA Online session: %s", autoSourceState.sessionReady ? "READY" : "WAITING");
-                    ImGui::Text("Freemode launch route: %s", autoSourceState.launcherReady ? "READY" : "WAITING");
-                    ImGui::Text("gb_vehicle_export: %s", autoSourceState.vehicleCargoRunning ? "RUNNING" : "IDLE");
-
-                    if (autoSourceState.launcherState >= 0)
-                    {
-                        ImGui::Text("Freemode host: %d | source launcher: %d",
-                            autoSourceState.launcherState,
-                            autoSourceState.launcherIndex);
-                    }
-
-                    if (autoSourceState.pending)
-                        ImGui::TextDisabled("Checking Enhanced Vehicle Cargo source route...");
-                    else
-                        ImGui::TextWrapped("%s", autoSourceState.message.c_str());
-
-                    ImGui::Spacing();
-                    ImGui::TextDisabled("Enhanced source route: mission 178 -> TU event 1613825825 -> freemode host -> launcher 73 -> GB_VEHICLE_EXPORT.");
-                    ImGui::TextWrapped("For back-to-back sourcing without Rockstar's normal steal cooldown, set Steal cooldown to 0 below and apply the Vehicle Cargo globals.");
+                    ImGui::Text("Warehouse property: %d | stock: %d / 40",
+                        deliveryState.warehouseProperty,
+                        deliveryState.warehouseStock);
                 }
+                if (deliveryState.attempts > 0)
+                    ImGui::Text("Controlled approach attempts: %d / 2", deliveryState.attempts);
+                ImGui::TextWrapped("%s", deliveryState.message.c_str());
+
+                ImGui::SeparatorText("Rockstar Mission Launcher Only");
+                bool normalAuto = autoSourceState.enabled;
+                if (ImGui::Checkbox("Auto Source missions only", &normalAuto))
+                {
+                    if (normalAuto)
+                    {
+                        pipeline.SetEnabled(false);
+                        source.Cancel();
+                        delivery.Cancel();
+                    }
+                    autoSource.SetEnabled(normalAuto);
+                }
+                DescribeLastV11Item(
+                    "Only launches Rockstar Vehicle Cargo source missions. It does not acquire the source vehicle and does not perform delivery.");
+
+                ImGui::SameLine();
+                ImGui::BeginDisabled(autoSourceState.pending || pipelineState.enabled);
+                if (ImGui::Button("Launch source mission now"))
+                    static_cast<void>(autoSource.QueueSourceNow());
+                ImGui::EndDisabled();
+
+                ImGui::Text("Launcher: %s | gb_vehicle_export: %s",
+                    autoSourceState.launcherReady ? "READY" : "WAITING",
+                    autoSourceState.vehicleCargoRunning ? "RUNNING" : "IDLE");
+                ImGui::TextWrapped("%s", autoSourceState.message.c_str());
+
+                ImGui::Spacing();
+                ImGui::TextDisabled(
+                    "Separation contract: Source never touches warehouse coordinates. Delivery never starts missions or searches source blips. Full Auto only hands the acquired vehicle from Source to Delivery.");
             }
 
             if (ImGui::CollapsingHeader("Vehicle Cargo Tunables", ImGuiTreeNodeFlags_DefaultOpen))
@@ -243,14 +268,16 @@ namespace Tutones::UI
                 else if (monitorState.haveResult)
                     ImGui::TextDisabled("%s: %s", monitorState.lastSucceeded ? "Success" : "Failed", monitorState.message.c_str());
 
-                ImGui::SeparatorText("Mission Launch Safety");
-                ImGui::TextWrapped("Normal Source mode mirrors Rockstar's Enhanced freemode launch path. Instant Source + Delivery still uses a real activity-178 source mission, follows Rockstar's own export-entity blip, verifies the exact Import/Export model and unique plate, acquires only that mission vehicle, and lets Rockstar own the final warehouse save. Sell/export activity 188 is never touched.");
+                ImGui::SeparatorText("Runtime Ownership");
+                ImGui::TextWrapped(
+                    "Launcher runtime: activity 178/TU event only. Instant Source runtime: target entity/network control/acquisition only. Instant Delivery runtime: Rockstar cargo gate/warehouse transition/save observation only. Activity 188 is never modified by either instant runtime.");
             }
         }
 
         ImGui::EndChild();
         ImGui::PopStyleColor(2);
         ImGui::PopStyleVar(2);
-        SetV11Description("Vehicle Cargo / Import Export includes Enhanced source missions, Rockstar target-blip instant sourcing, Rockstar-backed warehouse delivery, script-state monitoring and verified 1.73 tuning globals.");
+        SetV11Description(
+            "Vehicle Cargo / Import Export now uses separate source and delivery runtimes with an optional full-auto coordinator, plus Enhanced tuning and mission diagnostics.");
     }
 }
