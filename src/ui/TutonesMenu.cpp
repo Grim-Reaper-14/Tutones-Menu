@@ -9,6 +9,8 @@
 #include "SelfV2Panel.hpp"
 #include "WorldPanel.hpp"
 #include "../features/business/VehicleCargoAutoSourceRuntime.hpp"
+#include "../features/business/VehicleCargoInstantSourceRuntime.hpp"
+#include "../features/business/VehicleCargoDeliveryRuntime.hpp"
 #include "../features/business/VehicleCargoInstantGarageRuntime.hpp"
 #include "../features/recovery/RecoveryRuntime.hpp"
 #include "../features/vehicle/VehicleModificationRuntime.hpp"
@@ -28,10 +30,6 @@ namespace ImGui
         ImVec2 g_TutonesV2OverlayCursor{};
     }
 
-    // V2 navigation is drawn in a NoMouseInputs overlay child. Keep a virtual
-    // cursor for its manually hit-tested controls rather than mutating ImGui's
-    // real cursor. ImGui 1.92 asserts when SetCursorPos extends window bounds
-    // without a submitted item afterwards.
     inline void TutonesV2OverlaySetCursorPos(const ImVec2& localPos) noexcept
     {
         const ImVec2 windowPos = GetWindowPos();
@@ -45,10 +43,6 @@ namespace ImGui
         return g_TutonesV2OverlayCursor;
     }
 
-    // The V2 rail is rendered inside a transparent overlay child so it can sit
-    // above the dashboard visually. The child itself must not own mouse input,
-    // otherwise it blocks every real feature control underneath it. Navigation
-    // uses direct mouse hit-testing instead of normal ImGui item ownership.
     inline bool TutonesV2OverlayInvisibleButton(
         const char*,
         const ImVec2& size,
@@ -81,7 +75,6 @@ namespace Tutones::UI
 {
     namespace
     {
-        // Navigation is organized by user intent instead of backend ownership.
         constexpr std::array<CategoryEntry, 11> Categories{{
             {"P", "SELF",
                 {{"General", "Online", "Movement", "Appearance"}},
@@ -133,6 +126,8 @@ namespace Tutones::UI
         {
             Input::Get().PollFallbackHotkeys();
             Game::Business::VehicleCargoAutoSourceRuntime::Get().Tick();
+            Game::Business::VehicleCargoInstantSourceRuntime::Get().Tick();
+            Game::Business::VehicleCargoDeliveryRuntime::Get().Tick();
             Game::Business::VehicleCargoInstantGarageRuntime::Get().Tick();
             static_cast<void>(Game::Protections::ProtectionRuntime::Get().Start());
             Game::Recovery::CasinoSlotMachineRuntime::Get().Tick();
@@ -169,7 +164,6 @@ namespace Tutones::UI
             auto* draw = ImGui::GetWindowDrawList();
             const ImVec2 footerMin{pos.x + 28.0f, pos.y + V11Theme::MenuHeight - 66.0f};
 
-            // Cover the old redesign working-label and expose the real product version.
             draw->AddRectFilled(
                 ImVec2(footerMin.x + 10.0f, footerMin.y + 20.0f),
                 ImVec2(footerMin.x + 150.0f, footerMin.y + 38.0f),
