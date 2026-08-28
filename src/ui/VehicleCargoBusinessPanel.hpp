@@ -46,19 +46,19 @@ namespace Tutones::UI
             ImGui::TextDisabled("Enhanced 1.73 / b1158.13");
             ImGui::Separator();
 
-            ImGui::TextWrapped("Vehicle Cargo uses the Enhanced freemode source route. Instant Delivery no longer fabricates warehouse slots or runs the sell/removal basket; Rockstar performs the real warehouse save.");
+            ImGui::TextWrapped("Vehicle Cargo uses the genuine Enhanced freemode source route. Instant Source + Delivery automatically finds the exact requested Import/Export vehicle, acquires it, and sends it through Rockstar's real warehouse-delivery path without fabricating warehouse slots.");
             ImGui::Spacing();
 
             if (ImGui::CollapsingHeader("Auto Source Vehicle Cargo", ImGuiTreeNodeFlags_DefaultOpen))
             {
-                if (ImGui::Checkbox("Instant Delivery mode", &instantGarageMode))
+                if (ImGui::Checkbox("Instant Source + Delivery mode", &instantGarageMode))
                 {
                     if (instantGarageMode)
                         autoSource.SetEnabled(false);
                     else
                         instantGarage.SetEnabled(false);
                 }
-                DescribeLastV11Item("Starts a genuine Vehicle Cargo source mission. Once you obtain and enter the exact sourced vehicle, Tutones moves that mission vehicle to your owned Vehicle Warehouse entrance and lets Rockstar store it normally.");
+                DescribeLastV11Item("Starts a genuine Vehicle Cargo source mission, scans for the exact requested model and unique Import/Export plate, takes network control, warps you into that mission car, then sends it to your owned Vehicle Warehouse entrance for Rockstar to store normally.");
 
                 bool enabled = instantGarageMode ? instantGarageState.enabled : autoSourceState.enabled;
                 if (ImGui::Checkbox("Enable Auto Source", &enabled))
@@ -75,13 +75,13 @@ namespace Tutones::UI
                     }
                 }
                 DescribeLastV11Item(instantGarageMode
-                    ? "Repeats genuine source missions one at a time and automatically delivers the acquired source vehicle to the warehouse."
+                    ? "Repeats fully automatic source cycles one at a time: launch mission, locate exact source car, acquire it, instant-deliver it, then wait for Rockstar's save before starting the next one."
                     : "Automatically requests the next Enhanced Vehicle Cargo source mission whenever gb_vehicle_export is idle.");
 
                 ImGui::SameLine();
                 const bool sourcePending = instantGarageMode ? instantGarageState.pending : autoSourceState.pending;
                 ImGui::BeginDisabled(sourcePending);
-                if (ImGui::Button(instantGarageMode ? "Source + instant deliver" : "Source next vehicle now"))
+                if (ImGui::Button(instantGarageMode ? "Instant source + store" : "Source next vehicle now"))
                 {
                     if (instantGarageMode)
                         static_cast<void>(instantGarage.QueueStoreNow());
@@ -90,19 +90,19 @@ namespace Tutones::UI
                 }
                 ImGui::EndDisabled();
                 DescribeLastV11Item(instantGarageMode
-                    ? "Run one genuine source cycle. After you enter the marked vehicle, Tutones immediately delivers it to your Vehicle Warehouse entrance."
+                    ? "Run one fully automatic source cycle now. You do not need to travel to or manually enter the sourced vehicle."
                     : "Send one Enhanced Vehicle Cargo source request immediately, even when Auto Source is disabled.");
 
                 ImGui::SeparatorText("Auto Source Status");
 
                 if (instantGarageMode)
                 {
-                    ImGui::Text("Mode: MISSION-BACKED INSTANT DELIVERY");
+                    ImGui::Text("Mode: INSTANT SOURCE + ROCKSTAR SAVE");
                     ImGui::Text("Auto Source: %s", instantGarageState.enabled ? "ON" : "OFF");
                     ImGui::Text("GTA Online session: %s", instantGarageState.sessionReady ? "READY" : "WAITING");
                     ImGui::Text("Vehicle Warehouse: %s", instantGarageState.warehouseReady ? "READY" : "WAITING");
                     ImGui::Text("Source mission: %s", instantGarageState.missionRunning ? "RUNNING" : "IDLE");
-                    ImGui::Text("Correct source vehicle: %s", instantGarageState.sourceVehicleReady ? "ACQUIRED" : "WAITING");
+                    ImGui::Text("Instant source vehicle: %s", instantGarageState.sourceVehicleReady ? "ACQUIRED" : "SEARCHING");
                     ImGui::Text("Instant delivery: %s", instantGarageState.deliveryIssued ? "SENT" : "WAITING");
 
                     if (instantGarageState.warehouseProperty != 0)
@@ -115,13 +115,13 @@ namespace Tutones::UI
                         ImGui::Text("Source variation: %d / 96", instantGarageState.sourceVariation);
 
                     if (instantGarageState.pending)
-                        ImGui::TextDisabled("Checking Vehicle Cargo source/delivery state...");
+                        ImGui::TextDisabled("Checking Vehicle Cargo instant-source state...");
                     else
                         ImGui::TextWrapped("%s", instantGarageState.message.c_str());
 
                     ImGui::Spacing();
-                    ImGui::TextDisabled("Safe route: source 178 -> GB_VEHICLE_EXPORT -> obtain exact model/plate -> owned warehouse entrance -> Rockstar delivery/save.");
-                    ImGui::TextWrapped("No Vehicle Warehouse inventory globals or persistent vehicle slots are written by Instant Delivery. If a source vehicle was obtained while using the previous build, change GTA Online sessions once before retesting so Rockstar refreshes the warehouse state.");
+                    ImGui::TextDisabled("Automatic route: source 178 -> GB_VEHICLE_EXPORT -> exact model + plate scan -> network control -> driver-seat acquire -> owned warehouse entrance -> Rockstar delivery/save.");
+                    ImGui::TextWrapped("Instant Source does not write Vehicle Warehouse inventory globals or persistent vehicle slots. Sell/export activity 188 is ignored completely.");
                 }
                 else
                 {
@@ -244,13 +244,13 @@ namespace Tutones::UI
                     ImGui::TextDisabled("%s: %s", monitorState.lastSucceeded ? "Success" : "Failed", monitorState.message.c_str());
 
                 ImGui::SeparatorText("Mission Launch Safety");
-                ImGui::TextWrapped("Normal Source mode mirrors Rockstar's Enhanced freemode launch path. Instant Delivery uses the same genuine source mission, verifies activity 178 plus the exact Import/Export model and plate, and only moves that mission vehicle to the owned warehouse entrance. Sell/export activity 188 is never touched.");
+                ImGui::TextWrapped("Normal Source mode mirrors Rockstar's Enhanced freemode launch path. Instant Source + Delivery still uses a real activity-178 source mission, verifies the exact Import/Export model and unique plate, acquires only that mission vehicle, and lets Rockstar own the final warehouse save. Sell/export activity 188 is never touched.");
             }
         }
 
         ImGui::EndChild();
         ImGui::PopStyleColor(2);
         ImGui::PopStyleVar(2);
-        SetV11Description("Vehicle Cargo / Import Export includes Enhanced source missions, mission-backed instant warehouse delivery, script-state monitoring and verified 1.73 tuning globals.");
+        SetV11Description("Vehicle Cargo / Import Export includes Enhanced source missions, fully automatic instant sourcing and Rockstar-backed warehouse delivery, script-state monitoring and verified 1.73 tuning globals.");
     }
 }
