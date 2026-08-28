@@ -153,6 +153,21 @@ namespace Tutones::Game::Native
         SetDeployHeliStubWings,
         SetDeployMissileBays,
 
+        // Vehicle Cargo source/delivery natives. These live in the same focused
+        // registry as every other V2 native so feature runtimes never resolve or
+        // cache private handler tables on their own.
+        NetworkRequestControlOfEntity,
+        NetworkHasControlOfEntity,
+        GetBlipInfoIdIterator,
+        GetFirstBlipInfoId,
+        GetNextBlipInfoId,
+        DoesBlipExist,
+        GetBlipInfoIdEntityIndex,
+        RequestCollisionAtCoord,
+        SetEntityCoordsNoOffset,
+        SetEntityHeading,
+        SetEntityVelocity,
+
         Count,
     };
 
