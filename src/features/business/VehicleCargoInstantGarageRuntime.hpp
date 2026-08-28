@@ -203,7 +203,7 @@ namespace Tutones::Game::Business
             "M4J3ST1C", "T0UR3R", "R4LLY",
             "B1GMON3Y", "K1NGP1N", "CE0",
             "1MS0RAD", "31GHT135", "1985",
-            "IML4TE", "0V3RFL0D", "W1DEB0D",
+            "IML4TE", "0V3RFL0D", "W1DEB0Y",
             "SN0WFLK3", "F1D3L1TY", "5H0W0FF",
             "W1NN1NG", "0LDN3W5", "H3R0",
             "0BEYM3", "W1D3B0D", "D1RTY",
