@@ -134,11 +134,14 @@ namespace Tutones::Game::Business::VehicleCargoRuntimeShared
         return *variation >= 1 && *variation <= 96 ? *variation : 0;
     }
 
+    [[nodiscard]] inline bool MatchesVariation(Vehicle vehicle, int variation) noexcept;
+    [[nodiscard]] inline Vehicle CurrentPlayerVehicle() noexcept;
+
     // Mirrors the current Enhanced freemode func_8315/8316 warehouse check.
-    // During genuine source activity 178, keep the two transient Rockstar
-    // access fields coherent so freemode recognizes the mission vehicle as
-    // Vehicle Cargo instead of returning IE_WH_VEH_BLCK. This intentionally
-    // does NOT alter activity 178 and does NOT write warehouse stock.
+    // If Rockstar has already replicated the cargo owner/type, this is a pure
+    // readiness check. The only repair path is entered after the player is
+    // already sitting in the exact requested source model+plate; this prevents
+    // source discovery from forcing the gate before the mission car exists.
     [[nodiscard]] inline bool RockstarWarehouseGateReady(std::int64_t** pages, int playerId) noexcept
     {
         if (!pages || playerId < 0 || playerId >= MaxPlayers)
@@ -151,37 +154,42 @@ namespace Tutones::Game::Business::VehicleCargoRuntimeShared
             return false;
 
         int owner = *ownerPlayer;
-
-        // gb_vehicle_export/freemode can expose the source entity before these
-        // replicated access fields have converged. While source activity 178 is
-        // genuinely active, repair only the exact values freemode itself uses.
-        if (CurrentActivity(pages, playerId) == SourceActivity)
+        if (owner >= 0 && owner < MaxPlayers)
         {
-            if (owner < 0 || owner >= MaxPlayers)
-            {
-                owner = playerId;
-                *ownerPlayer = owner;
-            }
-
             const auto ownerEntry = Script::ScriptGlobal(PlayerOrganizationGlobal)
                 .At(static_cast<std::size_t>(owner), PlayerOrganizationEntrySize);
-            int* deliveryType = ownerEntry.At(ContrabandDeliveryTypeOffset).As<int>(pages);
-            if (!deliveryType)
-                return false;
-
-            if (*deliveryType != VehicleCargoDeliveryType)
-                *deliveryType = VehicleCargoDeliveryType;
-
-            return *ownerPlayer == owner && *deliveryType == VehicleCargoDeliveryType;
+            const int* deliveryType = ownerEntry.At(ContrabandDeliveryTypeOffset).As<int>(pages);
+            if (deliveryType && *deliveryType == VehicleCargoDeliveryType)
+                return true;
         }
 
-        if (owner < 0 || owner >= MaxPlayers)
+        if (CurrentActivity(pages, playerId) != SourceActivity)
             return false;
+
+        const int variation = RequestedVariation(pages, playerId);
+        const Vehicle currentVehicle = CurrentPlayerVehicle();
+        if (variation <= 0 || currentVehicle == 0 || !MatchesVariation(currentVehicle, variation))
+            return false;
+
+        // The real source car is possessed. Repair only the two transient
+        // freemode acceptance fields; activity 178 and warehouse inventory are
+        // deliberately untouched.
+        if (owner < 0 || owner >= MaxPlayers)
+        {
+            owner = playerId;
+            *ownerPlayer = owner;
+        }
 
         const auto ownerEntry = Script::ScriptGlobal(PlayerOrganizationGlobal)
             .At(static_cast<std::size_t>(owner), PlayerOrganizationEntrySize);
-        const int* deliveryType = ownerEntry.At(ContrabandDeliveryTypeOffset).As<int>(pages);
-        return deliveryType && *deliveryType == VehicleCargoDeliveryType;
+        int* deliveryType = ownerEntry.At(ContrabandDeliveryTypeOffset).As<int>(pages);
+        if (!deliveryType)
+            return false;
+
+        if (*deliveryType != VehicleCargoDeliveryType)
+            *deliveryType = VehicleCargoDeliveryType;
+
+        return *ownerPlayer == owner && *deliveryType == VehicleCargoDeliveryType;
     }
 
     [[nodiscard]] inline bool ReadWarehouse(int& outProperty, int& outStock, WarehouseTarget& outTarget)
