@@ -70,7 +70,7 @@ namespace Tutones::Game::Business
 
             std::scoped_lock lock(m_Mutex);
             m_Snapshot.message = enabled
-                ? "Instant Source + Delivery armed; Tutones will acquire and store the exact sourced car automatically"
+                ? "Instant Source + Delivery armed; Rockstar cargo registration must validate before Tutones touches the warehouse entrance"
                 : "Instant Source + Delivery is off";
         }
 
@@ -165,17 +165,19 @@ namespace Tutones::Game::Business
             0x1AB7223AC0702871ull, // SET_ENTITY_VELOCITY
         };
 
+        // These are Rockstar's actual Vehicle Warehouse garage-transition points
+        // (freemode property cases 60..69, f_6.f_28), not the exterior/camera points.
         static constexpr std::array<WarehouseTarget, 10> WarehouseTargets{{
             {-631.693f, -1778.812f, 22.980f},
             {1007.344f, -1854.104f, 30.055f},
             {-72.690f, -1820.721f, 25.960f},
             {36.290f, -1283.851f, 28.300f},
             {1213.935f, -1251.067f, 35.340f},
-            {808.9337f, -2226.6355f, 30.5702f},
-            {1755.0826f, -1652.7717f, 113.9896f},
+            {809.470f, -2222.665f, 28.602f},
+            {1753.699f, -1649.109f, 111.650f},
             {144.163f, -3006.280f, 6.025f},
-            {-514.9109f, -2200.7783f, 8.504f},
-            {-1157.2069f, -2167.5227f, 14.6173f},
+            {-522.064f, -2197.247f, 5.396f},
+            {-1160.481f, -2162.972f, 12.411f},
         }};
 
         static constexpr std::array<const char*, 32> Models{{
@@ -223,19 +225,22 @@ namespace Tutones::Game::Business
         static constexpr std::size_t PlayerOrganizationGlobal = 1893070;
         static constexpr std::size_t PlayerOrganizationEntrySize = 615;
         static constexpr std::size_t CurrentActivityOffset = 10 + 33;
+        static constexpr std::size_t ContrabandOwnerPlayerOffset = 10 + 178;
         static constexpr std::size_t VehicleExportOffset = 10 + 188;
+        static constexpr std::size_t ContrabandDeliveryTypeOffset = 10 + 468;
         static constexpr std::size_t VehicleExportArraySize = 4;
         static constexpr int SourceActivity = 178;
+        static constexpr int VehicleCargoDeliveryType = -81613951;
         static constexpr int MaxPlayers = 32;
 
         static constexpr std::int64_t PollIntervalMs = 250;
         static constexpr std::int64_t SourceLaunchTimeoutMs = 20000;
         static constexpr std::int64_t AcquireRetryMs = 500;
-        static constexpr std::int64_t AcquireSettleMs = 750;
-        static constexpr std::int64_t DeliveryRetryMs = 1500;
+        static constexpr std::int64_t AcquireSettleMs = 1000;
+        static constexpr std::int64_t DeliveryRetryMs = 3000;
         static constexpr std::int64_t NextSourceDelayMs = 2000;
         static constexpr int MaxControlAttempts = 40;
-        static constexpr int MaxDeliveryAttempts = 5;
+        static constexpr int MaxDeliveryAttempts = 2;
         static constexpr int MaxBlipsPerPass = 256;
 
         VehicleCargoInstantGarageRuntime() = default;
@@ -307,6 +312,26 @@ namespace Tutones::Game::Business
             if (!count || *count != static_cast<int>(VehicleExportArraySize) || !variation)
                 return 0;
             return *variation >= 1 && *variation <= 96 ? *variation : 0;
+        }
+
+        // Mirrors Rockstar freemode's Vehicle Warehouse gate:
+        // func_7781(player) -> Global_1893070[player].f_10.f_178, then the
+        // resolved player's f_10.f_468 must equal Vehicle Cargo delivery type.
+        [[nodiscard]] static bool RockstarWarehouseGateReady(std::int64_t** pages, int playerId) noexcept
+        {
+            if (!pages || playerId < 0 || playerId >= MaxPlayers)
+                return false;
+
+            const auto localEntry = Script::ScriptGlobal(PlayerOrganizationGlobal)
+                .At(static_cast<std::size_t>(playerId), PlayerOrganizationEntrySize);
+            const int* ownerPlayer = localEntry.At(ContrabandOwnerPlayerOffset).As<int>(pages);
+            if (!ownerPlayer || *ownerPlayer < 0 || *ownerPlayer >= MaxPlayers)
+                return false;
+
+            const auto ownerEntry = Script::ScriptGlobal(PlayerOrganizationGlobal)
+                .At(static_cast<std::size_t>(*ownerPlayer), PlayerOrganizationEntrySize);
+            const int* deliveryType = ownerEntry.At(ContrabandDeliveryTypeOffset).As<int>(pages);
+            return deliveryType && *deliveryType == VehicleCargoDeliveryType;
         }
 
         [[nodiscard]] static bool MatchesVariation(Vehicle vehicle, int variation) noexcept
@@ -455,8 +480,6 @@ namespace Tutones::Game::Business
             if (const Vehicle missionVehicle = FindSourceVehicleFromMissionBlip(variation); missionVehicle != 0)
                 return missionVehicle;
 
-            // Local-only fallback. Unlike the old map grid, this never pretends
-            // that GET_CLOSEST_VEHICLE can see entities in unloaded map cells.
             const std::size_t index = static_cast<std::size_t>(variation - 1);
             const Hash expectedModel = static_cast<Hash>(Stats::Detail::Joaat(Models[index / 3]));
             const auto ped = Natives::PlayerPedId();
@@ -525,7 +548,7 @@ namespace Tutones::Game::Business
             if (vehicle == 0 || !exists || !*exists || !ResolveDeliveryHandlers())
                 return false;
 
-            const float z = target.z + 0.35f;
+            const float z = target.z + 0.20f;
             static_cast<void>(CallDeliveryVoid(RequestCollision, target.x, target.y, z));
             static_cast<void>(CallDeliveryVoid(FreezeEntity, vehicle, std::int32_t{1}));
 
@@ -582,6 +605,12 @@ namespace Tutones::Game::Business
                 m_ManualCycleActive.store(false, std::memory_order_release);
         }
 
+        void StopAutomaticMovement() noexcept
+        {
+            m_Enabled.store(false, std::memory_order_release);
+            m_ManualCycleActive.store(false, std::memory_order_release);
+        }
+
         void Evaluate(bool manual)
         {
             if (manual)
@@ -623,9 +652,8 @@ namespace Tutones::Game::Business
 
             if (warehouseStock >= 40)
             {
-                m_Enabled.store(false, std::memory_order_release);
+                StopAutomaticMovement();
                 ResetCycle();
-                CompleteOneShot();
                 return Finish(false, true, true, false, false, false,
                     warehouseProperty, 0, warehouseStock, "Vehicle Warehouse is full (40/40)");
             }
@@ -706,12 +734,19 @@ namespace Tutones::Game::Business
                     "Source mission is running, but its VehicleExport variation is not available yet");
             }
 
+            if (!RockstarWarehouseGateReady(pages, *playerId))
+            {
+                return Finish(true, true, true, true, false, false,
+                    warehouseProperty, m_RequestedVariation, warehouseStock,
+                    "Waiting for Rockstar to register ContrabandDeliveryType for this source car; warehouse entrance is untouched");
+            }
+
             const Vehicle sourceVehicle = FindSourceVehicle(m_RequestedVariation);
             if (sourceVehicle == 0)
             {
                 return Finish(true, true, true, true, false, false,
                     warehouseProperty, m_RequestedVariation, warehouseStock,
-                    std::string("Instant Source waiting for Rockstar's Vehicle Cargo target blip/entity for variation ")
+                    std::string("Rockstar cargo registration is valid; waiting for the exact target entity for variation ")
                         + std::to_string(m_RequestedVariation));
             }
 
@@ -725,12 +760,12 @@ namespace Tutones::Game::Business
                     m_ControlAttempts = 0;
                     return Finish(false, true, true, true, false, false,
                         warehouseProperty, m_RequestedVariation, warehouseStock,
-                        "Rockstar target car resolved, but network control timed out; retrying target resolution");
+                        "Registered Rockstar target car resolved, but network control timed out; retrying target resolution");
                 }
 
                 return Finish(true, true, true, true, false, false,
                     warehouseProperty, m_RequestedVariation, warehouseStock,
-                    std::string("Rockstar target car resolved; requesting network control (")
+                    std::string("Registered Rockstar target car resolved; requesting network control (")
                         + std::to_string(m_ControlAttempts) + "/" + std::to_string(MaxControlAttempts) + ")");
             }
 
@@ -738,14 +773,21 @@ namespace Tutones::Game::Business
             {
                 return Finish(true, true, true, true, false, false,
                     warehouseProperty, m_RequestedVariation, warehouseStock,
-                    "Instant Source resolved Rockstar's exact mission car; warping you into the driver seat");
+                    "Rockstar-registered mission car resolved; warping you into the driver seat");
             }
 
             if ((now - m_AcquiredAtMs) < AcquireSettleMs)
             {
                 return Finish(true, true, true, true, true, false,
                     warehouseProperty, m_RequestedVariation, warehouseStock,
-                    "Instant Source acquired the exact car; letting GB_VEHICLE_EXPORT register possession");
+                    "Registered source car acquired; allowing GB_VEHICLE_EXPORT to observe possession");
+            }
+
+            if (!RockstarWarehouseGateReady(pages, *playerId))
+            {
+                return Finish(false, true, true, true, true, false,
+                    warehouseProperty, m_RequestedVariation, warehouseStock,
+                    "Rockstar cleared the Vehicle Cargo registration; Tutones will not touch the warehouse entrance");
             }
 
             const bool canDeliver = !m_DeliveryIssued
@@ -755,16 +797,25 @@ namespace Tutones::Game::Business
 
             if (!canDeliver)
             {
+                if (m_DeliveryIssued && m_DeliveryAttempts >= MaxDeliveryAttempts)
+                {
+                    StopAutomaticMovement();
+                    return Finish(false, true, true, true, true, true,
+                        warehouseProperty, m_RequestedVariation, warehouseStock,
+                        "Rockstar did not complete the garage transition after two attempts; automatic movement stopped so Tutones will not keep blocking the warehouse");
+                }
+
                 return Finish(true, true, true, true, true, m_DeliveryIssued,
                     warehouseProperty, m_RequestedVariation, warehouseStock,
-                    "Source vehicle acquired; waiting for Rockstar's warehouse delivery trigger");
+                    "Registered source vehicle acquired; waiting for Rockstar's warehouse transition");
             }
 
             if (!DeliverToWarehouse(sourceVehicle, warehouse))
             {
+                StopAutomaticMovement();
                 return Finish(false, true, true, true, true, false,
                     warehouseProperty, m_RequestedVariation, warehouseStock,
-                    "Source vehicle acquired, but the Enhanced delivery teleport natives are unavailable");
+                    "Registered source vehicle acquired, but delivery teleport natives are unavailable; automatic movement stopped");
             }
 
             m_DeliveryIssued = true;
@@ -773,16 +824,16 @@ namespace Tutones::Game::Business
             ++m_DeliveryAttempts;
 
             TUTONES_LOG_INFO("business.vehicle_cargo",
-                std::string("Instant source + delivery: variation=") + std::to_string(m_RequestedVariation)
+                std::string("Rockstar-gated instant source delivery: variation=") + std::to_string(m_RequestedVariation)
                     + " property=" + std::to_string(warehouseProperty)
                     + " stock=" + std::to_string(warehouseStock)
                     + " attempt=" + std::to_string(m_DeliveryAttempts));
 
             Finish(true, true, true, true, true, true,
                 warehouseProperty, m_RequestedVariation, warehouseStock,
-                std::string("Instant Source acquired variation ")
+                std::string("Rockstar validated variation ")
                     + std::to_string(m_RequestedVariation)
-                    + " and delivered it to your Vehicle Warehouse; Rockstar will perform the actual storage/save.");
+                    + "; moved it to the correct Vehicle Warehouse transition point and is waiting for Rockstar's save.");
         }
 
         void StoreSnapshot(
