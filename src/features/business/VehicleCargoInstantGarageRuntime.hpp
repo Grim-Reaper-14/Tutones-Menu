@@ -51,8 +51,11 @@ namespace Tutones::Game::Business
 
             if (enabled)
             {
+                // Start full-auto from a clean local runtime state. An already
+                // running Rockstar activity 178 remains in GTA and will simply
+                // be adopted by the fresh source runtime on its next evaluation.
+                ResetPipeline(true);
                 VehicleCargoAutoSourceRuntime::Get().SetEnabled(false);
-                m_NextCycleNotBeforeMs = 0;
             }
             else
             {
@@ -114,6 +117,7 @@ namespace Tutones::Game::Business
                         m_Enabled.store(false, std::memory_order_release);
                         m_ManualCycleActive.store(false, std::memory_order_release);
                         source.Cancel();
+                        ResetPipeline(false);
                         StoreSnapshot(sourceState, deliveryState, false,
                             std::string("Delivery stage stopped: ") + deliveryState.message);
                         return;
@@ -163,12 +167,10 @@ namespace Tutones::Game::Business
                     return;
                 }
 
-                // A started source runtime that becomes inactive without a vehicle
-                // is a failed source stage. Do not start delivery and do not touch
-                // the warehouse entrance.
                 m_Enabled.store(false, std::memory_order_release);
                 m_ManualCycleActive.store(false, std::memory_order_release);
                 delivery.Cancel();
+                ResetPipeline(false);
                 StoreSnapshot(sourceState, deliveryState, false,
                     std::string("Source stage stopped before handoff: ") + sourceState.message);
                 return;
@@ -195,11 +197,13 @@ namespace Tutones::Game::Business
 
         [[nodiscard]] VehicleCargoInstantGarageSnapshot Snapshot() const
         {
+            const auto sourceState = VehicleCargoInstantSourceRuntime::Get().Snapshot();
+            const auto deliveryState = VehicleCargoDeliveryRuntime::Get().Snapshot();
+
             std::scoped_lock lock(m_Mutex);
             auto out = m_Snapshot;
             out.enabled = m_Enabled.load(std::memory_order_acquire);
-            out.pending = VehicleCargoInstantSourceRuntime::Get().Snapshot().pending
-                || VehicleCargoDeliveryRuntime::Get().Snapshot().pending;
+            out.pending = sourceState.pending || deliveryState.pending;
             return out;
         }
 
