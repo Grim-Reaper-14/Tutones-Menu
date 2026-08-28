@@ -130,6 +130,11 @@ namespace Tutones::Game::Business
         {
             NetworkRequestControlOfEntity,
             NetworkHasControlOfEntity,
+            GetBlipInfoIdIterator,
+            GetFirstBlipInfoId,
+            GetNextBlipInfoId,
+            DoesBlipExist,
+            GetBlipInfoIdEntityIndex,
             RequestCollision,
             SetEntityCoords,
             FreezeEntity,
@@ -144,9 +149,16 @@ namespace Tutones::Game::Business
             float z{};
         };
 
+        // Enhanced 1.73 targets. The HUD natives follow Rockstar's own
+        // GB_VEHICLE_EXPORT entity blip instead of blindly probing unloaded map cells.
         static constexpr std::array<std::uint64_t, DeliveryHandlerCount> DeliveryHandlerHashes{
             0xF093E270C0B6B318ull, // NETWORK_REQUEST_CONTROL_OF_ENTITY
             0x1B1A446EFA398EB5ull, // NETWORK_HAS_CONTROL_OF_ENTITY
+            0x2A3612A4B836469Eull, // _GET_BLIP_INFO_ID_ITERATOR
+            0xD56419CB9E15983Full, // GET_FIRST_BLIP_INFO_ID
+            0xA3F6143A8F610118ull, // GET_NEXT_BLIP_INFO_ID
+            0xB5DA0E63D08D983Dull, // DOES_BLIP_EXIST
+            0xA143F68B0CD079F4ull, // GET_BLIP_INFO_ID_ENTITY_INDEX
             0xEA2D52183C7EA9CFull, // REQUEST_COLLISION_AT_COORD
             0x62C438C53BB57AFDull, // SET_ENTITY_COORDS_NO_OFFSET
             0x5D7CD709B34C90F0ull, // FREEZE_ENTITY_POSITION
@@ -164,19 +176,6 @@ namespace Tutones::Game::Business
             {144.163f, -3006.280f, 6.025f},
             {-514.9109f, -2200.7783f, 8.504f},
             {-1157.2069f, -2167.5227f, 14.6173f},
-        }};
-
-        // Rotating search grid used after GB_VEHICLE_EXPORT has spawned the exact
-        // requested model/plate. Only a vehicle whose model AND Import/Export plate
-        // match the requested variation can ever be selected.
-        static constexpr std::array<WarehouseTarget, 35> SourceSearchPoints{{
-            {-3000.0f, -3000.0f, 80.0f}, {-1500.0f, -3000.0f, 80.0f}, {0.0f, -3000.0f, 80.0f}, {1500.0f, -3000.0f, 80.0f}, {3000.0f, -3000.0f, 80.0f},
-            {-3000.0f, -1500.0f, 80.0f}, {-1500.0f, -1500.0f, 80.0f}, {0.0f, -1500.0f, 80.0f}, {1500.0f, -1500.0f, 80.0f}, {3000.0f, -1500.0f, 80.0f},
-            {-3000.0f, 0.0f, 100.0f}, {-1500.0f, 0.0f, 100.0f}, {0.0f, 0.0f, 100.0f}, {1500.0f, 0.0f, 100.0f}, {3000.0f, 0.0f, 100.0f},
-            {-3000.0f, 1500.0f, 120.0f}, {-1500.0f, 1500.0f, 120.0f}, {0.0f, 1500.0f, 120.0f}, {1500.0f, 1500.0f, 120.0f}, {3000.0f, 1500.0f, 120.0f},
-            {-3000.0f, 3000.0f, 140.0f}, {-1500.0f, 3000.0f, 140.0f}, {0.0f, 3000.0f, 140.0f}, {1500.0f, 3000.0f, 140.0f}, {3000.0f, 3000.0f, 140.0f},
-            {-3000.0f, 4500.0f, 120.0f}, {-1500.0f, 4500.0f, 120.0f}, {0.0f, 4500.0f, 120.0f}, {1500.0f, 4500.0f, 120.0f}, {3000.0f, 4500.0f, 120.0f},
-            {-3000.0f, 6000.0f, 80.0f}, {-1500.0f, 6000.0f, 80.0f}, {0.0f, 6000.0f, 80.0f}, {1500.0f, 6000.0f, 80.0f}, {3000.0f, 6000.0f, 80.0f},
         }};
 
         static constexpr std::array<const char*, 32> Models{{
@@ -235,10 +234,9 @@ namespace Tutones::Game::Business
         static constexpr std::int64_t AcquireSettleMs = 750;
         static constexpr std::int64_t DeliveryRetryMs = 1500;
         static constexpr std::int64_t NextSourceDelayMs = 2000;
-        static constexpr float SourceSearchRadius = 2600.0f;
-        static constexpr int SearchPointsPerTick = 8;
         static constexpr int MaxControlAttempts = 40;
         static constexpr int MaxDeliveryAttempts = 5;
+        static constexpr int MaxBlipsPerPass = 256;
 
         VehicleCargoInstantGarageRuntime() = default;
 
@@ -320,14 +318,13 @@ namespace Tutones::Game::Business
             if (!exists || !*exists)
                 return false;
 
+            const std::size_t index = static_cast<std::size_t>(variation - 1);
             const auto model = Natives::GetEntityModel(vehicle);
-            const auto plate = VehicleNatives::GetVehicleNumberPlateText(vehicle);
-            if (!model || !plate)
+            if (!model || *model != Stats::Detail::Joaat(Models[index / 3]))
                 return false;
 
-            const std::size_t index = static_cast<std::size_t>(variation - 1);
-            const std::uint32_t expectedModel = Stats::Detail::Joaat(Models[index / 3]);
-            return *model == expectedModel && NormalizePlate(*plate) == Plates[index];
+            const auto plate = VehicleNatives::GetVehicleNumberPlateText(vehicle);
+            return plate && NormalizePlate(*plate) == Plates[index];
         }
 
         [[nodiscard]] static Vehicle CurrentPlayerVehicle() noexcept
@@ -342,53 +339,6 @@ namespace Tutones::Game::Business
 
             const auto vehicle = VehicleNatives::GetVehiclePedIsUsing(*ped);
             return vehicle ? *vehicle : 0;
-        }
-
-        [[nodiscard]] Vehicle FindSourceVehicleAnywhere(int variation) noexcept
-        {
-            if (variation < 1 || variation > 96)
-                return 0;
-
-            const Vehicle current = CurrentPlayerVehicle();
-            if (current != 0 && MatchesVariation(current, variation))
-                return current;
-
-            if (m_SourceVehicleCandidate != 0 && MatchesVariation(m_SourceVehicleCandidate, variation))
-                return m_SourceVehicleCandidate;
-
-            const std::size_t variationIndex = static_cast<std::size_t>(variation - 1);
-            const Hash expectedModel = static_cast<Hash>(Stats::Detail::Joaat(Models[variationIndex / 3]));
-
-            const auto ped = Natives::PlayerPedId();
-            if (ped && *ped != 0)
-            {
-                const auto coords = VehicleNatives::GetEntityCoords(*ped, false);
-                if (coords)
-                {
-                    const auto nearPlayer = VehicleNatives::GetClosestVehicle(
-                        coords->x, coords->y, coords->z, 12000.0f, expectedModel, 70);
-                    if (nearPlayer && *nearPlayer != 0 && MatchesVariation(*nearPlayer, variation))
-                    {
-                        m_SourceVehicleCandidate = *nearPlayer;
-                        return *nearPlayer;
-                    }
-                }
-            }
-
-            for (int i = 0; i < SearchPointsPerTick; ++i)
-            {
-                const std::size_t index = m_SourceSearchCursor++ % SourceSearchPoints.size();
-                const auto& point = SourceSearchPoints[index];
-                const auto candidate = VehicleNatives::GetClosestVehicle(
-                    point.x, point.y, point.z, SourceSearchRadius, expectedModel, 70);
-                if (!candidate || *candidate == 0 || !MatchesVariation(*candidate, variation))
-                    continue;
-
-                m_SourceVehicleCandidate = *candidate;
-                return *candidate;
-            }
-
-            return 0;
         }
 
         [[nodiscard]] bool ResolveDeliveryHandlers() noexcept
@@ -442,6 +392,89 @@ namespace Tutones::Game::Business
             m_DeliveryHandlers[index](&context);
             context.FixVectors();
             return true;
+        }
+
+        [[nodiscard]] Vehicle FindSourceVehicleFromMissionBlip(int variation) noexcept
+        {
+            if (variation < 1 || variation > 96 || !ResolveDeliveryHandlers())
+                return 0;
+
+            std::int32_t iterator{};
+            if (!CallDelivery(GetBlipInfoIdIterator, iterator) || iterator == 0)
+                return 0;
+
+            std::int32_t blip{};
+            if (!CallDelivery(GetFirstBlipInfoId, blip, iterator) || blip == 0)
+                return 0;
+
+            for (int scanned = 0; scanned < MaxBlipsPerPass && blip != 0; ++scanned)
+            {
+                std::int32_t exists{};
+                if (!CallDelivery(DoesBlipExist, exists, blip) || exists == 0)
+                    break;
+
+                std::int32_t entity{};
+                if (CallDelivery(GetBlipInfoIdEntityIndex, entity, blip) && entity != 0)
+                {
+                    const Vehicle candidate = static_cast<Vehicle>(entity);
+                    if (MatchesVariation(candidate, variation))
+                    {
+                        if (m_SourceVehicleCandidate != candidate)
+                        {
+                            TUTONES_LOG_INFO("business.vehicle_cargo",
+                                std::string("Rockstar Vehicle Cargo target blip resolved: variation=")
+                                    + std::to_string(variation)
+                                    + " entity=" + std::to_string(candidate));
+                        }
+                        m_SourceVehicleCandidate = candidate;
+                        return candidate;
+                    }
+                }
+
+                std::int32_t next{};
+                if (!CallDelivery(GetNextBlipInfoId, next, iterator) || next == 0 || next == blip)
+                    break;
+                blip = next;
+            }
+
+            return 0;
+        }
+
+        [[nodiscard]] Vehicle FindSourceVehicle(int variation) noexcept
+        {
+            if (variation < 1 || variation > 96)
+                return 0;
+
+            const Vehicle current = CurrentPlayerVehicle();
+            if (current != 0 && MatchesVariation(current, variation))
+                return current;
+
+            if (m_SourceVehicleCandidate != 0 && MatchesVariation(m_SourceVehicleCandidate, variation))
+                return m_SourceVehicleCandidate;
+
+            if (const Vehicle missionVehicle = FindSourceVehicleFromMissionBlip(variation); missionVehicle != 0)
+                return missionVehicle;
+
+            // Local-only fallback. Unlike the old map grid, this never pretends
+            // that GET_CLOSEST_VEHICLE can see entities in unloaded map cells.
+            const std::size_t index = static_cast<std::size_t>(variation - 1);
+            const Hash expectedModel = static_cast<Hash>(Stats::Detail::Joaat(Models[index / 3]));
+            const auto ped = Natives::PlayerPedId();
+            if (!ped || *ped == 0)
+                return 0;
+
+            const auto coords = VehicleNatives::GetEntityCoords(*ped, false);
+            if (!coords)
+                return 0;
+
+            const auto nearby = VehicleNatives::GetClosestVehicle(
+                coords->x, coords->y, coords->z, 1500.0f, expectedModel, 70);
+            if (nearby && *nearby != 0 && MatchesVariation(*nearby, variation))
+            {
+                m_SourceVehicleCandidate = *nearby;
+                return *nearby;
+            }
+            return 0;
         }
 
         [[nodiscard]] bool EnsureVehicleControl(Vehicle vehicle) noexcept
@@ -538,7 +571,6 @@ namespace Tutones::Game::Business
             m_LastDeliveredVehicle = 0;
             m_RequestedVariation = 0;
             m_SourceVehicleCandidate = 0;
-            m_SourceSearchCursor = 0;
             m_ControlAttempts = 0;
             m_LastAcquireAttemptMs = 0;
             m_AcquiredAtMs = 0;
@@ -674,14 +706,13 @@ namespace Tutones::Game::Business
                     "Source mission is running, but its VehicleExport variation is not available yet");
             }
 
-            const Vehicle sourceVehicle = FindSourceVehicleAnywhere(m_RequestedVariation);
+            const Vehicle sourceVehicle = FindSourceVehicle(m_RequestedVariation);
             if (sourceVehicle == 0)
             {
                 return Finish(true, true, true, true, false, false,
                     warehouseProperty, m_RequestedVariation, warehouseStock,
-                    std::string("Instant Source scanning for exact variation ")
-                        + std::to_string(m_RequestedVariation)
-                        + " model/plate anywhere on the map");
+                    std::string("Instant Source waiting for Rockstar's Vehicle Cargo target blip/entity for variation ")
+                        + std::to_string(m_RequestedVariation));
             }
 
             m_SourceVehicleCandidate = sourceVehicle;
@@ -694,12 +725,12 @@ namespace Tutones::Game::Business
                     m_ControlAttempts = 0;
                     return Finish(false, true, true, true, false, false,
                         warehouseProperty, m_RequestedVariation, warehouseStock,
-                        "Exact source car found, but network control timed out; rescanning");
+                        "Rockstar target car resolved, but network control timed out; retrying target resolution");
                 }
 
                 return Finish(true, true, true, true, false, false,
                     warehouseProperty, m_RequestedVariation, warehouseStock,
-                    std::string("Exact source car found; requesting network control (")
+                    std::string("Rockstar target car resolved; requesting network control (")
                         + std::to_string(m_ControlAttempts) + "/" + std::to_string(MaxControlAttempts) + ")");
             }
 
@@ -707,7 +738,7 @@ namespace Tutones::Game::Business
             {
                 return Finish(true, true, true, true, false, false,
                     warehouseProperty, m_RequestedVariation, warehouseStock,
-                    "Instant Source found the exact mission car; warping you into the driver seat");
+                    "Instant Source resolved Rockstar's exact mission car; warping you into the driver seat");
             }
 
             if ((now - m_AcquiredAtMs) < AcquireSettleMs)
@@ -813,7 +844,6 @@ namespace Tutones::Game::Business
         int m_RequestedVariation{};
 
         Vehicle m_SourceVehicleCandidate{};
-        std::size_t m_SourceSearchCursor{};
         int m_ControlAttempts{};
         std::int64_t m_LastAcquireAttemptMs{};
         std::int64_t m_AcquiredAtMs{};
