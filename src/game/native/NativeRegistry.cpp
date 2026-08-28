@@ -157,6 +157,20 @@ namespace Tutones::Game::Native
             {0xD0DDC0D0D8D33E57ull, "CREATE_AMBIENT_PICKUP"},
             {0x89D51606F3FCA194ull, "_SET_DEPLOY_HELI_STUB_WINGS"},
             {0x0C02468829E4AA65ull, "_SET_DEPLOY_MISSILE_BAYS"},
+
+            // Vehicle Cargo Enhanced targets, resolved once with the focused
+            // native table under the preferred GTA script TLS scope.
+            {0xF093E270C0B6B318ull, "NETWORK_REQUEST_CONTROL_OF_ENTITY"},
+            {0x1B1A446EFA398EB5ull, "NETWORK_HAS_CONTROL_OF_ENTITY"},
+            {0x2A3612A4B836469Eull, "_GET_BLIP_INFO_ID_ITERATOR"},
+            {0xD56419CB9E15983Full, "GET_FIRST_BLIP_INFO_ID"},
+            {0xA3F6143A8F610118ull, "GET_NEXT_BLIP_INFO_ID"},
+            {0xB5DA0E63D08D983Dull, "DOES_BLIP_EXIST"},
+            {0xA143F68B0CD079F4ull, "GET_BLIP_INFO_ID_ENTITY_INDEX"},
+            {0xEA2D52183C7EA9CFull, "REQUEST_COLLISION_AT_COORD"},
+            {0x62C438C53BB57AFDull, "SET_ENTITY_COORDS_NO_OFFSET"},
+            {0x5C96CEA06531AB03ull, "SET_ENTITY_HEADING"},
+            {0x1AB7223AC0702871ull, "SET_ENTITY_VELOCITY"},
         }};
 
         struct NativeProgram final
