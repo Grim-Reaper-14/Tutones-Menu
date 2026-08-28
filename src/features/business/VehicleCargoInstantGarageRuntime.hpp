@@ -40,7 +40,7 @@ namespace Tutones::Game::Business
         int warehouseProperty{};
         int sourceVariation{};
         int warehouseStock{};
-        std::string message{"Instant Delivery is off"};
+        std::string message{"Instant Source + Delivery is off"};
     };
 
     class VehicleCargoInstantGarageRuntime final
@@ -58,20 +58,20 @@ namespace Tutones::Game::Business
             if (previous == enabled)
                 return;
 
-            // Instant Delivery owns source scheduling while it is enabled. Keep the
-            // normal repeating Auto Source switch off, then issue one real Rockstar
-            // source request at a time through QueueSourceNow().
             if (enabled)
                 VehicleCargoAutoSourceRuntime::Get().SetEnabled(false);
 
             m_NextPollMs.store(0, std::memory_order_release);
             if (!enabled)
+            {
+                m_ManualCycleActive.store(false, std::memory_order_release);
                 ResetCycle();
+            }
 
             std::scoped_lock lock(m_Mutex);
             m_Snapshot.message = enabled
-                ? "Instant Delivery armed; starting a real source mission and waiting for the sourced car"
-                : "Instant Delivery is off";
+                ? "Instant Source + Delivery armed; Tutones will acquire and store the exact sourced car automatically"
+                : "Instant Source + Delivery is off";
         }
 
         [[nodiscard]] bool Enabled() const noexcept
@@ -79,8 +79,6 @@ namespace Tutones::Game::Business
             return m_Enabled.load(std::memory_order_acquire);
         }
 
-        // Kept for the existing V2 UI. This starts one source/delivery cycle even
-        // when automatic repeating is disabled.
         bool QueueStoreNow()
         {
             m_ManualCycleActive.store(true, std::memory_order_release);
@@ -130,6 +128,8 @@ namespace Tutones::Game::Business
 
         enum DeliveryHandlerIndex : std::size_t
         {
+            NetworkRequestControlOfEntity,
+            NetworkHasControlOfEntity,
             RequestCollision,
             SetEntityCoords,
             FreezeEntity,
@@ -144,16 +144,15 @@ namespace Tutones::Game::Business
             float z{};
         };
 
-        // Current Enhanced mappings already used by Tutones' TeleportRuntime.
         static constexpr std::array<std::uint64_t, DeliveryHandlerCount> DeliveryHandlerHashes{
+            0xF093E270C0B6B318ull, // NETWORK_REQUEST_CONTROL_OF_ENTITY
+            0x1B1A446EFA398EB5ull, // NETWORK_HAS_CONTROL_OF_ENTITY
             0xEA2D52183C7EA9CFull, // REQUEST_COLLISION_AT_COORD
             0x62C438C53BB57AFDull, // SET_ENTITY_COORDS_NO_OFFSET
             0x5D7CD709B34C90F0ull, // FREEZE_ENTITY_POSITION
             0x1AB7223AC0702871ull, // SET_ENTITY_VELOCITY
         };
 
-        // MPX_PROP_IE_WAREHOUSE values 115..124. These are the current Vehicle
-        // Warehouse entrance coordinates used by current business-manager data.
         static constexpr std::array<WarehouseTarget, 10> WarehouseTargets{{
             {-631.693f, -1778.812f, 22.980f},
             {1007.344f, -1854.104f, 30.055f},
@@ -167,8 +166,19 @@ namespace Tutones::Game::Business
             {-1157.2069f, -2167.5227f, 14.6173f},
         }};
 
-        // Import/Export has 32 vehicle models and three plate variants per model.
-        // Variation n maps to Models[(n - 1) / 3] and Plates[n - 1].
+        // Rotating search grid used after GB_VEHICLE_EXPORT has spawned the exact
+        // requested model/plate. Only a vehicle whose model AND Import/Export plate
+        // match the requested variation can ever be selected.
+        static constexpr std::array<WarehouseTarget, 35> SourceSearchPoints{{
+            {-3000.0f, -3000.0f, 80.0f}, {-1500.0f, -3000.0f, 80.0f}, {0.0f, -3000.0f, 80.0f}, {1500.0f, -3000.0f, 80.0f}, {3000.0f, -3000.0f, 80.0f},
+            {-3000.0f, -1500.0f, 80.0f}, {-1500.0f, -1500.0f, 80.0f}, {0.0f, -1500.0f, 80.0f}, {1500.0f, -1500.0f, 80.0f}, {3000.0f, -1500.0f, 80.0f},
+            {-3000.0f, 0.0f, 100.0f}, {-1500.0f, 0.0f, 100.0f}, {0.0f, 0.0f, 100.0f}, {1500.0f, 0.0f, 100.0f}, {3000.0f, 0.0f, 100.0f},
+            {-3000.0f, 1500.0f, 120.0f}, {-1500.0f, 1500.0f, 120.0f}, {0.0f, 1500.0f, 120.0f}, {1500.0f, 1500.0f, 120.0f}, {3000.0f, 1500.0f, 120.0f},
+            {-3000.0f, 3000.0f, 140.0f}, {-1500.0f, 3000.0f, 140.0f}, {0.0f, 3000.0f, 140.0f}, {1500.0f, 3000.0f, 140.0f}, {3000.0f, 3000.0f, 140.0f},
+            {-3000.0f, 4500.0f, 120.0f}, {-1500.0f, 4500.0f, 120.0f}, {0.0f, 4500.0f, 120.0f}, {1500.0f, 4500.0f, 120.0f}, {3000.0f, 4500.0f, 120.0f},
+            {-3000.0f, 6000.0f, 80.0f}, {-1500.0f, 6000.0f, 80.0f}, {0.0f, 6000.0f, 80.0f}, {1500.0f, 6000.0f, 80.0f}, {3000.0f, 6000.0f, 80.0f},
+        }};
+
         static constexpr std::array<const char*, 32> Models{{
             "prototipo", "tyrus", "bestiagts", "t20", "sheava", "osiris", "fmj", "reaper",
             "pfister811", "alpha", "mamba", "tampa", "btype3", "feltzer3", "ztype", "tropos",
@@ -193,7 +203,7 @@ namespace Tutones::Game::Business
             "M4J3ST1C", "T0UR3R", "R4LLY",
             "B1GMON3Y", "K1NGP1N", "CE0",
             "1MS0RAD", "31GHT135", "1985",
-            "IML4TE", "0V3RFL0D", "W1DEB0Y",
+            "IML4TE", "0V3RFL0D", "W1DEB0D",
             "SN0WFLK3", "F1D3L1TY", "5H0W0FF",
             "W1NN1NG", "0LDN3W5", "H3R0",
             "0BEYM3", "W1D3B0D", "D1RTY",
@@ -211,7 +221,6 @@ namespace Tutones::Game::Business
             "H0TP1NK", "T0PCL0WN", "NOF00L",
         }};
 
-        // GPBD_FM_3: current activity at f_10.f_33 and VEHICLE_EXPORT at f_10.f_188.
         static constexpr std::size_t PlayerOrganizationGlobal = 1893070;
         static constexpr std::size_t PlayerOrganizationEntrySize = 615;
         static constexpr std::size_t CurrentActivityOffset = 10 + 33;
@@ -222,8 +231,13 @@ namespace Tutones::Game::Business
 
         static constexpr std::int64_t PollIntervalMs = 250;
         static constexpr std::int64_t SourceLaunchTimeoutMs = 20000;
+        static constexpr std::int64_t AcquireRetryMs = 500;
+        static constexpr std::int64_t AcquireSettleMs = 750;
         static constexpr std::int64_t DeliveryRetryMs = 1500;
         static constexpr std::int64_t NextSourceDelayMs = 2000;
+        static constexpr float SourceSearchRadius = 2600.0f;
+        static constexpr int SearchPointsPerTick = 8;
+        static constexpr int MaxControlAttempts = 40;
         static constexpr int MaxDeliveryAttempts = 5;
 
         VehicleCargoInstantGarageRuntime() = default;
@@ -302,6 +316,10 @@ namespace Tutones::Game::Business
             if (vehicle == 0 || variation < 1 || variation > 96)
                 return false;
 
+            const auto exists = Natives::DoesEntityExist(vehicle);
+            if (!exists || !*exists)
+                return false;
+
             const auto model = Natives::GetEntityModel(vehicle);
             const auto plate = VehicleNatives::GetVehicleNumberPlateText(vehicle);
             if (!model || !plate)
@@ -324,6 +342,53 @@ namespace Tutones::Game::Business
 
             const auto vehicle = VehicleNatives::GetVehiclePedIsUsing(*ped);
             return vehicle ? *vehicle : 0;
+        }
+
+        [[nodiscard]] Vehicle FindSourceVehicleAnywhere(int variation) noexcept
+        {
+            if (variation < 1 || variation > 96)
+                return 0;
+
+            const Vehicle current = CurrentPlayerVehicle();
+            if (current != 0 && MatchesVariation(current, variation))
+                return current;
+
+            if (m_SourceVehicleCandidate != 0 && MatchesVariation(m_SourceVehicleCandidate, variation))
+                return m_SourceVehicleCandidate;
+
+            const std::size_t variationIndex = static_cast<std::size_t>(variation - 1);
+            const Hash expectedModel = static_cast<Hash>(Stats::Detail::Joaat(Models[variationIndex / 3]));
+
+            const auto ped = Natives::PlayerPedId();
+            if (ped && *ped != 0)
+            {
+                const auto coords = VehicleNatives::GetEntityCoords(*ped, false);
+                if (coords)
+                {
+                    const auto nearPlayer = VehicleNatives::GetClosestVehicle(
+                        coords->x, coords->y, coords->z, 12000.0f, expectedModel, 70);
+                    if (nearPlayer && *nearPlayer != 0 && MatchesVariation(*nearPlayer, variation))
+                    {
+                        m_SourceVehicleCandidate = *nearPlayer;
+                        return *nearPlayer;
+                    }
+                }
+            }
+
+            for (int i = 0; i < SearchPointsPerTick; ++i)
+            {
+                const std::size_t index = m_SourceSearchCursor++ % SourceSearchPoints.size();
+                const auto& point = SourceSearchPoints[index];
+                const auto candidate = VehicleNatives::GetClosestVehicle(
+                    point.x, point.y, point.z, SourceSearchRadius, expectedModel, 70);
+                if (!candidate || *candidate == 0 || !MatchesVariation(*candidate, variation))
+                    continue;
+
+                m_SourceVehicleCandidate = *candidate;
+                return *candidate;
+            }
+
+            return 0;
         }
 
         [[nodiscard]] bool ResolveDeliveryHandlers() noexcept
@@ -350,6 +415,21 @@ namespace Tutones::Game::Business
             return Native::AssignValidatedHandlers(slots, m_DeliveryHandlers);
         }
 
+        template<typename Ret, typename... Args>
+        [[nodiscard]] bool CallDelivery(std::size_t index, Ret& out, Args... args) const noexcept
+        {
+            if (index >= m_DeliveryHandlers.size() || !m_DeliveryHandlers[index])
+                return false;
+
+            Native::CallContext context;
+            if (!(context.PushArg(args) && ...))
+                return false;
+            m_DeliveryHandlers[index](&context);
+            context.FixVectors();
+            out = context.GetReturnValue<Ret>();
+            return true;
+        }
+
         template<typename... Args>
         [[nodiscard]] bool CallDeliveryVoid(std::size_t index, Args... args) const noexcept
         {
@@ -362,6 +442,48 @@ namespace Tutones::Game::Business
             m_DeliveryHandlers[index](&context);
             context.FixVectors();
             return true;
+        }
+
+        [[nodiscard]] bool EnsureVehicleControl(Vehicle vehicle) noexcept
+        {
+            if (vehicle == 0 || !ResolveDeliveryHandlers())
+                return false;
+
+            std::int32_t hasControl{};
+            if (!CallDelivery(NetworkHasControlOfEntity, hasControl, vehicle))
+                return false;
+
+            if (hasControl != 0)
+            {
+                m_ControlAttempts = 0;
+                return true;
+            }
+
+            std::int32_t requested{};
+            static_cast<void>(CallDelivery(NetworkRequestControlOfEntity, requested, vehicle));
+            ++m_ControlAttempts;
+            return false;
+        }
+
+        [[nodiscard]] bool AcquireSourceVehicle(Vehicle vehicle, std::int64_t now) noexcept
+        {
+            const auto ped = Natives::PlayerPedId();
+            if (!ped || *ped == 0 || vehicle == 0)
+                return false;
+
+            if (CurrentPlayerVehicle() == vehicle)
+            {
+                if (m_AcquiredAtMs == 0)
+                    m_AcquiredAtMs = now;
+                return true;
+            }
+
+            if ((now - m_LastAcquireAttemptMs) < AcquireRetryMs)
+                return false;
+
+            m_LastAcquireAttemptMs = now;
+            static_cast<void>(VehicleNatives::SetPedIntoVehicle(*ped, vehicle, -1));
+            return false;
         }
 
         [[nodiscard]] bool DeliverToWarehouse(Vehicle vehicle, const WarehouseTarget& target) noexcept
@@ -415,6 +537,11 @@ namespace Tutones::Game::Business
             m_LastDeliveryAtMs = 0;
             m_LastDeliveredVehicle = 0;
             m_RequestedVariation = 0;
+            m_SourceVehicleCandidate = 0;
+            m_SourceSearchCursor = 0;
+            m_ControlAttempts = 0;
+            m_LastAcquireAttemptMs = 0;
+            m_AcquiredAtMs = 0;
         }
 
         void CompleteOneShot() noexcept
@@ -431,7 +558,7 @@ namespace Tutones::Game::Business
             const bool active = m_Enabled.load(std::memory_order_acquire)
                 || m_ManualCycleActive.load(std::memory_order_acquire);
             if (!active)
-                return Finish(true, false, false, false, false, false, 0, 0, 0, "Instant Delivery is off");
+                return Finish(true, false, false, false, false, false, 0, 0, 0, "Instant Source + Delivery is off");
 
             bool* sessionStarted = GamePointers::Get().IsSessionStarted();
             if (!sessionStarted || !*sessionStarted)
@@ -439,7 +566,7 @@ namespace Tutones::Game::Business
                 ResetCycle();
                 CompleteOneShot();
                 return Finish(false, false, false, false, false, false, 0, 0, 0,
-                    "Join GTA Online before using Instant Delivery");
+                    "Join GTA Online before using Instant Source + Delivery");
             }
 
             auto& scripts = Script::ScriptRuntime::Get();
@@ -459,7 +586,7 @@ namespace Tutones::Game::Business
                 ResetCycle();
                 CompleteOneShot();
                 return Finish(false, true, false, false, false, false, 0, 0, 0,
-                    "Purchase a Vehicle Warehouse before using Instant Delivery");
+                    "Purchase a Vehicle Warehouse before using Instant Source + Delivery");
             }
 
             if (warehouseStock >= 40)
@@ -510,10 +637,8 @@ namespace Tutones::Game::Business
                 if (now < m_NotBeforeMs)
                     return Finish(true, true, true, false, false, false,
                         warehouseProperty, 0, warehouseStock,
-                        "Instant Delivery waiting before the next source request");
+                        "Instant Source waiting before the next source request");
 
-                // Do not turn normal Auto Source on. Queue exactly one genuine source
-                // request, then wait for the mission and the actual mission vehicle.
                 auto& autoSource = VehicleCargoAutoSourceRuntime::Get();
                 autoSource.SetEnabled(false);
                 if (!autoSource.QueueSourceNow())
@@ -531,13 +656,11 @@ namespace Tutones::Game::Business
             m_MissionWasRunning = true;
             m_LaunchRequested = true;
 
-            // gb_vehicle_export handles both steal and sell. Instant Delivery only
-            // touches activity 178 so it can never teleport a sell/export vehicle.
             if (activity != SourceActivity)
             {
                 return Finish(true, true, true, true, false, false,
                     warehouseProperty, 0, warehouseStock,
-                    "A Vehicle Cargo export/sell mission is running; Instant Delivery is standing by");
+                    "A Vehicle Cargo export/sell mission is running; Instant Source is standing by");
             }
 
             const int variation = RequestedVariation(pages, *playerId);
@@ -551,17 +674,51 @@ namespace Tutones::Game::Business
                     "Source mission is running, but its VehicleExport variation is not available yet");
             }
 
-            const Vehicle vehicle = CurrentPlayerVehicle();
-            if (vehicle == 0 || !MatchesVariation(vehicle, m_RequestedVariation))
+            const Vehicle sourceVehicle = FindSourceVehicleAnywhere(m_RequestedVariation);
+            if (sourceVehicle == 0)
             {
                 return Finish(true, true, true, true, false, false,
                     warehouseProperty, m_RequestedVariation, warehouseStock,
-                    std::string("Source variation ") + std::to_string(m_RequestedVariation)
-                        + " is active; obtain and enter the marked source vehicle");
+                    std::string("Instant Source scanning for exact variation ")
+                        + std::to_string(m_RequestedVariation)
+                        + " model/plate anywhere on the map");
+            }
+
+            m_SourceVehicleCandidate = sourceVehicle;
+
+            if (!EnsureVehicleControl(sourceVehicle))
+            {
+                if (m_ControlAttempts >= MaxControlAttempts)
+                {
+                    m_SourceVehicleCandidate = 0;
+                    m_ControlAttempts = 0;
+                    return Finish(false, true, true, true, false, false,
+                        warehouseProperty, m_RequestedVariation, warehouseStock,
+                        "Exact source car found, but network control timed out; rescanning");
+                }
+
+                return Finish(true, true, true, true, false, false,
+                    warehouseProperty, m_RequestedVariation, warehouseStock,
+                    std::string("Exact source car found; requesting network control (")
+                        + std::to_string(m_ControlAttempts) + "/" + std::to_string(MaxControlAttempts) + ")");
+            }
+
+            if (!AcquireSourceVehicle(sourceVehicle, now))
+            {
+                return Finish(true, true, true, true, false, false,
+                    warehouseProperty, m_RequestedVariation, warehouseStock,
+                    "Instant Source found the exact mission car; warping you into the driver seat");
+            }
+
+            if ((now - m_AcquiredAtMs) < AcquireSettleMs)
+            {
+                return Finish(true, true, true, true, true, false,
+                    warehouseProperty, m_RequestedVariation, warehouseStock,
+                    "Instant Source acquired the exact car; letting GB_VEHICLE_EXPORT register possession");
             }
 
             const bool canDeliver = !m_DeliveryIssued
-                || (vehicle == m_LastDeliveredVehicle
+                || (sourceVehicle == m_LastDeliveredVehicle
                     && m_DeliveryAttempts < MaxDeliveryAttempts
                     && (now - m_LastDeliveryAtMs) >= DeliveryRetryMs);
 
@@ -572,29 +729,29 @@ namespace Tutones::Game::Business
                     "Source vehicle acquired; waiting for Rockstar's warehouse delivery trigger");
             }
 
-            if (!DeliverToWarehouse(vehicle, warehouse))
+            if (!DeliverToWarehouse(sourceVehicle, warehouse))
             {
                 return Finish(false, true, true, true, true, false,
                     warehouseProperty, m_RequestedVariation, warehouseStock,
-                    "Source vehicle found, but the Enhanced delivery teleport natives are unavailable");
+                    "Source vehicle acquired, but the Enhanced delivery teleport natives are unavailable");
             }
 
             m_DeliveryIssued = true;
-            m_LastDeliveredVehicle = vehicle;
+            m_LastDeliveredVehicle = sourceVehicle;
             m_LastDeliveryAtMs = now;
             ++m_DeliveryAttempts;
 
             TUTONES_LOG_INFO("business.vehicle_cargo",
-                std::string("Instant source delivery: variation=") + std::to_string(m_RequestedVariation)
+                std::string("Instant source + delivery: variation=") + std::to_string(m_RequestedVariation)
                     + " property=" + std::to_string(warehouseProperty)
                     + " stock=" + std::to_string(warehouseStock)
                     + " attempt=" + std::to_string(m_DeliveryAttempts));
 
             Finish(true, true, true, true, true, true,
                 warehouseProperty, m_RequestedVariation, warehouseStock,
-                std::string("Source vehicle delivered to Vehicle Warehouse entrance; attempt ")
-                    + std::to_string(m_DeliveryAttempts)
-                    + ". Rockstar will perform the actual storage/save.");
+                std::string("Instant Source acquired variation ")
+                    + std::to_string(m_RequestedVariation)
+                    + " and delivered it to your Vehicle Warehouse; Rockstar will perform the actual storage/save.");
         }
 
         void StoreSnapshot(
@@ -654,6 +811,12 @@ namespace Tutones::Game::Business
         std::int64_t m_NotBeforeMs{};
         Vehicle m_LastDeliveredVehicle{};
         int m_RequestedVariation{};
+
+        Vehicle m_SourceVehicleCandidate{};
+        std::size_t m_SourceSearchCursor{};
+        int m_ControlAttempts{};
+        std::int64_t m_LastAcquireAttemptMs{};
+        std::int64_t m_AcquiredAtMs{};
 
         std::array<Native::NativeHandler, DeliveryHandlerCount> m_DeliveryHandlers{};
 
