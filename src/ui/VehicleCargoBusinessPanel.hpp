@@ -3,7 +3,7 @@
 #include "V11Description.hpp"
 #include "V11Theme.hpp"
 #include "../features/business/BusinessScriptMonitorRuntime.hpp"
-#include "../features/business/VehicleCargoAutoSourceRuntime.hpp"
+#include "../features/business/VehicleCargoInstantGarageRuntime.hpp"
 #include "../features/business/VehicleCargoTuningRuntime.hpp"
 
 #include <imgui.h>
@@ -15,14 +15,14 @@ namespace Tutones::UI
     inline void RenderVehicleCargoBusinessPanel() noexcept
     {
         using Game::Business::BusinessScriptMonitorRuntime;
-        using Game::Business::VehicleCargoAutoSourceRuntime;
+        using Game::Business::VehicleCargoInstantGarageRuntime;
         using Game::Business::VehicleCargoTuningProfile;
         using Game::Business::VehicleCargoTuningRuntime;
 
         auto& monitor = BusinessScriptMonitorRuntime::Get();
         const auto monitorState = monitor.Snapshot();
-        auto& autoSource = VehicleCargoAutoSourceRuntime::Get();
-        const auto autoSourceState = autoSource.Snapshot();
+        auto& garageSource = VehicleCargoInstantGarageRuntime::Get();
+        const auto garageSourceState = garageSource.Snapshot();
         auto& tuning = VehicleCargoTuningRuntime::Get();
         const auto tuningState = tuning.Snapshot();
 
@@ -42,45 +42,50 @@ namespace Tutones::UI
             ImGui::Separator();
 
             ImGui::TextWrapped(
-                "Instant Auto Source now uses the same direct-storage idea as Special Cargo: Tutones writes Rockstar's persistent Vehicle Warehouse slot, verifies it, and mirrors the live warehouse cache. It does not start activity 178, spawn a source mission car, or touch the garage entrance.");
+                "Auto Source now finishes through the Vehicle Warehouse delivery path so the sourced car is actually stored in the garage. The end result matches Special Cargo sourcing: the new stock ends up inside the owned business instead of stopping at a temporary source state.");
             ImGui::Spacing();
 
-            if (ImGui::CollapsingHeader("Instant Warehouse Source", ImGuiTreeNodeFlags_DefaultOpen))
+            if (ImGui::CollapsingHeader("Auto Source Into Garage", ImGuiTreeNodeFlags_DefaultOpen))
             {
-                bool enabled = autoSourceState.enabled;
-                if (ImGui::Checkbox("Auto Source straight to warehouse", &enabled))
-                    autoSource.SetEnabled(enabled);
+                bool enabled = garageSourceState.enabled;
+                if (ImGui::Checkbox("Auto Source vehicles into garage", &enabled))
+                    garageSource.SetEnabled(enabled);
                 DescribeLastV11Item(
-                    "Adds one valid non-duplicate Import/Export vehicle to the next free Vehicle Warehouse slot every cycle. No steal mission is launched, so the warehouse entrance remains usable.");
+                    "Runs the dedicated source -> acquire -> warehouse delivery pipeline repeatedly. Rockstar performs the warehouse transition/save so each completed source becomes real Vehicle Warehouse stock.");
 
                 ImGui::SameLine();
-                ImGui::BeginDisabled(autoSourceState.pending);
-                if (ImGui::Button("Source one now", ImVec2(-1.0f, 0.0f)))
-                    static_cast<void>(autoSource.QueueSourceNow());
+                ImGui::BeginDisabled(garageSourceState.pending);
+                if (ImGui::Button("Source one into garage", ImVec2(-1.0f, 0.0f)))
+                    static_cast<void>(garageSource.QueueStoreNow());
                 ImGui::EndDisabled();
                 DescribeLastV11Item(
-                    "Adds exactly one Vehicle Cargo ID directly to the next free persistent warehouse slot and updates the live warehouse cache.");
+                    "Runs one complete Vehicle Cargo source and immediately delivers the acquired source car into the owned Vehicle Warehouse.");
 
-                ImGui::SeparatorText("Direct Storage Status");
-                ImGui::Text("Runtime: %s", autoSourceState.pending ? "WRITING" : (autoSourceState.enabled ? "AUTO" : "IDLE"));
-                ImGui::Text("Session: %s", autoSourceState.sessionReady ? "READY" : "WAITING");
-                ImGui::Text("Vehicle Warehouse: %s", autoSourceState.warehouseReady ? "READY" : "WAITING");
+                ImGui::SeparatorText("Garage Source Status");
+                ImGui::Text("Runtime: %s",
+                    garageSourceState.pending ? "WORKING" : (garageSourceState.enabled ? "AUTO" : "IDLE"));
+                ImGui::Text("Session: %s", garageSourceState.sessionReady ? "READY" : "WAITING");
+                ImGui::Text("Vehicle Warehouse: %s", garageSourceState.warehouseReady ? "READY" : "WAITING");
+                ImGui::Text("Source mission: %s", garageSourceState.missionRunning ? "RUNNING" : "WAITING");
+                ImGui::Text("Source vehicle: %s", garageSourceState.sourceVehicleReady ? "ACQUIRED" : "WAITING");
+                ImGui::Text("Garage delivery: %s", garageSourceState.deliveryIssued ? "ISSUED" : "WAITING");
 
-                if (autoSourceState.warehouseProperty != 0)
-                    ImGui::Text("Warehouse property/index: %d", autoSourceState.warehouseProperty);
-                ImGui::Text("Warehouse stock: %d / 40", autoSourceState.warehouseStock);
+                if (garageSourceState.warehouseProperty != 0)
+                    ImGui::Text("Warehouse property: %d", garageSourceState.warehouseProperty);
+                if (garageSourceState.sourceVariation > 0)
+                    ImGui::Text("Source variation: %d / 96", garageSourceState.sourceVariation);
+                ImGui::Text("Warehouse stock: %d / 40", garageSourceState.warehouseStock);
 
-                if (autoSourceState.lastVehicleId > 0)
+                ImGui::TextWrapped("%s", garageSourceState.message.c_str());
+                if (garageSourceState.pending || garageSourceState.missionRunning)
                 {
-                    ImGui::Text("Last sourced Vehicle ID: %d", autoSourceState.lastVehicleId);
-                    ImGui::Text("Saved warehouse slot: %d", autoSourceState.lastWarehouseSlot);
+                    ImGui::TextDisabled("Source: %s", garageSourceState.sourceMessage.c_str());
+                    ImGui::TextDisabled("Delivery: %s", garageSourceState.deliveryMessage.c_str());
                 }
-
-                ImGui::TextWrapped("%s", autoSourceState.message.c_str());
 
                 ImGui::Spacing();
                 ImGui::TextDisabled(
-                    "Direct-source contract: no activity 178, no gb_vehicle_export launch, no source blip scanning, no network-control loop, and no warehouse teleport. If a normal Vehicle Cargo mission is already active, Tutones refuses the direct write until that mission ends.");
+                    "Garage-source contract: source owns activity 178 and acquisition; delivery owns the real warehouse entrance transition and save observation. Auto Source only coordinates the handoff, so a completed cycle lands the sourced car in the Vehicle Warehouse instead of relying on a raw inventory-slot write.");
             }
 
             if (ImGui::CollapsingHeader("Vehicle Cargo Tunables", ImGuiTreeNodeFlags_DefaultOpen))
@@ -179,7 +184,7 @@ namespace Tutones::UI
 
                 ImGui::SeparatorText("Runtime Ownership");
                 ImGui::TextWrapped(
-                    "Instant Auto Source owns only persistent Vehicle Warehouse inventory and its local live cache. It never starts or manipulates a Vehicle Cargo steal mission. Normal Rockstar missions remain independent diagnostics only.");
+                    "Auto Source into Garage uses the existing split Vehicle Cargo pipeline: source handles activity 178 and the exact source vehicle, delivery handles the validated warehouse transition, and the coordinator repeats the cycle. Sell activity 188 remains untouched.");
             }
         }
 
@@ -187,6 +192,6 @@ namespace Tutones::UI
         ImGui::PopStyleColor(2);
         ImGui::PopStyleVar(2);
         SetV11Description(
-            "Vehicle Cargo / Import Export uses direct warehouse sourcing like Special Cargo: persistent slot write, read-back verification, and live warehouse cache refresh without activity 178.");
+            "Vehicle Cargo Auto Source now completes the source -> garage delivery pipeline so sourced vehicles become real warehouse stock, with Enhanced tuning and mission diagnostics kept intact.");
     }
 }
