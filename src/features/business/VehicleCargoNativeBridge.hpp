@@ -90,6 +90,19 @@ namespace Tutones::Game::Business
             return true;
         }
 
+        [[nodiscard]] bool GetBlipCoords(
+            std::int32_t blip,
+            Native::NativeVector3& out) noexcept
+        {
+            const auto value = Native::NativeInvoker::Invoke<Native::NativeVector3>(
+                Native::NativeId::GetBlipCoords,
+                blip);
+            if (!value)
+                return false;
+            out = *value;
+            return true;
+        }
+
         [[nodiscard]] bool RequestCollisionAt(float x, float y, float z) noexcept
         {
             return Native::NativeInvoker::InvokeVoid(
