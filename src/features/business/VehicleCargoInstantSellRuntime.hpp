@@ -154,11 +154,14 @@ namespace Tutones::Game::Business
             return false;
         }
 
+        // The pre-sale blip baseline intentionally survives mission-state
+        // resets. It is refreshed while activity 188 is NOT running, then held
+        // stable for the duration of the export so only newly-created mission
+        // coordinate blips can become movement targets.
         void ResetMissionState() noexcept
         {
             m_InSellActivity = false;
             m_TargetVehicle = 0;
-            m_BaselineCount = 0;
             m_ProcessedCount = 0;
             m_StagesCompleted = 0;
             m_ControlAttempts = 0;
