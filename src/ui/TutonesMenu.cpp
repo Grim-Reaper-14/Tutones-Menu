@@ -12,6 +12,7 @@
 #include "../features/business/VehicleCargoInstantSourceRuntime.hpp"
 #include "../features/business/VehicleCargoDeliveryRuntime.hpp"
 #include "../features/business/VehicleCargoInstantGarageRuntime.hpp"
+#include "../features/business/VehicleCargoInstantSellRuntime.hpp"
 #include "../features/recovery/RecoveryRuntime.hpp"
 #include "../features/vehicle/VehicleModificationRuntime.hpp"
 #include "../features/world/WorldRuntime.hpp"
@@ -129,6 +130,7 @@ namespace Tutones::UI
             Game::Business::VehicleCargoInstantSourceRuntime::Get().Tick();
             Game::Business::VehicleCargoDeliveryRuntime::Get().Tick();
             Game::Business::VehicleCargoInstantGarageRuntime::Get().Tick();
+            Game::Business::VehicleCargoInstantSellRuntime::Get().Tick();
             static_cast<void>(Game::Protections::ProtectionRuntime::Get().Start());
             Game::Recovery::CasinoSlotMachineRuntime::Get().Tick();
             RenderMiscOverlay();
