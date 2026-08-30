@@ -6,6 +6,7 @@
 #include "V11Theme.hpp"
 #include "../features/vehicle/HornBoostRuntime.hpp"
 #include "../features/vehicle/NitrousRuntime.hpp"
+#include "../features/vehicle/VehicleAmmoRuntime.hpp"
 #include "../features/vehicle/VehicleGeneralExtrasRuntime.hpp"
 #include "../features/vehicle/VehicleLoopFeatures.hpp"
 #include "../features/vehicle/VehicleModificationRuntime.hpp"
@@ -21,6 +22,7 @@ namespace Tutones::UI
         auto& loop = Game::Mods::VehicleLoopFeatures::Get();
         auto& hornBoost = Game::Mods::HornBoostRuntime::Get();
         auto& nitrous = Game::Mods::NitrousRuntime::Get();
+        auto& vehicleAmmo = Game::Mods::VehicleAmmoRuntime::Get();
         auto& extras = Game::Mods::VehicleGeneralExtrasRuntime::Get();
         auto& runtime = Game::Mods::VehicleModificationRuntime::Get();
         auto& suspension = Game::Mods::VehicleSuspensionRuntime::Get();
@@ -97,6 +99,27 @@ namespace Tutones::UI
                 if (ImGui::Checkbox("Unlimited Nitrous", &unlimitedNitrous))
                     nitrous.SetUnlimited(unlimitedNitrous);
                 DescribeLastV11Item("Continuously refill the current vehicle's native nitrous charge while the nitrous system is enabled.");
+
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0);
+                bool infiniteVehicleAmmo = vehicleAmmo.Enabled();
+                if (ImGui::Checkbox("Infinite Vehicle Ammo / Missiles", &infiniteVehicleAmmo))
+                    vehicleAmmo.SetEnabled(infiniteVehicleAmmo);
+                DescribeLastV11Item("Keep GTA's currently selected mounted vehicle weapon at unlimited restricted ammo. Covers supported guns, rockets and missiles without replacing GTA's normal projectile or targeting logic.");
+
+                ImGui::TableSetColumnIndex(1);
+                if (vehicleAmmo.Enabled())
+                {
+                    const auto weaponHash = vehicleAmmo.CurrentWeaponHash();
+                    if (weaponHash != 0)
+                        ImGui::Text("Weapon 0x%08X", static_cast<unsigned int>(weaponHash));
+                    else
+                        ImGui::TextDisabled("Weapon: waiting");
+                }
+                else
+                {
+                    ImGui::TextDisabled("Ammo refill off");
+                }
 
                 ImGui::TableNextRow();
                 ImGui::TableSetColumnIndex(0);
@@ -273,6 +296,10 @@ namespace Tutones::UI
             ImGui::SameLine();
             ImGui::Text("  Engine Hold: %s", extras.KeepEngineRunning() ? "ON" : "OFF");
             ImGui::Text("Nitrous: %s  |  Unlimited: %s  |  Power: %.2fx", nitrous.Enabled() ? "ON" : "OFF", nitrous.Unlimited() ? "ON" : "OFF", nitrous.Power());
+            ImGui::Text(
+                "Vehicle Ammo/Missiles: %s  |  tracked weapons: %zu",
+                vehicleAmmo.Enabled() ? "INFINITE" : "NORMAL",
+                vehicleAmmo.TrackedWeaponCount());
             ImGui::Text("Extra Lowering: %s  |  Drop: %.3f", suspension.Enabled() ? "ON" : "OFF", suspension.LoweringAmount());
             if (suspension.Enabled())
             {
@@ -289,6 +316,6 @@ namespace Tutones::UI
         ImGui::PopStyleColor(2);
         ImGui::PopStyleVar(2);
 
-        SetV11Description("Vehicle General - active-vehicle behavior: God Mode, Keep Fixed/Clean, Seatbelt, Horn Boost, native Nitrous, stance, extra ride-height lowering, engine, lights, headgear, speed, locks, repair, upright and stealth controls.");
+        SetV11Description("Vehicle General - active-vehicle behavior: God Mode, Keep Fixed/Clean, Seatbelt, Horn Boost, native Nitrous, infinite mounted-weapon ammo/missiles, stance, extra ride-height lowering, engine, lights, headgear, speed, locks, repair, upright and stealth controls.");
     }
 }
