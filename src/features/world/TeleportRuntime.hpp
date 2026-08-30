@@ -30,13 +30,26 @@ namespace Tutones::Game::World
 
     namespace TeleportData
     {
-        inline constexpr std::array<TeleportBlipGroup, 6> Groups{{
+        inline constexpr std::array<TeleportBlipGroup, 19> Groups{{
             {"LS Car Meet", 777, false},
             {"Los Santos Customs", 72, true},
             {"Clothing Stores", 73, true},
             {"Ammu-Nation", 110, true},
             {"Barber Shops", 71, true},
             {"Tattoo Parlors", 75, true},
+            {"Police Stations", 60, true},
+            {"Hospitals", 61, true},
+            {"Airports", 90, true},
+            {"Bars", 93, true},
+            {"Car Washes", 100, true},
+            {"Golf", 109, true},
+            {"Shooting Ranges", 119, true},
+            {"Strip Clubs", 121, true},
+            {"Tennis", 122, true},
+            {"Nightclubs", 614, true},
+            {"Diamond Casino", 679, false},
+            {"Arcades", 740, true},
+            {"Agencies", 826, true},
         }};
     }
 
