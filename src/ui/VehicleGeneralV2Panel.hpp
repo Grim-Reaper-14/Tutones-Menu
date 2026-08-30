@@ -5,6 +5,7 @@
 #include "V11Description.hpp"
 #include "V11Theme.hpp"
 #include "../features/vehicle/HornBoostRuntime.hpp"
+#include "../features/vehicle/NitrousRuntime.hpp"
 #include "../features/vehicle/VehicleGeneralExtrasRuntime.hpp"
 #include "../features/vehicle/VehicleLoopFeatures.hpp"
 #include "../features/vehicle/VehicleModificationRuntime.hpp"
@@ -19,6 +20,7 @@ namespace Tutones::UI
     {
         auto& loop = Game::Mods::VehicleLoopFeatures::Get();
         auto& hornBoost = Game::Mods::HornBoostRuntime::Get();
+        auto& nitrous = Game::Mods::NitrousRuntime::Get();
         auto& extras = Game::Mods::VehicleGeneralExtrasRuntime::Get();
         auto& runtime = Game::Mods::VehicleModificationRuntime::Get();
         auto& suspension = Game::Mods::VehicleSuspensionRuntime::Get();
@@ -85,6 +87,19 @@ namespace Tutones::UI
 
                 ImGui::TableNextRow();
                 ImGui::TableSetColumnIndex(0);
+                bool nitrousEnabled = nitrous.Enabled();
+                if (ImGui::Checkbox("Nitrous", &nitrousEnabled))
+                    nitrous.SetEnabled(nitrousEnabled);
+                DescribeLastV11Item("Enable GTA's native nitrous backend on the vehicle you are currently driving. Hold Sprint + Accelerate to fire nitrous.");
+
+                ImGui::TableSetColumnIndex(1);
+                bool unlimitedNitrous = nitrous.Unlimited();
+                if (ImGui::Checkbox("Unlimited Nitrous", &unlimitedNitrous))
+                    nitrous.SetUnlimited(unlimitedNitrous);
+                DescribeLastV11Item("Continuously refill the current vehicle's native nitrous charge while the nitrous system is enabled.");
+
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0);
                 bool keepEngineRunning = extras.KeepEngineRunning();
                 if (ImGui::Checkbox("Keep Engine Running", &keepEngineRunning))
                     extras.SetKeepEngineRunning(keepEngineRunning);
@@ -124,6 +139,22 @@ namespace Tutones::UI
 
                 ImGui::EndTable();
             }
+
+            ImGui::SeparatorText("Nitrous Tuning");
+            ImGui::BeginDisabled(!nitrous.Enabled());
+            float nitrousLevel = nitrous.Level();
+            ImGui::SetNextItemWidth(-1.0f);
+            if (ImGui::SliderFloat("##nitrous_level", &nitrousLevel, 0.5f, 5.0f, "Charge %.2fx"))
+                nitrous.SetLevel(nitrousLevel);
+            DescribeLastV11Item("Set the native nitrous charge level supplied to SET_OVERRIDE_NITROUS_LEVEL.");
+
+            float nitrousPower = nitrous.Power();
+            ImGui::SetNextItemWidth(-1.0f);
+            if (ImGui::SliderFloat("##nitrous_power", &nitrousPower, 0.5f, 5.0f, "Power %.2fx"))
+                nitrous.SetPower(nitrousPower);
+            DescribeLastV11Item("Set the power multiplier used by GTA's native nitrous system.");
+            ImGui::EndDisabled();
+            ImGui::TextDisabled("Nitrous input: hold Sprint + Accelerate while driving.");
 
             ImGui::SeparatorText("Ride Height");
             bool extraLowering = suspension.Enabled();
@@ -241,6 +272,7 @@ namespace Tutones::UI
             ImGui::Text("Seatbelt: %s", extras.Seatbelt() ? "ON" : "OFF");
             ImGui::SameLine();
             ImGui::Text("  Engine Hold: %s", extras.KeepEngineRunning() ? "ON" : "OFF");
+            ImGui::Text("Nitrous: %s  |  Unlimited: %s  |  Power: %.2fx", nitrous.Enabled() ? "ON" : "OFF", nitrous.Unlimited() ? "ON" : "OFF", nitrous.Power());
             ImGui::Text("Extra Lowering: %s  |  Drop: %.3f", suspension.Enabled() ? "ON" : "OFF", suspension.LoweringAmount());
             if (suspension.Enabled())
             {
@@ -257,6 +289,6 @@ namespace Tutones::UI
         ImGui::PopStyleColor(2);
         ImGui::PopStyleVar(2);
 
-        SetV11Description("Vehicle General - active-vehicle behavior: God Mode, Keep Fixed/Clean, Seatbelt, Horn Boost, stance, extra ride-height lowering, engine, lights, headgear, speed, locks, repair, upright and stealth controls.");
+        SetV11Description("Vehicle General - active-vehicle behavior: God Mode, Keep Fixed/Clean, Seatbelt, Horn Boost, native Nitrous, stance, extra ride-height lowering, engine, lights, headgear, speed, locks, repair, upright and stealth controls.");
     }
 }
