@@ -109,6 +109,18 @@ namespace Tutones::UI
 
             if (ImGui::CollapsingHeader("Bunker Tools", ImGuiTreeNodeFlags_DefaultOpen))
             {
+                ImGui::SeparatorText("Production Boost");
+                bool fastProduction = toolState.fastProductionEnabled;
+                ImGui::BeginDisabled(toolState.pending);
+                if (ImGui::Checkbox("Fast Production Stock (1 second)", &fastProduction))
+                    static_cast<void>(tools.QueueSetFastProduction(fastProduction));
+                ImGui::EndDisabled();
+                DescribeLastV11Item(
+                    "Accelerates the Bunker manufacturing cycle to 1 second while enabled. It still uses the real Bunker production path, so supplies and staff assignment remain authoritative. Disabling restores the manufacturing time that was active before the boost.");
+                ImGui::TextDisabled(
+                    "Manufacturing boost: %s",
+                    toolState.fastProductionEnabled ? "FAST (1000 ms)" : "NORMAL");
+
                 ImGui::SeparatorText("Product Value");
                 ImGui::SetNextItemWidth(220.0f);
                 ImGui::InputInt("Product value", &profile.productValue, 100, 1000);
@@ -175,6 +187,6 @@ namespace Tutones::UI
         ImGui::EndChild();
         ImGui::PopStyleColor(2);
         ImGui::PopStyleVar(2);
-        SetV11Description("Bunker is fully rendered inside its business tab: stock, Instant Resupply, product value, sale multipliers, high-demand bonus, production times and Instant Sell.");
+        SetV11Description("Bunker is fully rendered inside its business tab: stock, Fast Production Stock, Instant Resupply, product value, sale multipliers, high-demand bonus, production times and Instant Sell.");
     }
 }
