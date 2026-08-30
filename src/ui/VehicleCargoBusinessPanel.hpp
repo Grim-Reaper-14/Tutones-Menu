@@ -4,6 +4,7 @@
 #include "V11Theme.hpp"
 #include "../features/business/BusinessScriptMonitorRuntime.hpp"
 #include "../features/business/VehicleCargoInstantGarageRuntime.hpp"
+#include "../features/business/VehicleCargoInstantSellRuntime.hpp"
 #include "../features/business/VehicleCargoTuningRuntime.hpp"
 
 #include <imgui.h>
@@ -16,6 +17,7 @@ namespace Tutones::UI
     {
         using Game::Business::BusinessScriptMonitorRuntime;
         using Game::Business::VehicleCargoInstantGarageRuntime;
+        using Game::Business::VehicleCargoInstantSellRuntime;
         using Game::Business::VehicleCargoTuningProfile;
         using Game::Business::VehicleCargoTuningRuntime;
 
@@ -23,6 +25,8 @@ namespace Tutones::UI
         const auto monitorState = monitor.Snapshot();
         auto& garageSource = VehicleCargoInstantGarageRuntime::Get();
         const auto garageSourceState = garageSource.Snapshot();
+        auto& instantSell = VehicleCargoInstantSellRuntime::Get();
+        const auto instantSellState = instantSell.Snapshot();
         auto& tuning = VehicleCargoTuningRuntime::Get();
         const auto tuningState = tuning.Snapshot();
 
@@ -42,7 +46,7 @@ namespace Tutones::UI
             ImGui::Separator();
 
             ImGui::TextWrapped(
-                "Auto Source now finishes through the Vehicle Warehouse delivery path so the sourced car is actually stored in the garage. The end result matches Special Cargo sourcing: the new stock ends up inside the owned business instead of stopping at a temporary source state.");
+                "Auto Source finishes through the Vehicle Warehouse delivery path, and Instant Sell now follows Rockstar's live export objectives during activity 188 so the mission itself owns completion, payout and save state.");
             ImGui::Spacing();
 
             if (ImGui::CollapsingHeader("Auto Source Into Garage", ImGuiTreeNodeFlags_DefaultOpen))
@@ -86,6 +90,40 @@ namespace Tutones::UI
                 ImGui::Spacing();
                 ImGui::TextDisabled(
                     "Garage-source contract: source owns activity 178 and acquisition; delivery owns the real warehouse entrance transition and save observation. Auto Source only coordinates the handoff, so a completed cycle lands the sourced car in the Vehicle Warehouse instead of relying on a raw inventory-slot write.");
+            }
+
+            if (ImGui::CollapsingHeader("Instant Vehicle Cargo Sell", ImGuiTreeNodeFlags_DefaultOpen))
+            {
+                bool enabled = instantSellState.enabled;
+                if (ImGui::Checkbox("Instantly deliver Vehicle Cargo sales", &enabled))
+                    instantSell.SetEnabled(enabled);
+                DescribeLastV11Item(
+                    "Arms only for Vehicle Cargo sell activity 188. Tutones discovers Rockstar's newly-created coordinate objective, preloads collision, obtains network control of the actual export vehicle and moves it once through that objective. Intermediate export objectives can advance in sequence; gb_vehicle_export remains responsible for the payout and final save.");
+
+                ImGui::SeparatorText("Instant Sell Status");
+                ImGui::Text("Runtime: %s",
+                    instantSellState.pending ? "WORKING" : (instantSellState.enabled ? "ARMED" : "IDLE"));
+                ImGui::Text("Sell activity 188: %s", instantSellState.sellActivity ? "RUNNING" : "WAITING");
+                ImGui::Text("Export vehicle: %s", instantSellState.vehicleReady ? "READY" : "WAITING");
+                ImGui::Text("Route objective: %s", instantSellState.objectiveReady ? "LOCKED" : "WAITING");
+                ImGui::Text("Objective stages completed: %d", instantSellState.stagesCompleted);
+                if (instantSellState.controlAttempts > 0)
+                    ImGui::Text("Network-control attempts: %d", instantSellState.controlAttempts);
+                if (instantSellState.objectiveReady)
+                {
+                    ImGui::Text("Objective: %.2f, %.2f, %.2f",
+                        instantSellState.targetX,
+                        instantSellState.targetY,
+                        instantSellState.targetZ);
+                }
+                ImGui::TextWrapped("%s", instantSellState.message.c_str());
+
+                if (instantSellState.haveResult)
+                    ImGui::TextDisabled("Last result: %s", instantSellState.lastSucceeded ? "SUCCESS" : "STOPPED SAFELY");
+
+                ImGui::Spacing();
+                ImGui::TextDisabled(
+                    "Sell contract: no warehouse-stock writes, no forced payout globals and no blind destination list. The runtime only acts while activity 188 is live and refuses movement when more than one unrelated new coordinate objective is present.");
             }
 
             if (ImGui::CollapsingHeader("Vehicle Cargo Tunables", ImGuiTreeNodeFlags_DefaultOpen))
@@ -184,7 +222,7 @@ namespace Tutones::UI
 
                 ImGui::SeparatorText("Runtime Ownership");
                 ImGui::TextWrapped(
-                    "Auto Source into Garage uses the existing split Vehicle Cargo pipeline: source handles activity 178 and the exact source vehicle, delivery handles the validated warehouse transition, and the coordinator repeats the cycle. Sell activity 188 remains untouched.");
+                    "Auto Source owns activity 178 and warehouse acquisition. Instant Sell owns only guarded movement during activity 188. Rockstar's gb_vehicle_export script remains authoritative for sell-stage progression, commission payout and mission completion.");
             }
         }
 
@@ -192,6 +230,6 @@ namespace Tutones::UI
         ImGui::PopStyleColor(2);
         ImGui::PopStyleVar(2);
         SetV11Description(
-            "Vehicle Cargo Auto Source now completes the source -> garage delivery pipeline so sourced vehicles become real warehouse stock, with Enhanced tuning and mission diagnostics kept intact.");
+            "Vehicle Cargo includes real source-to-garage delivery plus guarded activity-188 instant export delivery, with Enhanced tuning and mission diagnostics kept intact.");
     }
 }
