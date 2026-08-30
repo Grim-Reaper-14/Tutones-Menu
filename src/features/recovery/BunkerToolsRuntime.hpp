@@ -42,6 +42,7 @@ namespace Tutones::Game::Recovery
         bool pending{};
         bool haveResult{};
         bool lastSucceeded{};
+        bool fastProductionEnabled{};
         std::string message{"Ready"};
     };
 
@@ -67,6 +68,7 @@ namespace Tutones::Game::Recovery
         static constexpr std::size_t HighDemandMaxBonusOffset = 21233;
         static constexpr std::size_t ManufacturingProductionOffset = 21342;
         static constexpr std::size_t ResearchProductionOffset = 21358;
+        static constexpr int FastManufacturingProductionMs = 1000;
 
         static constexpr std::uint32_t GunrunningHash = BunkerToolsDetail::Joaat("gb_gunrunning");
         static constexpr std::size_t GunrunningInstantSellLocal = 1275 + 774;
@@ -75,6 +77,64 @@ namespace Tutones::Game::Recovery
         {
             static BunkerToolsRuntime instance;
             return instance;
+        }
+
+        bool QueueSetFastProduction(bool enabled)
+        {
+            return Queue(enabled ? "Bunker fast production queued" : "Bunker production restore queued", [this, enabled] {
+                auto* pages = RequireGlobals();
+                if (!pages)
+                    return;
+
+                int* manufacturing = Script::ScriptGlobal(TunablesGlobal).At(ManufacturingProductionOffset).As<int>(pages);
+                if (!manufacturing)
+                    return Finish(false, "Bunker manufacturing production global is unavailable");
+
+                const bool wasEnabled = m_FastProductionEnabled.load(std::memory_order_acquire);
+                if (enabled)
+                {
+                    if (!wasEnabled)
+                        m_SavedManufacturingMs = *manufacturing > 0 ? *manufacturing : BunkerTuningProfile{}.manufacturingProductionMs;
+
+                    *manufacturing = FastManufacturingProductionMs;
+                    const bool success = *manufacturing == FastManufacturingProductionMs;
+                    if (success)
+                    {
+                        m_FastProductionEnabled.store(true, std::memory_order_release);
+                        TUTONES_LOG_INFO(
+                            "recovery.bunker",
+                            std::string("Enabled Bunker fast production manufactureMs=")
+                                + std::to_string(FastManufacturingProductionMs)
+                                + " restoreMs=" + std::to_string(m_SavedManufacturingMs));
+                    }
+                    return Finish(success,
+                        success
+                            ? "Fast Bunker stock production enabled (1 second per manufacturing cycle)"
+                            : "Fast Bunker stock production failed read-back verification");
+                }
+
+                if (!wasEnabled)
+                    return Finish(true, "Fast Bunker stock production is already disabled");
+
+                const int restoreMs = m_SavedManufacturingMs > 0
+                    ? m_SavedManufacturingMs
+                    : BunkerTuningProfile{}.manufacturingProductionMs;
+                *manufacturing = restoreMs;
+                const bool success = *manufacturing == restoreMs;
+                if (success)
+                {
+                    m_FastProductionEnabled.store(false, std::memory_order_release);
+                    m_SavedManufacturingMs = 0;
+                    TUTONES_LOG_INFO(
+                        "recovery.bunker",
+                        std::string("Restored Bunker manufacturing production time to ")
+                            + std::to_string(restoreMs) + " ms");
+                }
+                Finish(success,
+                    success
+                        ? "Normal Bunker stock production restored"
+                        : "Bunker production restore failed read-back verification");
+            });
         }
 
         bool QueueApplyProfile(BunkerTuningProfile profile)
@@ -106,12 +166,19 @@ namespace Tutones::Game::Recovery
                 if (!productValue || !nearSale || !farSale || !demandBonus || !maxDemandBonus || !manufacturing || !research)
                     return Finish(false, "One or more Bunker tuning globals are unavailable");
 
+                const bool fastProduction = m_FastProductionEnabled.load(std::memory_order_acquire);
+                const int manufacturingTarget = fastProduction
+                    ? FastManufacturingProductionMs
+                    : profile.manufacturingProductionMs;
+                if (fastProduction)
+                    m_SavedManufacturingMs = profile.manufacturingProductionMs;
+
                 *productValue = profile.productValue;
                 *nearSale = profile.nearSaleMultiplier;
                 *farSale = profile.farSaleMultiplier;
                 *demandBonus = profile.highDemandBonus;
                 *maxDemandBonus = profile.highDemandMaxBonus;
-                *manufacturing = profile.manufacturingProductionMs;
+                *manufacturing = manufacturingTarget;
                 *research = profile.researchProductionMs;
 
                 const bool success = *productValue == profile.productValue
@@ -119,7 +186,7 @@ namespace Tutones::Game::Recovery
                     && *farSale == profile.farSaleMultiplier
                     && *demandBonus == profile.highDemandBonus
                     && *maxDemandBonus == profile.highDemandMaxBonus
-                    && *manufacturing == profile.manufacturingProductionMs
+                    && *manufacturing == manufacturingTarget
                     && *research == profile.researchProductionMs;
 
                 if (success)
@@ -131,7 +198,7 @@ namespace Tutones::Game::Recovery
                             + " far=" + std::to_string(profile.farSaleMultiplier)
                             + " demand=" + std::to_string(profile.highDemandBonus)
                             + " maxDemand=" + std::to_string(profile.highDemandMaxBonus)
-                            + " manufactureMs=" + std::to_string(profile.manufacturingProductionMs)
+                            + " manufactureMs=" + std::to_string(manufacturingTarget)
                             + " researchMs=" + std::to_string(profile.researchProductionMs));
                 }
 
@@ -171,6 +238,7 @@ namespace Tutones::Game::Recovery
         {
             BunkerToolsSnapshot snapshot;
             snapshot.pending = m_Pending.load(std::memory_order_acquire);
+            snapshot.fastProductionEnabled = m_FastProductionEnabled.load(std::memory_order_acquire);
             std::scoped_lock lock(m_Mutex);
             snapshot.haveResult = m_HaveResult;
             snapshot.lastSucceeded = m_LastSucceeded;
@@ -234,6 +302,8 @@ namespace Tutones::Game::Recovery
         }
 
         std::atomic<bool> m_Pending{false};
+        std::atomic<bool> m_FastProductionEnabled{false};
+        int m_SavedManufacturingMs{};
         mutable std::mutex m_Mutex;
         bool m_HaveResult{};
         bool m_LastSucceeded{};
