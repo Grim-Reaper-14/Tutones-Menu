@@ -163,6 +163,7 @@ namespace Tutones::Game::Native
         GetNextBlipInfoId,
         DoesBlipExist,
         GetBlipInfoIdEntityIndex,
+        GetBlipCoords,
         RequestCollisionAtCoord,
         SetEntityCoordsNoOffset,
         SetEntityHeading,
