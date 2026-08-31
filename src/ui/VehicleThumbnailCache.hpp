@@ -473,7 +473,7 @@ namespace Tutones::UI
             if (!texture->GetPixels())
                 return false;
 
-            std::copy(pixels.begin(), pixels.end(), texture->GetPixels());
+            std::copy(pixels.begin(), pixels.end(), static_cast<std::uint8_t*>(texture->GetPixels()));
             output.Reset();
             ImGui::RegisterUserTexture(texture.get());
             output.context = ImGui::GetCurrentContext();
