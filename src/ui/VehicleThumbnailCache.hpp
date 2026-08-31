@@ -4,6 +4,7 @@
 #include "VehicleThumbnailDownloader.hpp"
 #include "../features/vehicle/VehicleModificationRuntime.hpp"
 #include "../game/vehicle/VehicleCatalogs.hpp"
+#include "../render/Renderer.hpp"
 
 #include <imgui.h>
 
@@ -59,7 +60,7 @@ namespace Tutones::UI
                 m_ClassImages[index]->Ref(),
                 m_ClassImages[index]->Width(),
                 m_ClassImages[index]->Height(),
-                true,
+                false,
                 m_ClassImagePaths[index],
             };
         }
@@ -149,19 +150,13 @@ namespace Tutones::UI
         struct RetiredTexture final
         {
             std::unique_ptr<ThemeTexture> texture{};
-            int retireAfterFrame{};
+            std::uint64_t retireAfterFence{};
         };
 
         VehicleThumbnailCache() = default;
         ~VehicleThumbnailCache() = default;
         VehicleThumbnailCache(const VehicleThumbnailCache&) = delete;
         VehicleThumbnailCache& operator=(const VehicleThumbnailCache&) = delete;
-
-        // Tutones uses a multi-buffered D3D12 swap chain. A texture removed in the next
-        // ImGui frame can still be referenced by an older GPU frame. Keeping the old
-        // texture registered for sixteen full ImGui frames is deliberately conservative
-        // and prevents the DX12 descriptor from being recycled while it is still in use.
-        static constexpr int TextureRetireDelayFrames = 16;
 
         [[nodiscard]] static const char* RepresentativeModel(std::size_t classIndex) noexcept
         {
@@ -344,10 +339,20 @@ namespace Tutones::UI
                 return;
             }
 
-            const int frame = ImGui::GetFrameCount();
+            // The old preview can be released as soon as every DX12 frame submitted before
+            // this UI change has completed. This uses the renderer's real fence instead of
+            // guessing how many ImGui frames are enough.
+            const auto retireFence = Render::Renderer::Get().LastSubmittedFenceValue();
+            if (retireFence == 0
+                || Render::Renderer::Get().CompletedFenceValue() >= retireFence)
+            {
+                m_SelectedFile.reset();
+                return;
+            }
+
             m_RetiredTextures.push_back(RetiredTexture{
                 std::move(m_SelectedFile),
-                frame + TextureRetireDelayFrames,
+                retireFence,
             });
         }
 
@@ -361,9 +366,10 @@ namespace Tutones::UI
                 return;
             m_LastRetireMaintenanceFrame = frame;
 
+            const auto completedFence = Render::Renderer::Get().CompletedFenceValue();
             for (auto it = m_RetiredTextures.begin(); it != m_RetiredTextures.end();)
             {
-                if (frame >= it->retireAfterFrame)
+                if (it->retireAfterFence == 0 || completedFence >= it->retireAfterFence)
                     it = m_RetiredTextures.erase(it);
                 else
                     ++it;
