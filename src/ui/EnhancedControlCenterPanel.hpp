@@ -1,5 +1,6 @@
 #pragma once
 
+#include "DailyActivityPanel.hpp"
 #include "MissionDiagnosticsPanel.hpp"
 #include "ServicesDiagnosticsPanel.hpp"
 #include "StreetDealerPanel.hpp"
@@ -211,7 +212,8 @@ namespace Tutones::UI
                 }
                 if (ImGui::BeginTabItem("Today"))
                 {
-                    ImGui::TextWrapped("Foundation for rotating daily activities, dealer state and reset tracking without exposing unverified locals.");
+                    RenderDailyActivityPanel();
+                    ImGui::SeparatorText("Controllers");
                     RenderAreaTable(Area::Daily, snapshot);
                     ImGui::EndTabItem();
                 }
