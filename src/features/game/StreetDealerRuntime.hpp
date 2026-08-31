@@ -7,6 +7,7 @@
 
 #include <array>
 #include <atomic>
+#include <cstddef>
 #include <cstdint>
 #include <mutex>
 #include <string>
@@ -26,7 +27,9 @@ namespace Tutones::Game::StreetDealer
         inline constexpr std::size_t DealerStride = 7;
         inline constexpr std::size_t DealerCount = 3;
 
-        // fm_street_dealer.c copies these fields into its dealer/product state.
+        // fm_street_dealer.c copies these five fields into its dealer/product state.
+        // Their exact semantic names are intentionally withheld until the state
+        // machine is fully cross-mapped.
         inline constexpr std::size_t ProductField1 = 1;
         inline constexpr std::size_t ProductField2 = 2;
         inline constexpr std::size_t ProductField3 = 3;
@@ -85,29 +88,30 @@ namespace Tutones::Game::StreetDealer
                 if (!state.sessionStarted)
                     return Finish(false, std::move(state), "Join GTA Online before reading Street Dealer state");
 
-                auto& scriptGlobal = Script::ScriptGlobal::Get();
-                state.globalsReady = scriptGlobal.IsReady();
+                auto* pages = GamePointers::Get().ScriptGlobals();
+                state.globalsReady = pages != nullptr;
                 if (!state.globalsReady)
                     return Finish(false, std::move(state), "Script globals are unavailable");
 
-                const auto readInt = [&](std::size_t index, int& output) -> bool
+                const Script::ScriptGlobal root(Enhanced173::FreemodeGlobal);
+                const auto readInt = [pages](Script::ScriptGlobal global, int& output) -> bool
                 {
-                    if (const auto value = scriptGlobal.Read<std::int32_t>(index))
-                    {
-                        output = *value;
-                        return true;
-                    }
-                    return false;
+                    const int* value = global.As<int>(pages);
+                    if (!value)
+                        return false;
+                    output = *value;
+                    return true;
                 };
 
-                if (!readInt(Enhanced173::FreemodeGlobal + Enhanced173::ActiveLocationOffset, state.activeLocation) ||
-                    !readInt(Enhanced173::FreemodeGlobal + Enhanced173::ActiveDealerOffset, state.activeDealer))
+                if (!readInt(root.At(Enhanced173::ActiveLocationOffset), state.activeLocation) ||
+                    !readInt(root.At(Enhanced173::ActiveDealerOffset), state.activeDealer))
                 {
                     return Finish(false, std::move(state), "Unable to read Street Dealer globals");
                 }
 
-                // The decompile uses -1 for no active location/dealer and 0..2 for a valid
-                // dealer index. Reject impossible values so a shifted game build cannot be
+                // fm_street_dealer clears both values to -1 during shutdown. A valid
+                // active dealer is 0..2; the location resolver contains the rotating
+                // location set. Reject impossible values so a shifted build cannot be
                 // mistaken for valid state.
                 const bool locationPlausible = state.activeLocation >= -1 && state.activeLocation <= 49;
                 const bool dealerPlausible = state.activeDealer >= -1 &&
@@ -115,18 +119,21 @@ namespace Tutones::Game::StreetDealer
                 if (!locationPlausible || !dealerPlausible)
                     return Finish(false, std::move(state), "Enhanced Street Dealer layout validation failed");
 
+                const auto dealerArray = root.At(Enhanced173::DealerBlockOffset);
                 for (std::size_t dealer = 0; dealer < state.dealers.size(); ++dealer)
                 {
-                    const std::size_t base = Enhanced173::FreemodeGlobal +
-                        Enhanced173::DealerBlockOffset + dealer * Enhanced173::DealerStride;
+                    // ScriptGlobal::At(index, stride) accounts for the GTA script-array
+                    // length slot before element zero. This matches
+                    // Global_2733326.f_5635[dealer /*7*/] in the Enhanced decompile.
+                    const auto record = dealerArray.At(dealer, Enhanced173::DealerStride);
                     auto& output = state.dealers[dealer];
                     int completed{};
-                    if (!readInt(base + Enhanced173::ProductField1, output.value1) ||
-                        !readInt(base + Enhanced173::ProductField2, output.value2) ||
-                        !readInt(base + Enhanced173::ProductField3, output.value3) ||
-                        !readInt(base + Enhanced173::ProductField4, output.value4) ||
-                        !readInt(base + Enhanced173::ProductField5, output.value5) ||
-                        !readInt(base + Enhanced173::CompletedField, completed))
+                    if (!readInt(record.At(Enhanced173::ProductField1), output.value1) ||
+                        !readInt(record.At(Enhanced173::ProductField2), output.value2) ||
+                        !readInt(record.At(Enhanced173::ProductField3), output.value3) ||
+                        !readInt(record.At(Enhanced173::ProductField4), output.value4) ||
+                        !readInt(record.At(Enhanced173::ProductField5), output.value5) ||
+                        !readInt(record.At(Enhanced173::CompletedField), completed))
                     {
                         return Finish(false, std::move(state), "Unable to read Street Dealer record");
                     }
