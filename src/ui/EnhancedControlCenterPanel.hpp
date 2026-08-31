@@ -1,5 +1,6 @@
 #pragma once
 
+#include "MissionDiagnosticsPanel.hpp"
 #include "ServicesDiagnosticsPanel.hpp"
 #include "StreetDealerPanel.hpp"
 #include "V11Description.hpp"
@@ -203,7 +204,8 @@ namespace Tutones::UI
                 }
                 if (ImGui::BeginTabItem("Mission"))
                 {
-                    ImGui::TextWrapped("Mission launch and Freemode controller state. Future mission-phase/local actions remain guarded by decompile validation.");
+                    RenderMissionDiagnosticsPanel();
+                    ImGui::SeparatorText("Controllers");
                     RenderAreaTable(Area::Mission, snapshot);
                     ImGui::EndTabItem();
                 }
