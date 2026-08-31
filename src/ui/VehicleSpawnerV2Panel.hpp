@@ -171,6 +171,47 @@ namespace Tutones::UI
             static_cast<void>(catalog);
         }
 
+        template <typename CatalogSnapshot>
+        [[nodiscard]] inline bool SelectFirstVehicleInClass(
+            const CatalogSnapshot& catalog,
+            int classIndex) noexcept
+        {
+            if (classIndex < 0)
+                return false;
+
+            for (std::size_t i = 0; i < Game::VehicleCatalogs::VehicleModels.size(); ++i)
+            {
+                if (i >= catalog.classes.size() || catalog.classes[i] != classIndex)
+                    continue;
+
+                g_SelectedModel = static_cast<int>(i);
+                std::snprintf(
+                    g_SpawnModel,
+                    sizeof(g_SpawnModel),
+                    "%s",
+                    Game::VehicleCatalogs::VehicleModels[i]);
+                return true;
+            }
+
+            return false;
+        }
+
+        template <typename CatalogSnapshot>
+        inline void EnsureSelectionMatchesClass(const CatalogSnapshot& catalog) noexcept
+        {
+            if (g_ClassFilter < 0)
+                return;
+
+            if (g_SelectedModel >= 0)
+            {
+                const auto selected = static_cast<std::size_t>(g_SelectedModel);
+                if (selected < catalog.classes.size() && catalog.classes[selected] == g_ClassFilter)
+                    return;
+            }
+
+            static_cast<void>(SelectFirstVehicleInClass(catalog, g_ClassFilter));
+        }
+
         inline bool CategoryCard(int classIndex, const char* label, const VehicleThumbnailView& thumbnail) noexcept
         {
             constexpr float CardWidth = 103.0f;
@@ -209,12 +250,13 @@ namespace Tutones::UI
             return pressed;
         }
 
-        inline void RenderVisualCategories() noexcept
+        template <typename CatalogSnapshot>
+        inline void RenderVisualCategories(const CatalogSnapshot& catalog) noexcept
         {
             auto& thumbnails = VehicleThumbnailCache::Get();
 
             ImGui::Checkbox("Visual vehicle categories", &g_ShowVisualCategories);
-            DescribeLastV11Item("Show GTA vehicle classes as picture cards. Built-in artwork is always available and can be replaced with your own class_0.png through class_22.png files.");
+            DescribeLastV11Item("Show GTA vehicle classes as picture cards.");
             if (!g_ShowVisualCategories)
                 return;
 
@@ -224,7 +266,7 @@ namespace Tutones::UI
             ImGui::SameLine();
             if (ImGui::Button("Refresh Images", ImVec2(118.0f, 27.0f)))
                 thumbnails.Refresh();
-            DescribeLastV11Item("Reload class artwork and the selected vehicle image from the Tutones vehicle_thumbnails folder.");
+            DescribeLastV11Item("Retry exact vehicle pictures without changing the vehicle browser layout.");
             ImGui::SameLine();
             ImGui::TextDisabled(g_ClassFilter < 0 ? "ALL" : Game::VehicleCatalogs::VehicleClassNames[static_cast<std::size_t>(g_ClassFilter)]);
 
@@ -241,6 +283,7 @@ namespace Tutones::UI
                             thumbnail))
                     {
                         g_ClassFilter = static_cast<int>(i);
+                        static_cast<void>(SelectFirstVehicleInClass(catalog, g_ClassFilter));
                     }
 
                     if ((i % Columns) != Columns - 1 && i + 1 < Game::VehicleCatalogs::VehicleClassNames.size())
@@ -268,13 +311,14 @@ namespace Tutones::UI
                 : model;
             const int classIndex = index < catalog.classes.size() ? catalog.classes[index] : -1;
             const auto thumbnail = VehicleThumbnailCache::Get().VehicleThumbnail(model, classIndex);
+            const bool exactPhoto = thumbnail.Valid() && thumbnail.custom;
 
             ImGui::TextColored(V11Theme::Accent, "%s", display);
             ImGui::TextDisabled("Model: %s", model);
             if (classIndex >= 0 && classIndex < static_cast<int>(Game::VehicleCatalogs::VehicleClassNames.size()))
                 ImGui::TextDisabled("Class: %s", Game::VehicleCatalogs::VehicleClassNames[static_cast<std::size_t>(classIndex)]);
             else
-                ImGui::TextDisabled("Class: unknown");
+                ImGui::TextDisabled("Class: loading");
 
             const ImVec2 start = ImGui::GetCursorScreenPos();
             constexpr float PreviewWidthUi = 166.0f;
@@ -282,18 +326,27 @@ namespace Tutones::UI
             ImGui::InvisibleButton("##selected_vehicle_preview", ImVec2(PreviewWidthUi, PreviewHeightUi));
             auto* draw = ImGui::GetWindowDrawList();
             draw->AddRectFilled(start, ImVec2(start.x + PreviewWidthUi, start.y + PreviewHeightUi), ImGui::GetColorU32(V11Theme::ControlBg), 4.0f);
-            if (thumbnail.Valid())
+            if (exactPhoto)
             {
                 draw->AddImage(
                     thumbnail.texture,
                     ImVec2(start.x + 3.0f, start.y + 3.0f),
                     ImVec2(start.x + PreviewWidthUi - 3.0f, start.y + PreviewHeightUi - 3.0f));
             }
+            else
+            {
+                constexpr const char* LoadingText = "Loading exact vehicle photo...";
+                const ImVec2 textSize = ImGui::CalcTextSize(LoadingText);
+                draw->AddText(
+                    ImVec2(
+                        start.x + std::max(5.0f, (PreviewWidthUi - textSize.x) * 0.5f),
+                        start.y + std::max(5.0f, (PreviewHeightUi - textSize.y) * 0.5f)),
+                    ImGui::GetColorU32(V11Theme::MutedText),
+                    LoadingText);
+            }
             draw->AddRect(start, ImVec2(start.x + PreviewWidthUi, start.y + PreviewHeightUi), ImGui::GetColorU32(V11Theme::PanelBorder), 4.0f);
 
-            ImGui::TextDisabled(thumbnail.custom ? "Vehicle artwork: custom image" : "Vehicle artwork: class preview");
-            if (!thumbnail.custom)
-                DescribeLastV11Item("Drop a picture named after the model, for example adder.png, into %LOCALAPPDATA%\\TutonesMenu\\vehicle_thumbnails and press Refresh Images to use the real vehicle artwork.");
+            ImGui::TextDisabled(exactPhoto ? "Vehicle artwork: exact model" : "Vehicle artwork: fetching exact model");
         }
 
         inline void RenderCatalogSpawner(
@@ -304,39 +357,13 @@ namespace Tutones::UI
             EnsureVehicleSelection(catalog);
 
             ImGui::SeparatorText("Spawn Vehicle");
-            RenderVisualCategories();
+            RenderVisualCategories(catalog);
+            EnsureSelectionMatchesClass(catalog);
 
-            if (ImGui::BeginTable("##vehicle_spawn_filters_v2", 2, ImGuiTableFlags_SizingStretchProp))
-            {
-                ImGui::TableSetupColumn("Search", ImGuiTableColumnFlags_WidthStretch, 2.0f);
-                ImGui::TableSetupColumn("Class", ImGuiTableColumnFlags_WidthStretch, 1.0f);
-                ImGui::TableNextRow();
-
-                ImGui::TableSetColumnIndex(0);
-                ImGui::SetNextItemWidth(-1.0f);
-                ImGui::InputTextWithHint("##vehicle_search_v2", "Search vehicle", g_Search, sizeof(g_Search));
-                DescribeLastV11Item("Search the built-in GTA vehicle catalog by display name or model name.");
-
-                ImGui::TableSetColumnIndex(1);
-                const char* classPreview = g_ClassFilter < 0
-                    ? "All classes"
-                    : Game::VehicleCatalogs::VehicleClassNames[static_cast<std::size_t>(g_ClassFilter)];
-                ImGui::SetNextItemWidth(-1.0f);
-                if (ImGui::BeginCombo("##vehicle_class_v2", classPreview))
-                {
-                    if (ImGui::Selectable("All classes", g_ClassFilter == -1))
-                        g_ClassFilter = -1;
-                    for (std::size_t i = 0; i < Game::VehicleCatalogs::VehicleClassNames.size(); ++i)
-                    {
-                        const bool selected = g_ClassFilter == static_cast<int>(i);
-                        if (ImGui::Selectable(Game::VehicleCatalogs::VehicleClassNames[i], selected))
-                            g_ClassFilter = static_cast<int>(i);
-                    }
-                    ImGui::EndCombo();
-                }
-                DescribeLastV11Item("Filter the vehicle catalog by GTA vehicle class. The picture cards above update the same filter.");
-                ImGui::EndTable();
-            }
+            if (g_ClassFilter >= 0)
+                ImGui::SeparatorText(Game::VehicleCatalogs::VehicleClassNames[static_cast<std::size_t>(g_ClassFilter)]);
+            else
+                ImGui::SeparatorText("All Vehicles");
 
             if (ImGui::BeginTable("##vehicle_catalog_visual_browser", 2, ImGuiTableFlags_SizingStretchProp))
             {
@@ -347,17 +374,14 @@ namespace Tutones::UI
 
                 if (ImGui::BeginListBox("##vehicle_catalog_v2", ImVec2(-1.0f, 154.0f)))
                 {
+                    bool anyVisible{};
                     for (std::size_t i = 0; i < Game::VehicleCatalogs::VehicleModels.size(); ++i)
                     {
                         const char* model = Game::VehicleCatalogs::VehicleModels[i];
-                        const std::string_view display = i < catalog.displayNames.size()
-                            ? std::string_view(catalog.displayNames[i])
-                            : std::string_view(model);
-                        if (!SearchMatches(model, display))
-                            continue;
                         if (g_ClassFilter >= 0 && (i >= catalog.classes.size() || catalog.classes[i] != g_ClassFilter))
                             continue;
 
+                        anyVisible = true;
                         const bool selected = g_SelectedModel == static_cast<int>(i);
                         const char* label = i < catalog.displayNames.size() && !catalog.displayNames[i].empty()
                             ? catalog.displayNames[i].c_str()
@@ -370,6 +394,10 @@ namespace Tutones::UI
                         if (selected)
                             ImGui::SetItemDefaultFocus();
                     }
+
+                    if (!anyVisible && g_ClassFilter >= 0)
+                        ImGui::TextDisabled("Loading vehicles for this category...");
+
                     ImGui::EndListBox();
                 }
 
@@ -380,7 +408,7 @@ namespace Tutones::UI
 
             ImGui::SetNextItemWidth(-1.0f);
             ImGui::InputTextWithHint("##spawn_model_v2", "Model name / add-on model", g_SpawnModel, sizeof(g_SpawnModel));
-            DescribeLastV11Item("Enter a GTA model name directly or use the visual vehicle browser above.");
+            DescribeLastV11Item("Enter an add-on model name directly or select a vehicle from the category list above.");
 
             if (ImGui::BeginTable("##spawn_options_v2", 2, ImGuiTableFlags_SizingStretchSame))
             {
@@ -604,6 +632,6 @@ namespace Tutones::UI
         ImGui::PopStyleColor(2);
         ImGui::PopStyleVar(2);
 
-        SetV11Description("Vehicle Spawner - visual picture categories and selected-car previews plus spawning, cloning, Rockstar personal vehicles, garage save and DLC website support.");
+        SetV11Description("Vehicle Spawner - category-based vehicle selection with exact-model previews plus spawning, cloning, Rockstar personal vehicles, garage save and DLC website support.");
     }
 }
