@@ -15,9 +15,6 @@
 
 namespace Tutones::Game::StreetDealer
 {
-    // GTA V Enhanced Online 1.73 / b1158.13 (Acid Labs decompile).
-    // Keep every raw index in this build-specific block so future game builds
-    // can invalidate the resolver without touching UI code.
     namespace Enhanced173
     {
         inline constexpr std::size_t FreemodeGlobal = 2733326;
@@ -27,26 +24,44 @@ namespace Tutones::Game::StreetDealer
         inline constexpr std::size_t DealerStride = 7;
         inline constexpr std::size_t DealerCount = 3;
 
-        // fm_street_dealer.c copies these five fields into its dealer/product state.
-        // Their exact semantic names are intentionally withheld until the state
-        // machine is fully cross-mapped.
-        inline constexpr std::size_t ProductField1 = 1;
-        inline constexpr std::size_t ProductField2 = 2;
-        inline constexpr std::size_t ProductField3 = 3;
-        inline constexpr std::size_t ProductField4 = 4;
-        inline constexpr std::size_t ProductField5 = 5;
+        // fm_street_dealer.c copies record f_1 to local f_7. That value identifies
+        // the dealer's premium/high-value product (product IDs 2/3/4/7 are
+        // Cocaine/Meth/Weed/Acid in this controller). Record f_2..f_5 are copied
+        // to local f_13..f_16 and used as the displayed per-unit payouts.
+        inline constexpr std::size_t PremiumProductField = 1;
+        inline constexpr std::size_t CocainePayoutField = 2;
+        inline constexpr std::size_t MethPayoutField = 3;
+        inline constexpr std::size_t WeedPayoutField = 4;
+        inline constexpr std::size_t AcidPayoutField = 5;
         inline constexpr std::size_t CompletedField = 6;
+
+        inline constexpr int ProductCocaine = 2;
+        inline constexpr int ProductMeth = 3;
+        inline constexpr int ProductWeed = 4;
+        inline constexpr int ProductAcid = 7;
 
         inline constexpr std::array<int, DealerCount> CompletionPackedStats{42076, 42077, 42078};
     }
 
+    [[nodiscard]] inline const char* ProductName(int productId) noexcept
+    {
+        switch (productId)
+        {
+        case Enhanced173::ProductCocaine: return "Cocaine";
+        case Enhanced173::ProductMeth: return "Meth";
+        case Enhanced173::ProductWeed: return "Weed";
+        case Enhanced173::ProductAcid: return "Acid";
+        default: return "Unknown";
+        }
+    }
+
     struct DealerRecord final
     {
-        int value1{};
-        int value2{};
-        int value3{};
-        int value4{};
-        int value5{};
+        int premiumProduct{-1};
+        int cocainePayout{};
+        int methPayout{};
+        int weedPayout{};
+        int acidPayout{};
         bool completed{};
     };
 
@@ -109,10 +124,6 @@ namespace Tutones::Game::StreetDealer
                     return Finish(false, std::move(state), "Unable to read Street Dealer globals");
                 }
 
-                // fm_street_dealer clears both values to -1 during shutdown. A valid
-                // active dealer is 0..2; the location resolver contains the rotating
-                // location set. Reject impossible values so a shifted build cannot be
-                // mistaken for valid state.
                 const bool locationPlausible = state.activeLocation >= -1 && state.activeLocation <= 49;
                 const bool dealerPlausible = state.activeDealer >= -1 &&
                     state.activeDealer < static_cast<int>(Enhanced173::DealerCount);
@@ -122,21 +133,28 @@ namespace Tutones::Game::StreetDealer
                 const auto dealerArray = root.At(Enhanced173::DealerBlockOffset);
                 for (std::size_t dealer = 0; dealer < state.dealers.size(); ++dealer)
                 {
-                    // ScriptGlobal::At(index, stride) accounts for the GTA script-array
-                    // length slot before element zero. This matches
-                    // Global_2733326.f_5635[dealer /*7*/] in the Enhanced decompile.
                     const auto record = dealerArray.At(dealer, Enhanced173::DealerStride);
                     auto& output = state.dealers[dealer];
                     int completed{};
-                    if (!readInt(record.At(Enhanced173::ProductField1), output.value1) ||
-                        !readInt(record.At(Enhanced173::ProductField2), output.value2) ||
-                        !readInt(record.At(Enhanced173::ProductField3), output.value3) ||
-                        !readInt(record.At(Enhanced173::ProductField4), output.value4) ||
-                        !readInt(record.At(Enhanced173::ProductField5), output.value5) ||
+                    if (!readInt(record.At(Enhanced173::PremiumProductField), output.premiumProduct) ||
+                        !readInt(record.At(Enhanced173::CocainePayoutField), output.cocainePayout) ||
+                        !readInt(record.At(Enhanced173::MethPayoutField), output.methPayout) ||
+                        !readInt(record.At(Enhanced173::WeedPayoutField), output.weedPayout) ||
+                        !readInt(record.At(Enhanced173::AcidPayoutField), output.acidPayout) ||
                         !readInt(record.At(Enhanced173::CompletedField), completed))
                     {
                         return Finish(false, std::move(state), "Unable to read Street Dealer record");
                     }
+
+                    const bool premiumPlausible = output.premiumProduct == Enhanced173::ProductCocaine ||
+                        output.premiumProduct == Enhanced173::ProductMeth ||
+                        output.premiumProduct == Enhanced173::ProductWeed ||
+                        output.premiumProduct == Enhanced173::ProductAcid;
+                    const bool payoutsPlausible = output.cocainePayout >= 0 && output.methPayout >= 0 &&
+                        output.weedPayout >= 0 && output.acidPayout >= 0;
+                    if (!premiumPlausible || !payoutsPlausible)
+                        return Finish(false, std::move(state), "Enhanced Street Dealer record validation failed");
+
                     output.completed = completed != 0;
                 }
 
