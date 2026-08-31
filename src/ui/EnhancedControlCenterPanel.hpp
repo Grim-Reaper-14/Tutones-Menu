@@ -1,5 +1,6 @@
 #pragma once
 
+#include "StreetDealerPanel.hpp"
 #include "V11Description.hpp"
 #include "V11Theme.hpp"
 #include "../features/game/EnhancedScriptCenterRuntime.hpp"
@@ -187,7 +188,8 @@ namespace Tutones::UI
                 }
                 if (ImGui::BeginTabItem("Dealer"))
                 {
-                    ImGui::TextWrapped("Street Dealer controller state. Product/location/reset locals stay read-only until their current Enhanced offsets are verified.");
+                    RenderStreetDealerPanel();
+                    ImGui::SeparatorText("Controller");
                     RenderAreaTable(Area::StreetDealer, snapshot);
                     ImGui::EndTabItem();
                 }
