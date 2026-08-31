@@ -7,6 +7,7 @@
 #pragma comment(lib, "winhttp.lib")
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <cstdint>
 #include <filesystem>
@@ -112,6 +113,12 @@ namespace Tutones::UI
             Failed,
         };
 
+        enum class ImageKind : unsigned char
+        {
+            Png,
+            Webp,
+        };
+
         VehicleThumbnailDownloader() = default;
 
         static constexpr std::uint64_t MaxImageBytes = 8ull * 1024ull * 1024ull;
@@ -130,13 +137,15 @@ namespace Tutones::UI
 
         [[nodiscard]] static const wchar_t* ClassFolder(int classIndex) noexcept
         {
+            // GTA vehicle-class order. These names intentionally match the current
+            // cfx-img-pack folder names exactly. Sports Classic is singular there.
             static constexpr const wchar_t* Folders[] = {
                 L"Compacts",
                 L"Sedans",
                 L"SUVs",
                 L"Coupes",
                 L"Muscles",
-                L"Sports%20Classics",
+                L"Sports%20Classic",
                 L"Sports",
                 L"Super",
                 L"Motorcycles",
@@ -161,13 +170,67 @@ namespace Tutones::UI
             return Folders[classIndex];
         }
 
-        [[nodiscard]] static bool ExistingImageIsUsable(const std::filesystem::path& path) noexcept
+        [[nodiscard]] static bool SignatureMatches(
+            const std::filesystem::path& path,
+            ImageKind kind) noexcept
+        {
+            std::ifstream input(path, std::ios::binary);
+            if (!input)
+                return false;
+
+            std::array<unsigned char, 12> signature{};
+            input.read(reinterpret_cast<char*>(signature.data()), static_cast<std::streamsize>(signature.size()));
+            const auto read = static_cast<std::size_t>(input.gcount());
+
+            if (kind == ImageKind::Png)
+            {
+                static constexpr std::array<unsigned char, 8> Png{{
+                    0x89u, 0x50u, 0x4Eu, 0x47u, 0x0Du, 0x0Au, 0x1Au, 0x0Au,
+                }};
+                return read >= Png.size()
+                    && std::equal(Png.begin(), Png.end(), signature.begin());
+            }
+
+            return read >= 12
+                && signature[0] == 'R'
+                && signature[1] == 'I'
+                && signature[2] == 'F'
+                && signature[3] == 'F'
+                && signature[8] == 'W'
+                && signature[9] == 'E'
+                && signature[10] == 'B'
+                && signature[11] == 'P';
+        }
+
+        [[nodiscard]] static bool ExistingImageIsUsable(
+            const std::filesystem::path& path,
+            ImageKind kind) noexcept
         {
             std::error_code error;
             if (!std::filesystem::is_regular_file(path, error) || error)
                 return false;
             const auto size = std::filesystem::file_size(path, error);
-            return !error && size >= 1024u;
+            return !error && size >= 1024u && size <= MaxImageBytes && SignatureMatches(path, kind);
+        }
+
+        [[nodiscard]] static bool ExistingModelImageIsUsable(
+            const std::filesystem::path& root,
+            const std::string& model) noexcept
+        {
+            return ExistingImageIsUsable(root / (model + ".png"), ImageKind::Png)
+                || ExistingImageIsUsable(root / (model + ".webp"), ImageKind::Webp);
+        }
+
+        static void RemoveInvalidCachedImage(
+            const std::filesystem::path& path,
+            ImageKind kind) noexcept
+        {
+            std::error_code error;
+            if (!std::filesystem::exists(path, error) || error)
+                return;
+            if (ExistingImageIsUsable(path, kind))
+                return;
+            std::filesystem::remove(path, error);
         }
 
         [[nodiscard]] static std::wstring ModelToWide(const std::string& model)
@@ -178,7 +241,8 @@ namespace Tutones::UI
         [[nodiscard]] static FetchResult DownloadPath(
             HINTERNET connection,
             const std::wstring& remotePath,
-            const std::filesystem::path& destination) noexcept
+            const std::filesystem::path& destination,
+            ImageKind kind) noexcept
         {
             if (!connection || remotePath.empty())
                 return FetchResult::Failed;
@@ -235,6 +299,9 @@ namespace Tutones::UI
             }
 
             const auto temporary = destination.wstring() + L".download";
+            std::error_code cleanupError;
+            std::filesystem::remove(std::filesystem::path(temporary), cleanupError);
+
             std::ofstream output(std::filesystem::path(temporary), std::ios::binary | std::ios::trunc);
             if (!output)
             {
@@ -284,54 +351,26 @@ namespace Tutones::UI
             output.close();
             closeRequest();
 
+            const auto temporaryPath = std::filesystem::path(temporary);
             std::error_code error;
-            if (!ok || totalBytes < 1024u)
+            if (!ok
+                || totalBytes < 1024u
+                || !ExistingImageIsUsable(temporaryPath, kind))
             {
-                std::filesystem::remove(std::filesystem::path(temporary), error);
+                std::filesystem::remove(temporaryPath, error);
                 return FetchResult::Failed;
             }
 
             std::filesystem::remove(destination, error);
             error.clear();
-            std::filesystem::rename(std::filesystem::path(temporary), destination, error);
+            std::filesystem::rename(temporaryPath, destination, error);
             if (error)
             {
-                std::filesystem::remove(std::filesystem::path(temporary), error);
+                std::filesystem::remove(temporaryPath, error);
                 return FetchResult::Failed;
             }
 
             return FetchResult::Downloaded;
-        }
-
-        [[nodiscard]] static FetchResult DownloadFallback(
-            HINTERNET connection,
-            const std::wstring& model,
-            int classIndex,
-            const std::filesystem::path& destination,
-            std::stop_token stopToken) noexcept
-        {
-            if (const wchar_t* folder = ClassFolder(classIndex))
-            {
-                const std::wstring path =
-                    L"/atoshit/cfx-img-pack/main/Vehicles/" + std::wstring(folder) + L"/" + model + L".png";
-                return DownloadPath(connection, path, destination);
-            }
-
-            FetchResult aggregate = FetchResult::NotFound;
-            for (int candidate = 0; candidate < 23 && !stopToken.stop_requested(); ++candidate)
-            {
-                const wchar_t* folder = ClassFolder(candidate);
-                if (!folder)
-                    continue;
-                const std::wstring path =
-                    L"/atoshit/cfx-img-pack/main/Vehicles/" + std::wstring(folder) + L"/" + model + L".png";
-                const FetchResult result = DownloadPath(connection, path, destination);
-                if (result == FetchResult::Downloaded)
-                    return result;
-                if (result == FetchResult::Failed)
-                    aggregate = FetchResult::Failed;
-            }
-            return aggregate;
         }
 
         void Start(const std::vector<int>& classes)
@@ -353,7 +392,7 @@ namespace Tutones::UI
                 m_State = {};
                 m_State.running = true;
                 m_State.total = work.size();
-                m_State.message = "Syncing real GTA vehicle pictures";
+                m_State.message = "Syncing GTA vehicle pictures";
             }
 
             m_Worker = std::jthread([this, work = std::move(work)](std::stop_token stopToken) {
@@ -373,7 +412,7 @@ namespace Tutones::UI
             }
 
             HINTERNET session = ::WinHttpOpen(
-                L"TutonesMenu/2.0 vehicle-art-sync",
+                L"TutonesMenu/2.1 vehicle-art-sync",
                 WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY,
                 WINHTTP_NO_PROXY_NAME,
                 WINHTTP_NO_PROXY_BYPASS,
@@ -384,16 +423,23 @@ namespace Tutones::UI
                 return;
             }
 
-            ::WinHttpSetTimeouts(session, 3000, 3000, 5000, 5000);
-            HINTERNET connection = ::WinHttpConnect(
+            ::WinHttpSetTimeouts(session, 2500, 2500, 4000, 4000);
+
+            HINTERNET github = ::WinHttpConnect(
                 session,
                 L"raw.githubusercontent.com",
                 INTERNET_DEFAULT_HTTPS_PORT,
                 0);
-            if (!connection)
+            HINTERNET cfx = ::WinHttpConnect(
+                session,
+                L"docs-backend.fivem.net",
+                INTERNET_DEFAULT_HTTPS_PORT,
+                0);
+
+            if (!github && !cfx)
             {
                 ::WinHttpCloseHandle(session);
-                FinishWithFailure("Could not connect to the vehicle artwork source");
+                FinishWithFailure("Could not connect to any vehicle artwork source");
                 return;
             }
 
@@ -407,8 +453,12 @@ namespace Tutones::UI
                     m_State.currentModel = item.model;
                 }
 
-                const auto destination = root / (item.model + ".png");
-                if (ExistingImageIsUsable(destination))
+                const auto pngDestination = root / (item.model + ".png");
+                const auto webpDestination = root / (item.model + ".webp");
+                RemoveInvalidCachedImage(pngDestination, ImageKind::Png);
+                RemoveInvalidCachedImage(webpDestination, ImageKind::Webp);
+
+                if (ExistingModelImageIsUsable(root, item.model))
                 {
                     std::scoped_lock lock(m_Mutex);
                     ++m_State.existing;
@@ -416,31 +466,62 @@ namespace Tutones::UI
                 }
 
                 const std::wstring model = ModelToWide(item.model);
-                const std::wstring primaryPath =
-                    L"/matthias18771/v-vehicle-images/main/images/" + model + L".png";
-                FetchResult result = DownloadPath(connection, primaryPath, destination);
+                FetchResult aggregate = FetchResult::NotFound;
+                bool downloaded = false;
 
-                if (result != FetchResult::Downloaded && !stopToken.stop_requested())
+                const auto attempt = [&](HINTERNET connection,
+                                         const std::wstring& remotePath,
+                                         const std::filesystem::path& destination,
+                                         ImageKind kind) noexcept {
+                    if (!connection || downloaded || stopToken.stop_requested())
+                        return;
+                    const FetchResult result = DownloadPath(connection, remotePath, destination, kind);
+                    if (result == FetchResult::Downloaded)
+                    {
+                        aggregate = result;
+                        downloaded = true;
+                    }
+                    else if (result == FetchResult::Failed)
+                    {
+                        aggregate = FetchResult::Failed;
+                    }
+                };
+
+                // Prefer PNG sources because WIC decodes PNG everywhere without an optional
+                // codec. cfx-img-pack is newer than the old flat image repository and uses
+                // GTA's vehicle classes. The class map is supplied by the live GTA catalog.
+                if (const wchar_t* folder = ClassFolder(item.classIndex))
                 {
-                    const FetchResult fallback = DownloadFallback(
-                        connection,
-                        model,
-                        item.classIndex,
-                        destination,
-                        stopToken);
-                    if (fallback == FetchResult::Downloaded)
-                        result = fallback;
-                    else if (result == FetchResult::NotFound)
-                        result = fallback;
+                    attempt(
+                        github,
+                        L"/atoshit/cfx-img-pack/main/Vehicles/" + std::wstring(folder) + L"/" + model + L".png",
+                        pngDestination,
+                        ImageKind::Png);
                 }
 
+                // Flat PNG fallback covers a large older portion of GTA's catalog.
+                attempt(
+                    github,
+                    L"/matthias18771/v-vehicle-images/main/images/" + model + L".png",
+                    pngDestination,
+                    ImageKind::Png);
+
+                // The Cfx vehicle reference is current and includes newer GTA vehicles.
+                // These files are WebP, so they are used only when neither PNG source has
+                // the model. ThemeTexture will use the system WIC WebP codec when available.
+                attempt(
+                    cfx,
+                    L"/vehicles/" + model + L".webp",
+                    webpDestination,
+                    ImageKind::Webp);
+
                 std::scoped_lock lock(m_Mutex);
-                if (result == FetchResult::Downloaded)
+                if (downloaded)
                 {
                     ++m_State.downloaded;
                     ++m_State.generation;
                 }
-                else if (result == FetchResult::NotFound)
+                else if (aggregate == FetchResult::NotFound)
                 {
                     ++m_State.missing;
                 }
@@ -450,7 +531,10 @@ namespace Tutones::UI
                 }
             }
 
-            ::WinHttpCloseHandle(connection);
+            if (github)
+                ::WinHttpCloseHandle(github);
+            if (cfx)
+                ::WinHttpCloseHandle(cfx);
             ::WinHttpCloseHandle(session);
 
             std::scoped_lock lock(m_Mutex);
@@ -465,8 +549,10 @@ namespace Tutones::UI
             m_State.completed = true;
             ++m_State.generation;
             const std::size_t ready = m_State.existing + m_State.downloaded;
-            m_State.message = "Real vehicle pictures ready: " + std::to_string(ready)
-                + "/" + std::to_string(m_State.total);
+            m_State.message = "Vehicle pictures ready: " + std::to_string(ready)
+                + "/" + std::to_string(m_State.total)
+                + " | missing " + std::to_string(m_State.missing)
+                + " | failed " + std::to_string(m_State.failed);
         }
 
         void FinishWithFailure(const char* message) noexcept
