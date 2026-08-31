@@ -4,7 +4,6 @@
 #include "VehicleThumbnailDownloader.hpp"
 #include "../features/vehicle/VehicleModificationRuntime.hpp"
 #include "../game/vehicle/VehicleCatalogs.hpp"
-#include "../render/Renderer.hpp"
 
 #include <imgui.h>
 
@@ -15,7 +14,6 @@
 #include <memory>
 #include <string>
 #include <string_view>
-#include <vector>
 
 namespace Tutones::UI
 {
@@ -46,7 +44,6 @@ namespace Tutones::UI
         {
             EnsureContext();
             StartArtworkSync();
-            ReapRetiredTextures();
 
             if (classIndex < 0 || classIndex >= static_cast<int>(Game::VehicleCatalogs::VehicleClassNames.size()))
                 return {};
@@ -73,7 +70,6 @@ namespace Tutones::UI
         {
             EnsureContext();
             StartArtworkSync();
-            ReapRetiredTextures();
 
             const std::string normalized = NormalizeModel(model);
             if (normalized != m_SelectedModel)
@@ -134,9 +130,9 @@ namespace Tutones::UI
 
         void Refresh() noexcept
         {
-            // Do not destroy a texture that may still be referenced by an in-flight D3D12
-            // frame. Retire only the selected image and leave class textures resident.
-            // Failed class loads are allowed to retry as the downloader generation advances.
+            // ThemeTexture owns the ImGui/DX12 retirement lifecycle. Releasing the selected
+            // preview here only schedules WantDestroy; the backend keeps its resource and SRV
+            // alive for the required in-flight frames before actually freeing them.
             RetireSelectedTexture();
             m_SelectedPath.clear();
             for (std::size_t i = 0; i < m_ClassAttempted.size(); ++i)
@@ -157,16 +153,9 @@ namespace Tutones::UI
         {
             ResetLoadedTextures();
             m_Context = nullptr;
-            m_LastRetireMaintenanceFrame = -1;
         }
 
     private:
-        struct RetiredTexture final
-        {
-            std::unique_ptr<ThemeTexture> texture{};
-            std::uint64_t retireAfterFence{};
-        };
-
         VehicleThumbnailCache() = default;
         ~VehicleThumbnailCache() = default;
         VehicleThumbnailCache(const VehicleThumbnailCache&) = delete;
@@ -344,50 +333,10 @@ namespace Tutones::UI
 
         void RetireSelectedTexture() noexcept
         {
-            if (!m_SelectedFile)
-                return;
-
-            if (!m_SelectedFile->Valid() || !m_Context || ImGui::GetCurrentContext() != m_Context)
-            {
-                m_SelectedFile.reset();
-                return;
-            }
-
-            // The old preview can be released as soon as every DX12 frame submitted before
-            // this UI change has completed. This uses the renderer's real fence instead of
-            // guessing how many ImGui frames are enough.
-            const auto retireFence = Render::Renderer::Get().LastSubmittedFenceValue();
-            if (retireFence == 0
-                || Render::Renderer::Get().CompletedFenceValue() >= retireFence)
-            {
-                m_SelectedFile.reset();
-                return;
-            }
-
-            m_RetiredTextures.push_back(RetiredTexture{
-                std::move(m_SelectedFile),
-                retireFence,
-            });
-        }
-
-        void ReapRetiredTextures() noexcept
-        {
-            if (!m_Context || ImGui::GetCurrentContext() != m_Context)
-                return;
-
-            const int frame = ImGui::GetFrameCount();
-            if (frame == m_LastRetireMaintenanceFrame)
-                return;
-            m_LastRetireMaintenanceFrame = frame;
-
-            const auto completedFence = Render::Renderer::Get().CompletedFenceValue();
-            for (auto it = m_RetiredTextures.begin(); it != m_RetiredTextures.end();)
-            {
-                if (it->retireAfterFence == 0 || completedFence >= it->retireAfterFence)
-                    it = m_RetiredTextures.erase(it);
-                else
-                    ++it;
-            }
+            // Deleting ThemeTexture no longer deletes/unregisters ImTextureData immediately.
+            // ThemeTexture::Reset schedules backend-safe destruction and keeps the ImTextureData
+            // alive until Dear ImGui's DX12 backend has freed its GPU resource and SRV.
+            m_SelectedFile.reset();
         }
 
         void ResetLoadedTextures() noexcept
@@ -395,7 +344,6 @@ namespace Tutones::UI
             m_SelectedFile.reset();
             m_SelectedModel.clear();
             m_SelectedPath.clear();
-            m_RetiredTextures.clear();
 
             for (std::size_t i = 0; i < m_ClassImages.size(); ++i)
             {
@@ -418,7 +366,6 @@ namespace Tutones::UI
 
         ImGuiContext* m_Context{};
         std::filesystem::path m_RootFolder{};
-        int m_LastRetireMaintenanceFrame{-1};
 
         std::array<std::unique_ptr<ThemeTexture>, Game::VehicleCatalogs::VehicleClassNames.size()> m_ClassImages{};
         std::array<std::filesystem::path, Game::VehicleCatalogs::VehicleClassNames.size()> m_ClassImagePaths{};
@@ -428,6 +375,5 @@ namespace Tutones::UI
         std::unique_ptr<ThemeTexture> m_SelectedFile{};
         std::string m_SelectedModel{};
         std::filesystem::path m_SelectedPath{};
-        std::vector<RetiredTexture> m_RetiredTextures{};
     };
 }

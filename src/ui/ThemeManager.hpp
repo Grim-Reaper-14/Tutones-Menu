@@ -73,6 +73,11 @@ namespace Tutones::UI
             if (!EnsureInitialized() || !ImGui::GetCurrentContext())
                 return;
 
+            // Reclaim user textures only after Dear ImGui's DX12 backend has completed
+            // its own deferred destruction. This returns SRV descriptors safely and keeps
+            // rapid vehicle-preview/theme swaps from exhausting the shader-visible heap.
+            ThemeTexture::CollectGarbage();
+
             if (!m_Embedded.Valid() && !m_EmbeddedLoadAttempted)
             {
                 m_EmbeddedLoadAttempted = true;

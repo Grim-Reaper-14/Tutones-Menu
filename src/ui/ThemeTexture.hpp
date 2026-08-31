@@ -16,6 +16,7 @@
 #include <filesystem>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace Tutones::UI
@@ -100,12 +101,89 @@ namespace Tutones::UI
             });
         }
 
+        // ImGui 1.92 user textures are not backend resources owned by ImTextureData's
+        // destructor. UnregisterUserTexture() only removes the pointer from the context;
+        // it does not release the DX12 resource or return the SRV descriptor. Retired
+        // textures therefore stay registered until the renderer backend has honored the
+        // WantDestroy request and cleared TexID/BackendUserData.
+        static void CollectGarbage() noexcept
+        {
+            auto* context = ImGui::GetCurrentContext();
+            if (!context)
+                return;
+
+            for (auto it = g_RetiredTextures.begin(); it != g_RetiredTextures.end();)
+            {
+                if (!it->texture)
+                {
+                    it = g_RetiredTextures.erase(it);
+                    continue;
+                }
+
+                if (it->context != context)
+                {
+                    ++it;
+                    continue;
+                }
+
+                ImTextureData* texture = it->texture.get();
+                const bool backendReleased = texture->Status == ImTextureStatus_Destroyed
+                    && texture->TexID == ImTextureID_Invalid
+                    && texture->BackendUserData == nullptr
+                    && texture->QueueUserData == nullptr;
+                if (!backendReleased)
+                {
+                    ++it;
+                    continue;
+                }
+
+                if (texture->RefCount > 0)
+                    ImGui::UnregisterUserTexture(texture);
+                it = g_RetiredTextures.erase(it);
+            }
+        }
+
         void Reset() noexcept
         {
-            if (m_Texture && m_Context && ImGui::GetCurrentContext() == m_Context)
-                ImGui::UnregisterUserTexture(m_Texture.get());
+            CollectGarbage();
 
-            m_Texture.reset();
+            if (m_Texture)
+            {
+                auto* currentContext = ImGui::GetCurrentContext();
+                if (m_Context && currentContext == m_Context)
+                {
+                    const bool reachedBackend = m_Texture->TexID != ImTextureID_Invalid
+                        || m_Texture->BackendUserData != nullptr
+                        || m_Texture->QueueUserData != nullptr;
+
+                    if (!reachedBackend)
+                    {
+                        if (m_Texture->RefCount > 0)
+                            ImGui::UnregisterUserTexture(m_Texture.get());
+                        m_Texture.reset();
+                    }
+                    else
+                    {
+                        // Keep the ImTextureData object and its CPU pixels alive. Dear ImGui
+                        // deliberately waits NumFramesInFlight before the DX12 backend frees
+                        // the GPU resource/descriptor. Deleting it here causes descriptor
+                        // leaks and eventual crashes while rapidly changing vehicle previews.
+                        m_Texture->WantDestroyNextFrame = true;
+                        g_RetiredTextures.push_back(RetiredTexture{
+                            m_Context,
+                            std::move(m_Texture),
+                        });
+                    }
+                }
+                else
+                {
+                    // The owning ImGui context is already gone or has changed. Renderer
+                    // shutdown/invalidations release backend state before context teardown;
+                    // at this point only the CPU-side wrapper remains ours to delete.
+                    m_Texture.reset();
+                }
+            }
+
             m_Context = nullptr;
             m_Width = 0;
             m_Height = 0;
@@ -121,6 +199,12 @@ namespace Tutones::UI
         [[nodiscard]] std::uint32_t Height() const noexcept { return m_Height; }
 
     private:
+        struct RetiredTexture final
+        {
+            ImGuiContext* context{};
+            std::unique_ptr<ImTextureData> texture{};
+        };
+
         static void LogDecodeFailure(const char* stage, HRESULT result) noexcept
         {
             std::string message("Theme texture decode failed at ");
@@ -136,6 +220,8 @@ namespace Tutones::UI
         {
             if (!ImGui::GetCurrentContext())
                 return false;
+
+            CollectGarbage();
 
             const HRESULT com = ::CoInitializeEx(nullptr, COINIT_MULTITHREADED);
             if (FAILED(com) && com != RPC_E_CHANGED_MODE)
@@ -284,6 +370,7 @@ namespace Tutones::UI
         }
 
         inline static int g_ModuleAnchor{};
+        inline static std::vector<RetiredTexture> g_RetiredTextures{};
         ImGuiContext* m_Context{};
         std::unique_ptr<ImTextureData> m_Texture;
         std::uint32_t m_Width{};
