@@ -10,11 +10,14 @@
 #include <array>
 #include <atomic>
 #include <cstdint>
+#include <deque>
 #include <filesystem>
 #include <fstream>
 #include <mutex>
 #include <string>
+#include <string_view>
 #include <thread>
+#include <unordered_set>
 #include <vector>
 
 namespace Tutones::UI
@@ -63,6 +66,38 @@ namespace Tutones::UI
             Start(classes);
         }
 
+        // Put the vehicle the user is actually looking at ahead of the bulk sync. Requests
+        // are de-duplicated for the lifetime of the current sync, so asking every UI frame is
+        // cheap and does not hammer the network.
+        void Request(std::string_view model, int classIndex)
+        {
+            if (model.empty())
+                return;
+
+            std::string name(model);
+            std::scoped_lock lock(m_Mutex);
+            if (m_State.completed)
+                return;
+
+            if (m_PriorityModels.insert(name).second)
+            {
+                m_PriorityWork.push_front(WorkItem{std::move(name), classIndex});
+                return;
+            }
+
+            if (classIndex < 0)
+                return;
+
+            for (auto& queued : m_PriorityWork)
+            {
+                if (queued.model == name && queued.classIndex < 0)
+                {
+                    queued.classIndex = classIndex;
+                    break;
+                }
+            }
+        }
+
         void Restart()
         {
             Restart(std::vector<int>{});
@@ -71,6 +106,12 @@ namespace Tutones::UI
         void Restart(const std::vector<int>& classes)
         {
             m_Started.store(true);
+            Stop();
+            {
+                std::scoped_lock lock(m_Mutex);
+                m_PriorityWork.clear();
+                m_PriorityModels.clear();
+            }
             Start(classes);
         }
 
@@ -137,8 +178,6 @@ namespace Tutones::UI
 
         [[nodiscard]] static const wchar_t* ClassFolder(int classIndex) noexcept
         {
-            // GTA vehicle-class order. These names intentionally match the current
-            // cfx-img-pack folder names exactly. Sports Classic is singular there.
             static constexpr const wchar_t* Folders[] = {
                 L"Compacts",
                 L"Sedans",
@@ -443,10 +482,46 @@ namespace Tutones::UI
                 return;
             }
 
-            for (const auto& item : work)
+            std::size_t bulkIndex{};
+            std::unordered_set<std::string> processed;
+            processed.reserve(work.size());
+
+            while (!stopToken.stop_requested())
             {
-                if (stopToken.stop_requested())
-                    break;
+                WorkItem item;
+                bool haveItem{};
+
+                {
+                    std::scoped_lock lock(m_Mutex);
+                    if (!m_PriorityWork.empty())
+                    {
+                        item = std::move(m_PriorityWork.front());
+                        m_PriorityWork.pop_front();
+                        haveItem = true;
+                    }
+                }
+
+                if (!haveItem)
+                {
+                    while (bulkIndex < work.size() && processed.contains(work[bulkIndex].model))
+                        ++bulkIndex;
+                    if (bulkIndex >= work.size())
+                        break;
+                    item = work[bulkIndex++];
+                    haveItem = true;
+                }
+
+                if (!haveItem || !processed.insert(item.model).second)
+                    continue;
+
+                if (item.classIndex < 0)
+                {
+                    const auto matching = std::find_if(work.begin(), work.end(), [&](const WorkItem& candidate) {
+                        return candidate.model == item.model;
+                    });
+                    if (matching != work.end())
+                        item.classIndex = matching->classIndex;
+                }
 
                 {
                     std::scoped_lock lock(m_Mutex);
@@ -487,9 +562,6 @@ namespace Tutones::UI
                     }
                 };
 
-                // Prefer PNG sources because WIC decodes PNG everywhere without an optional
-                // codec. cfx-img-pack is newer than the old flat image repository and uses
-                // GTA's vehicle classes. The class map is supplied by the live GTA catalog.
                 if (const wchar_t* folder = ClassFolder(item.classIndex))
                 {
                     attempt(
@@ -499,16 +571,12 @@ namespace Tutones::UI
                         ImageKind::Png);
                 }
 
-                // Flat PNG fallback covers a large older portion of GTA's catalog.
                 attempt(
                     github,
                     L"/matthias18771/v-vehicle-images/main/images/" + model + L".png",
                     pngDestination,
                     ImageKind::Png);
 
-                // The Cfx vehicle reference is current and includes newer GTA vehicles.
-                // These files are WebP, so they are used only when neither PNG source has
-                // the model. ThemeTexture will use the system WIC WebP codec when available.
                 attempt(
                     cfx,
                     L"/vehicles/" + model + L".webp",
@@ -568,6 +636,8 @@ namespace Tutones::UI
 
         mutable std::mutex m_Mutex;
         VehicleThumbnailSyncSnapshot m_State{};
+        std::deque<WorkItem> m_PriorityWork{};
+        std::unordered_set<std::string> m_PriorityModels{};
         std::jthread m_Worker{};
         std::atomic_bool m_Started{};
     };
