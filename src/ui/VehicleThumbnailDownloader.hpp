@@ -4,6 +4,7 @@
 
 #include <Windows.h>
 #include <winhttp.h>
+#pragma comment(lib, "winhttp.lib")
 
 #include <algorithm>
 #include <atomic>
@@ -48,12 +49,22 @@ namespace Tutones::UI
         VehicleThumbnailDownloader(const VehicleThumbnailDownloader&) = delete;
         VehicleThumbnailDownloader& operator=(const VehicleThumbnailDownloader&) = delete;
 
+        void EnsureStarted()
+        {
+            EnsureStarted(std::vector<int>{});
+        }
+
         void EnsureStarted(const std::vector<int>& classes)
         {
             bool expected = false;
             if (!m_Started.compare_exchange_strong(expected, true))
                 return;
             Start(classes);
+        }
+
+        void Restart()
+        {
+            Restart(std::vector<int>{});
         }
 
         void Restart(const std::vector<int>& classes)
@@ -292,6 +303,37 @@ namespace Tutones::UI
             return FetchResult::Downloaded;
         }
 
+        [[nodiscard]] static FetchResult DownloadFallback(
+            HINTERNET connection,
+            const std::wstring& model,
+            int classIndex,
+            const std::filesystem::path& destination,
+            std::stop_token stopToken) noexcept
+        {
+            if (const wchar_t* folder = ClassFolder(classIndex))
+            {
+                const std::wstring path =
+                    L"/atoshit/cfx-img-pack/main/Vehicles/" + std::wstring(folder) + L"/" + model + L".png";
+                return DownloadPath(connection, path, destination);
+            }
+
+            FetchResult aggregate = FetchResult::NotFound;
+            for (int candidate = 0; candidate < 23 && !stopToken.stop_requested(); ++candidate)
+            {
+                const wchar_t* folder = ClassFolder(candidate);
+                if (!folder)
+                    continue;
+                const std::wstring path =
+                    L"/atoshit/cfx-img-pack/main/Vehicles/" + std::wstring(folder) + L"/" + model + L".png";
+                const FetchResult result = DownloadPath(connection, path, destination);
+                if (result == FetchResult::Downloaded)
+                    return result;
+                if (result == FetchResult::Failed)
+                    aggregate = FetchResult::Failed;
+            }
+            return aggregate;
+        }
+
         void Start(const std::vector<int>& classes)
         {
             Stop();
@@ -378,18 +420,18 @@ namespace Tutones::UI
                     L"/matthias18771/v-vehicle-images/main/images/" + model + L".png";
                 FetchResult result = DownloadPath(connection, primaryPath, destination);
 
-                if (result != FetchResult::Downloaded)
+                if (result != FetchResult::Downloaded && !stopToken.stop_requested())
                 {
-                    if (const wchar_t* folder = ClassFolder(item.classIndex))
-                    {
-                        const std::wstring fallbackPath =
-                            L"/atoshit/cfx-img-pack/main/Vehicles/" + std::wstring(folder) + L"/" + model + L".png";
-                        const FetchResult fallback = DownloadPath(connection, fallbackPath, destination);
-                        if (fallback == FetchResult::Downloaded)
-                            result = fallback;
-                        else if (result == FetchResult::NotFound)
-                            result = fallback;
-                    }
+                    const FetchResult fallback = DownloadFallback(
+                        connection,
+                        model,
+                        item.classIndex,
+                        destination,
+                        stopToken);
+                    if (fallback == FetchResult::Downloaded)
+                        result = fallback;
+                    else if (result == FetchResult::NotFound)
+                        result = fallback;
                 }
 
                 std::scoped_lock lock(m_Mutex);
