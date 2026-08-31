@@ -54,7 +54,11 @@ namespace Tutones::UI
             const auto index = static_cast<std::size_t>(classIndex);
             EnsureClassTexture(index);
             if (!m_ClassImages[index] || !m_ClassImages[index]->Valid())
+            {
+                if (const char* representative = RepresentativeModel(index))
+                    VehicleThumbnailDownloader::Get().Request(representative, classIndex);
                 return {};
+            }
 
             return VehicleThumbnailView{
                 m_ClassImages[index]->Ref(),
@@ -95,6 +99,9 @@ namespace Tutones::UI
                 };
             }
 
+            // Ask the worker for the selected model first. The worker de-duplicates requests
+            // and services this queue ahead of the remaining full-catalog sync.
+            VehicleThumbnailDownloader::Get().Request(normalized, classIndex);
             return ClassThumbnail(classIndex);
         }
 
@@ -111,6 +118,10 @@ namespace Tutones::UI
 
         void RetryFullSync() noexcept
         {
+            const auto sync = VehicleThumbnailDownloader::Get().Snapshot();
+            if (sync.running)
+                return;
+
             const auto catalog = Game::Mods::VehicleModificationRuntime::Get().CatalogSnapshot();
             if (catalog.total != Game::VehicleCatalogs::VehicleModels.size()
                 || catalog.ready < catalog.total
@@ -136,6 +147,9 @@ namespace Tutones::UI
                     m_ClassAttemptGeneration[i] = std::numeric_limits<std::uint64_t>::max();
                 }
             }
+
+            // Never join/cancel an active WinHTTP worker from the render thread. A retry is
+            // accepted only after the current pass has finished.
             RetryFullSync();
         }
 
