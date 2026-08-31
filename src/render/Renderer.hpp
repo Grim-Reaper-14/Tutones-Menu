@@ -34,6 +34,20 @@ namespace Tutones::Render
         [[nodiscard]] ID3D12CommandQueue* CommandQueue() const noexcept;
         [[nodiscard]] IDXGISwapChain3* SwapChain() const noexcept;
 
+        // User textures can remain referenced by an already submitted DX12 frame after
+        // the CPU has started building a newer ImGui frame. UI caches use these fence
+        // values to retire descriptors only after the GPU has consumed every frame that
+        // could still reference them.
+        [[nodiscard]] std::uint64_t LastSubmittedFenceValue() const noexcept
+        {
+            return m_NextFenceValue > 1 ? m_NextFenceValue - 1 : 0;
+        }
+
+        [[nodiscard]] std::uint64_t CompletedFenceValue() const noexcept
+        {
+            return m_Fence ? m_Fence->GetCompletedValue() : 0;
+        }
+
         // Compatibility shim for the old V11 UI fallback path. Banner artwork is now owned
         // exclusively by UI::ThemeManager, so the renderer never exposes an artwork texture.
         [[nodiscard]] std::uint64_t V11BannerTextureId() const noexcept;
