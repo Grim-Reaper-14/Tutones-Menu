@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../../game/GamePointers.hpp"
+#include "../../game/Stats.hpp"
 #include "../../game/script/ScriptGlobal.hpp"
 #include "../../runtime/GameRuntime.hpp"
 
@@ -29,6 +30,8 @@ namespace Tutones::Game::Business
     namespace NightclubData
     {
         inline constexpr std::size_t TunablesGlobal = 262145;
+        inline constexpr const char* PopularityStat = "MPX_CLUB_POPULARITY";
+        inline constexpr int MaximumPopularity = 1000;
 
         inline constexpr std::array<const char*, 7> GoodNames{{
             "Sporting Goods",
@@ -171,6 +174,16 @@ namespace Tutones::Game::Business
 
             return QueueAction("Nightclub equipment multiplier", [multiplier] {
                 return WriteFloat(NightclubData::EquipmentUpgradeMultiplierOffset, multiplier);
+            });
+        }
+
+        [[nodiscard]] bool QueueSetPopularity(int popularity)
+        {
+            if (popularity < 0 || popularity > NightclubData::MaximumPopularity)
+                return false;
+
+            return QueueAction("Nightclub popularity", [popularity] {
+                return SessionReady() && Stats::SetInt(NightclubData::PopularityStat, popularity);
             });
         }
 
