@@ -17,10 +17,12 @@ namespace Tutones::UI
         inline Game::Business::NightclubProfile g_Profile = Game::Business::NightclubData::DefaultProfile();
         inline int g_SelectedGood{};
         inline int g_SelectedPopularityTier{};
+        inline int g_Popularity = Game::Business::NightclubData::MaximumPopularity;
 
         inline void ResetDefaults() noexcept
         {
             g_Profile = Game::Business::NightclubData::DefaultProfile();
+            g_Popularity = Game::Business::NightclubData::MaximumPopularity;
         }
 
         inline void RenderGoodEditor() noexcept
@@ -107,7 +109,29 @@ namespace Tutones::UI
         {
             using namespace Game::Business;
 
-            ImGui::SeparatorText("Popularity Income");
+            ImGui::SeparatorText("Club Popularity");
+            ImGui::SliderInt(
+                "Popularity",
+                &g_Popularity,
+                0,
+                NightclubData::MaximumPopularity,
+                "%d");
+            g_Popularity = std::clamp(g_Popularity, 0, NightclubData::MaximumPopularity);
+            ImGui::TextDisabled(
+                "%d / %d (%d%%)",
+                g_Popularity,
+                NightclubData::MaximumPopularity,
+                g_Popularity / 10);
+
+            auto& runtime = NightclubRuntime::Get();
+            const auto snapshot = runtime.Snapshot();
+            ImGui::BeginDisabled(snapshot.actionPending);
+            if (ImGui::Button("Apply club popularity", ImVec2(-1.0f, 0.0f)))
+                static_cast<void>(runtime.QueueSetPopularity(g_Popularity));
+            ImGui::EndDisabled();
+            DescribeLastV11Item("Write MPX_CLUB_POPULARITY for the active Online character. Rockstar stores 100% popularity as 1000.");
+
+            ImGui::SeparatorText("Popularity Income Tunables");
             g_SelectedPopularityTier = std::clamp(
                 g_SelectedPopularityTier,
                 0,
@@ -123,8 +147,6 @@ namespace Tutones::UI
             ImGui::InputInt("Income", &g_Profile.popularityIncome[index], 100, 1000);
             g_Profile.popularityIncome[index] = std::max(g_Profile.popularityIncome[index], 0);
 
-            auto& runtime = NightclubRuntime::Get();
-            const auto snapshot = runtime.Snapshot();
             ImGui::BeginDisabled(snapshot.actionPending);
             if (ImGui::Button("Apply popularity income", ImVec2(-1.0f, 0.0f)))
                 static_cast<void>(runtime.QueueApplyPopularityIncome(index, g_Profile.popularityIncome[index]));
