@@ -1,5 +1,6 @@
 #pragma once
 
+#include "ServicesDiagnosticsPanel.hpp"
 #include "StreetDealerPanel.hpp"
 #include "V11Description.hpp"
 #include "V11Theme.hpp"
@@ -195,7 +196,8 @@ namespace Tutones::UI
                 }
                 if (ImGui::BeginTabItem("Services"))
                 {
-                    ImGui::TextWrapped("Contact/service controller state for building availability and cooldown-aware service requests.");
+                    RenderServicesDiagnosticsPanel();
+                    ImGui::SeparatorText("Controller");
                     RenderAreaTable(Area::Services, snapshot);
                     ImGui::EndTabItem();
                 }
