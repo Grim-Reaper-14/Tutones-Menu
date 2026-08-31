@@ -41,7 +41,7 @@ namespace Tutones::UI
         {
             EnsureContext();
             StartArtworkSync();
-            RefreshFromArtworkSync();
+            MaintainForCurrentFrame();
 
             if (classIndex < 0 || classIndex >= static_cast<int>(Game::VehicleCatalogs::VehicleClassNames.size()))
                 return {};
@@ -64,7 +64,7 @@ namespace Tutones::UI
         {
             EnsureContext();
             StartArtworkSync();
-            RefreshFromArtworkSync();
+            MaintainForCurrentFrame();
 
             const std::string normalized = NormalizeModel(model);
             if (normalized != m_SelectedModel || (!m_SelectedFile.Valid() && NamedImageExists(normalized)))
@@ -107,14 +107,18 @@ namespace Tutones::UI
 
         void Refresh() noexcept
         {
-            EnsureContext();
-            ResetLoadedTextures();
+            // Never destroy registered ImGui textures in the middle of a frame. Existing
+            // draw commands can still reference them until the renderer consumes the frame.
+            // Queue the reset and service it on the first thumbnail-cache access of a new frame.
+            m_ManualRefreshPending = true;
         }
 
         void ReleaseImGuiResources() noexcept
         {
             ResetLoadedTextures();
             m_Context = nullptr;
+            m_LastMaintenanceFrame = -1;
+            m_ManualRefreshPending = false;
         }
 
     private:
@@ -184,18 +188,26 @@ namespace Tutones::UI
             VehicleThumbnailDownloader::Get().EnsureStarted();
         }
 
-        void RefreshFromArtworkSync() noexcept
+        void MaintainForCurrentFrame() noexcept
         {
-            const auto snapshot = VehicleThumbnailDownloader::Get().Snapshot();
-            if (snapshot.generation == m_LastSyncGeneration)
+            if (!m_Context)
                 return;
 
-            // Avoid rebuilding ImGui textures for every single completed network request.
-            // Refresh in small batches while syncing, then perform a final refresh at completion.
-            if (!snapshot.completed && snapshot.generation < m_LastSyncGeneration + 8u)
+            const int frame = ImGui::GetFrameCount();
+            if (frame == m_LastMaintenanceFrame)
+                return;
+            m_LastMaintenanceFrame = frame;
+
+            const auto snapshot = VehicleThumbnailDownloader::Get().Snapshot();
+            const bool generationChanged = snapshot.generation != m_LastSyncGeneration;
+            const bool syncRefreshDue = generationChanged
+                && (snapshot.completed || snapshot.generation >= m_LastSyncGeneration + 8u);
+
+            if (!m_ManualRefreshPending && !syncRefreshDue)
                 return;
 
             m_LastSyncGeneration = snapshot.generation;
+            m_ManualRefreshPending = false;
             ResetLoadedTextures();
         }
 
@@ -256,12 +268,10 @@ namespace Tutones::UI
 
             m_ClassAttempted[index] = true;
 
-            // Preserve support for explicitly supplied class_N artwork first.
             const std::string explicitClassImage = "class_" + std::to_string(index);
             if (TryLoadNamedTexture(m_ClassImages[index], m_ClassImagePaths[index], explicitClassImage))
                 return;
 
-            // Otherwise use an actual GTA vehicle from that class as the category picture.
             if (const char* representative = RepresentativeModel(index))
                 static_cast<void>(TryLoadNamedTexture(m_ClassImages[index], m_ClassImagePaths[index], representative));
         }
@@ -293,6 +303,8 @@ namespace Tutones::UI
         ImGuiContext* m_Context{};
         std::filesystem::path m_RootFolder{};
         std::uint64_t m_LastSyncGeneration{};
+        int m_LastMaintenanceFrame{-1};
+        bool m_ManualRefreshPending{};
 
         std::array<ThemeTexture, Game::VehicleCatalogs::VehicleClassNames.size()> m_ClassImages{};
         std::array<std::filesystem::path, Game::VehicleCatalogs::VehicleClassNames.size()> m_ClassImagePaths{};
