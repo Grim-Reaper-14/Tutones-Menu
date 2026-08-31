@@ -24,10 +24,6 @@ namespace Tutones::Game::StreetDealer
         inline constexpr std::size_t DealerStride = 7;
         inline constexpr std::size_t DealerCount = 3;
 
-        // fm_street_dealer.c copies record f_1 to local f_7. That value identifies
-        // the dealer's premium/high-value product (product IDs 2/3/4/7 are
-        // Cocaine/Meth/Weed/Acid in this controller). Record f_2..f_5 are copied
-        // to local f_13..f_16 and used as the displayed per-unit payouts.
         inline constexpr std::size_t PremiumProductField = 1;
         inline constexpr std::size_t CocainePayoutField = 2;
         inline constexpr std::size_t MethPayoutField = 3;
@@ -39,6 +35,7 @@ namespace Tutones::Game::StreetDealer
         inline constexpr int ProductMeth = 3;
         inline constexpr int ProductWeed = 4;
         inline constexpr int ProductAcid = 7;
+        inline constexpr int MaximumPlausiblePayout = 1000000;
 
         inline constexpr std::array<int, DealerCount> CompletionPackedStats{42076, 42077, 42078};
     }
@@ -150,9 +147,15 @@ namespace Tutones::Game::StreetDealer
                         output.premiumProduct == Enhanced173::ProductMeth ||
                         output.premiumProduct == Enhanced173::ProductWeed ||
                         output.premiumProduct == Enhanced173::ProductAcid;
-                    const bool payoutsPlausible = output.cocainePayout >= 0 && output.methPayout >= 0 &&
-                        output.weedPayout >= 0 && output.acidPayout >= 0;
-                    if (!premiumPlausible || !payoutsPlausible)
+                    const auto payoutPlausible = [](int value) noexcept
+                    {
+                        return value >= 0 && value <= Enhanced173::MaximumPlausiblePayout;
+                    };
+                    const bool payoutsPlausible = payoutPlausible(output.cocainePayout) &&
+                        payoutPlausible(output.methPayout) && payoutPlausible(output.weedPayout) &&
+                        payoutPlausible(output.acidPayout);
+                    const bool completionPlausible = completed == 0 || completed == 1;
+                    if (!premiumPlausible || !payoutsPlausible || !completionPlausible)
                         return Finish(false, std::move(state), "Enhanced Street Dealer record validation failed");
 
                     output.completed = completed != 0;
