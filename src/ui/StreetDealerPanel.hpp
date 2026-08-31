@@ -7,16 +7,99 @@
 #include <imgui.h>
 
 #include <cstddef>
+#include <cstdio>
 
 namespace Tutones::UI
 {
+    inline void RenderStreetDealerLocationTeleports(
+        Game::StreetDealer::Runtime& runtime,
+        const Game::StreetDealer::Snapshot& snapshot) noexcept
+    {
+        const auto teleport = runtime.GetTeleportSnapshot();
+        static int selectedLocation{};
+
+        if (selectedLocation < 0
+            || selectedLocation >= static_cast<int>(Game::StreetDealer::Enhanced173::Locations.size()))
+        {
+            selectedLocation = 0;
+        }
+
+        ImGui::SeparatorText("Street Dealer Locations");
+        ImGui::TextWrapped(
+            "All 50 Rockstar Street Dealer spawn locations from Enhanced 1.73 / b1158.13 are available here. Teleporting moves your current vehicle with you when applicable.");
+
+        char preview[48]{};
+        std::snprintf(preview, sizeof(preview), "Location %02d", selectedLocation + 1);
+        if (snapshot.layoutValid && snapshot.activeLocation == selectedLocation)
+            std::snprintf(preview, sizeof(preview), "Location %02d  [ACTIVE]", selectedLocation + 1);
+
+        if (ImGui::BeginCombo("Dealer Location", preview))
+        {
+            for (std::size_t index = 0; index < Game::StreetDealer::Enhanced173::Locations.size(); ++index)
+            {
+                char label[48]{};
+                const bool active = snapshot.layoutValid && snapshot.activeLocation == static_cast<int>(index);
+                std::snprintf(
+                    label,
+                    sizeof(label),
+                    active ? "Location %02zu  [ACTIVE]" : "Location %02zu",
+                    index + 1);
+
+                const bool selected = selectedLocation == static_cast<int>(index);
+                if (ImGui::Selectable(label, selected))
+                    selectedLocation = static_cast<int>(index);
+                if (selected)
+                    ImGui::SetItemDefaultFocus();
+            }
+            ImGui::EndCombo();
+        }
+        DescribeLastV11Item("Select any of the 50 exact Street Dealer spawn points decoded from fm_street_dealer.c::func_359.");
+
+        const auto& location = Game::StreetDealer::Enhanced173::Locations[static_cast<std::size_t>(selectedLocation)];
+        ImGui::TextDisabled("X %.3f | Y %.3f | Z %.3f", location.x, location.y, location.z);
+
+        ImGui::BeginDisabled(!teleport.nativeReady || teleport.pending);
+        if (ImGui::Button(
+                teleport.pending ? "Teleporting..." : "Teleport to Selected Location",
+                ImVec2(-1.0f, 28.0f)))
+        {
+            static_cast<void>(runtime.QueueTeleport(static_cast<std::size_t>(selectedLocation)));
+        }
+        ImGui::EndDisabled();
+        DescribeLastV11Item("Teleport to the selected Rockstar Street Dealer coordinate on the GTA game thread.");
+
+        const bool activeLocationValid = snapshot.layoutValid
+            && snapshot.activeLocation >= 0
+            && snapshot.activeLocation < static_cast<int>(Game::StreetDealer::Enhanced173::Locations.size());
+        ImGui::BeginDisabled(!teleport.nativeReady || teleport.pending || !activeLocationValid);
+        if (ImGui::Button("Teleport to Active Dealer", ImVec2(-1.0f, 28.0f)) && activeLocationValid)
+        {
+            selectedLocation = snapshot.activeLocation;
+            static_cast<void>(runtime.QueueTeleport(static_cast<std::size_t>(snapshot.activeLocation)));
+        }
+        ImGui::EndDisabled();
+        DescribeLastV11Item("Jump directly to the dealer location Rockstar currently has active in fm_street_dealer.");
+
+        if (!teleport.nativeReady)
+            ImGui::TextDisabled("Teleport natives are still initializing.");
+        else if (teleport.haveResult)
+        {
+            if (teleport.lastSucceeded)
+                ImGui::TextColored(V11Theme::Accent, "%s", teleport.message.c_str());
+            else
+                ImGui::TextWrapped("%s", teleport.message.c_str());
+        }
+
+        ImGui::Spacing();
+    }
+
     inline void RenderStreetDealerPanel() noexcept
     {
         auto& runtime = Game::StreetDealer::Runtime::Get();
         const auto snapshot = runtime.GetSnapshot();
 
         ImGui::TextWrapped(
-            "Enhanced Street Dealer state decoded from fm_street_dealer.c. Payouts are read-only and validated against the current Enhanced layout.");
+            "Enhanced Street Dealer state decoded from fm_street_dealer.c. All 50 dealer locations are actionable below; payout fields are displayed without altering Rockstar's dealer economy state.");
         ImGui::Spacing();
 
         ImGui::BeginDisabled(snapshot.pending);
@@ -25,18 +108,20 @@ namespace Tutones::UI
         ImGui::EndDisabled();
         DescribeLastV11Item("Read current Enhanced 1.73 / b1158.13 Street Dealer state on the GTA game thread.");
 
+        RenderStreetDealerLocationTeleports(runtime, snapshot);
+
         if (!snapshot.haveResult)
         {
-            ImGui::TextDisabled("Refresh after joining GTA Online.");
-            SetV11Description("Street Dealer Manager - validated Enhanced dealer state and payout records.");
+            ImGui::TextDisabled("Refresh after joining GTA Online to identify today's active dealer location.");
+            SetV11Description("Street Dealer Manager - all 50 Enhanced locations with teleport plus validated dealer state and payouts.");
             return;
         }
 
         if (!snapshot.lastSucceeded || !snapshot.layoutValid)
         {
             ImGui::TextWrapped("%s", snapshot.message.c_str());
-            ImGui::TextDisabled("Writes remain disabled because the current layout did not validate.");
-            SetV11Description("Street Dealer Manager - Enhanced layout validation failed or is unavailable.");
+            ImGui::TextDisabled("Dealer state is unavailable, but the 50 location teleports remain usable when natives are ready.");
+            SetV11Description("Street Dealer Manager - location teleports remain available while dealer-state validation is unavailable.");
             return;
         }
 
@@ -90,6 +175,6 @@ namespace Tutones::UI
         ImGui::Spacing();
         ImGui::TextWrapped(
             "Premium is the product ID Rockstar stores for that dealer's high-value product. Coke/Meth/Weed/Acid are the exact per-unit payout fields consumed by the Street Dealer menu and transaction payload.");
-        SetV11Description("Street Dealer Manager - active location, premium product and decoded per-unit payouts from the Enhanced decompile.");
+        SetV11Description("Street Dealer Manager - all 50 location teleports, active dealer location, premium product and decoded per-unit payouts.");
     }
 }
