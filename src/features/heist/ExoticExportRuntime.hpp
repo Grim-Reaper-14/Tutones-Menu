@@ -3,14 +3,18 @@
 #include "../../core/logging/Logger.hpp"
 #include "../../game/GamePointers.hpp"
 #include "../../game/Natives.hpp"
+#include "../../game/native/NativeCallContext.hpp"
+#include "../../game/native/NativeHandlerValidation.hpp"
 #include "../../game/native/NativeInvoker.hpp"
 #include "../../game/native/NativeRegistry.hpp"
 #include "../../game/script/ScriptGlobal.hpp"
 #include "../../runtime/GameRuntime.hpp"
 
+#include <array>
 #include <atomic>
 #include <cmath>
 #include <cstddef>
+#include <cstdint>
 #include <mutex>
 #include <string>
 #include <utility>
@@ -24,6 +28,7 @@ namespace Tutones::Game::Heist
         inline constexpr std::size_t EventStride = 15;
         inline constexpr std::size_t ExoticExportsEventIndex = 3;
 
+        // GSBD_RandomEvents::EventData uses the Enhanced RANDOM_EVENTS_DATA layout.
         inline constexpr std::size_t StateField = 0;
         inline constexpr std::size_t VariationField = 5;
         inline constexpr std::size_t SubvariationField = 6;
@@ -87,19 +92,73 @@ namespace Tutones::Game::Heist
                 ExoticExportSnapshot state;
                 std::string error;
                 const bool success = ReadLiveState(state, error);
-                if (success)
+                if (!success)
                 {
-                    TUTONES_LOG_DEBUG(
-                        "heist.exotic_export",
-                        std::string("Exotic Export state refreshed; state=")
-                            + ExoticExportStateName(state.eventState)
-                            + " subvariation=" + std::to_string(state.eventSubvariation));
-                    Finish(true, std::move(state), "Live Exotic Export state refreshed");
+                    Finish(false, std::move(state), std::move(error));
+                    return;
+                }
+
+                TUTONES_LOG_DEBUG(
+                    "heist.exotic_export",
+                    std::string("Exotic Export state refreshed; state=")
+                        + ExoticExportStateName(state.eventState)
+                        + " variation=" + std::to_string(state.eventVariation)
+                        + " subvariation=" + std::to_string(state.eventSubvariation));
+
+                if (state.coordinatesValid)
+                {
+                    Finish(true, std::move(state), "Active Exotic Export vehicle located");
+                }
+                else if (state.eventState == ExoticExportEnhanced173::StateInactive)
+                {
+                    Finish(true, std::move(state), "Exotic Export event is inactive; Rockstar has not spawned an export vehicle yet");
                 }
                 else
                 {
-                    Finish(false, std::move(state), std::move(error));
+                    Finish(true, std::move(state), "Exotic Export event exists, but live trigger coordinates are not published yet");
                 }
+            });
+        }
+
+        [[nodiscard]] bool QueueWaypointToActive()
+        {
+            if (!Native::NativeRegistry::Get().IsReady())
+                return false;
+
+            return Queue("Setting waypoint to active Exotic Export", [this] {
+                ExoticExportSnapshot state;
+                std::string error;
+                if (!ReadLiveState(state, error))
+                {
+                    Finish(false, std::move(state), std::move(error));
+                    return;
+                }
+
+                if (!state.coordinatesValid)
+                {
+                    Finish(false, std::move(state), "No spawned Exotic Export currently has valid coordinates");
+                    return;
+                }
+
+                if (!Native::NativeRegistry::Get().CanInvokeOnCurrentThread() || !ResolveWaypointHandler())
+                {
+                    Finish(false, std::move(state), "Waypoint native is unavailable on the GTA script thread");
+                    return;
+                }
+
+                Native::CallContext context;
+                if (!context.PushArg(state.x) || !context.PushArg(state.y))
+                {
+                    Finish(false, std::move(state), "Failed to prepare the Exotic Export waypoint call");
+                    return;
+                }
+
+                m_WaypointHandler(&context);
+                TUTONES_LOG_INFO(
+                    "heist.exotic_export",
+                    std::string("Waypoint set to active Exotic Export at ")
+                        + std::to_string(state.x) + ", " + std::to_string(state.y));
+                Finish(true, std::move(state), "Waypoint set to the active Exotic Export vehicle");
             });
         }
 
@@ -117,16 +176,9 @@ namespace Tutones::Game::Heist
                     return;
                 }
 
-                if (state.eventState != ExoticExportEnhanced173::StateAvailable
-                    && state.eventState != ExoticExportEnhanced173::StateActive)
-                {
-                    Finish(false, std::move(state), "No Exotic Export vehicle is currently spawned");
-                    return;
-                }
-
                 if (!state.coordinatesValid)
                 {
-                    Finish(false, std::move(state), "The active Exotic Export has no valid trigger coordinates yet");
+                    Finish(false, std::move(state), "No spawned Exotic Export currently has valid coordinates");
                     return;
                 }
 
@@ -215,9 +267,49 @@ namespace Tutones::Game::Heist
         }
 
     private:
+        struct NativeProgram final
+        {
+            std::byte pad00[0x2C]{};
+            std::uint32_t nativeCount{};
+            std::byte pad30[0x10]{};
+            Native::NativeHandler* nativeEntrypoints{};
+            std::byte pad48[0x38]{};
+        };
+
+        static_assert(offsetof(NativeProgram, nativeCount) == 0x2C);
+        static_assert(offsetof(NativeProgram, nativeEntrypoints) == 0x40);
+        static_assert(sizeof(NativeProgram) == 0x80);
+
+        static constexpr std::uint64_t SetNewWaypointHash = 0xF8D9A55D2F2892CCull;
+
         ExoticExportRuntime() = default;
         ExoticExportRuntime(const ExoticExportRuntime&) = delete;
         ExoticExportRuntime& operator=(const ExoticExportRuntime&) = delete;
+
+        [[nodiscard]] bool ResolveWaypointHandler() noexcept
+        {
+            if (m_WaypointHandler)
+                return true;
+            if (!Native::NativeRegistry::Get().CanInvokeOnCurrentThread())
+                return false;
+
+            const auto initNativeTables = GamePointers::Get().InitNativeTables();
+            if (!initNativeTables)
+                return false;
+
+            std::array<std::uint64_t, 1> slots{SetNewWaypointHash};
+            std::array<Native::NativeHandler, 1> handlers{};
+            NativeProgram program{};
+            program.nativeCount = 1;
+            program.nativeEntrypoints = reinterpret_cast<Native::NativeHandler*>(slots.data());
+            initNativeTables(&program);
+
+            if (!Native::AssignValidatedHandlers(slots, handlers))
+                return false;
+
+            m_WaypointHandler = handlers[0];
+            return m_WaypointHandler != nullptr;
+        }
 
         template<typename Callback>
         [[nodiscard]] bool Queue(std::string pendingMessage, Callback&& callback)
@@ -342,5 +434,6 @@ namespace Tutones::Game::Heist
         std::atomic<bool> m_Pending{false};
         mutable std::mutex m_Mutex;
         ExoticExportSnapshot m_Snapshot{};
+        Native::NativeHandler m_WaypointHandler{};
     };
 }
