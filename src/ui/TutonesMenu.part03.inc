@@ -1,4 +1,5 @@
 #include "WorldPanel.hpp"
+#include "HeistHubPanel.hpp"
 #include "../core/config/MenuSettings.hpp"
 
 namespace Tutones::UI
@@ -106,6 +107,10 @@ namespace Tutones::UI
 
         case 10:
             RenderNativeToolsPanel(m_Item);
+            break;
+
+        case 11:
+            RenderHeistHubPanel();
             break;
 
         default:
