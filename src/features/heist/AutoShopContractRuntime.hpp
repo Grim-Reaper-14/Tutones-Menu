@@ -41,7 +41,6 @@ namespace Tutones::Game::Heist
         inline constexpr std::uint32_t TunerPlanningHash = Joaat("tuner_planning");
         inline constexpr std::size_t PlanningReloadLocalA = 406;
         inline constexpr std::size_t PlanningReloadLocalB = 408;
-        inline constexpr std::size_t RunFinaleLocal = 3627;
         inline constexpr int PlanningReloadValue = 2;
         inline constexpr int ContractCount = 8;
 
@@ -172,7 +171,7 @@ namespace Tutones::Game::Heist
                 {
                     Finish(true, std::move(state),
                         std::string(AutoShopContractName(contractIndex))
-                            + " preps are ready; open/re-enter the Auto Shop planning board to refresh it");
+                            + " prep state is complete; open/re-enter the Auto Shop planning board, then use Reload Planning Board");
                 }
             });
         }
@@ -207,50 +206,6 @@ namespace Tutones::Game::Heist
                 CaptureState(state);
                 Finish(success, std::move(state),
                     success ? "Auto Shop planning board reload requested" : "Auto Shop planning board reload failed");
-            });
-        }
-
-        [[nodiscard]] bool QueueLaunchFinale()
-        {
-            return Queue("Launching selected Auto Shop finale", [this] {
-                AutoShopContractSnapshot state;
-                if (!RequireOnlineAndNatives(state))
-                {
-                    Finish(false, std::move(state), "Join GTA Online before launching an Auto Shop finale");
-                    return;
-                }
-
-                auto& scripts = Script::ScriptRuntime::Get();
-                if (!scripts.IsReady())
-                {
-                    CaptureState(state);
-                    Finish(false, std::move(state), "Shared script runtime is unavailable");
-                    return;
-                }
-
-                auto* thread = scripts.FindThread(AutoShopEnhanced173::TunerPlanningHash);
-                if (!thread || !thread->stack)
-                {
-                    CaptureState(state);
-                    Finish(false, std::move(state), "Open the Auto Shop planning board first (tuner_planning is not running)");
-                    return;
-                }
-
-                int* runFinale = Script::ScriptLocal(thread, AutoShopEnhanced173::RunFinaleLocal).As<int>();
-                if (!runFinale)
-                {
-                    CaptureState(state);
-                    Finish(false, std::move(state), "Auto Shop finale launch local is unavailable");
-                    return;
-                }
-
-                *runFinale = 1;
-                const bool success = *runFinale == 1;
-                CaptureState(state);
-                if (success)
-                    TUTONES_LOG_INFO("heist.autoshop", "Triggered tuner_planning local 3627 to launch the selected finale");
-                Finish(success, std::move(state),
-                    success ? "Selected Auto Shop finale launch triggered" : "Auto Shop finale launch failed read-back verification");
             });
         }
 
