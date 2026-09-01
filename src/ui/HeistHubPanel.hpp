@@ -22,7 +22,11 @@ namespace Tutones::UI
         ImGui::PushStyleColor(ImGuiCol_ChildBg, V11Theme::PanelBg);
         ImGui::PushStyleColor(ImGuiCol_Border, V11Theme::PanelBorder);
 
-        if (ImGui::BeginChild("##heist_hub_panel", ImVec2(490.0f, 394.0f), true))
+        if (ImGui::BeginChild(
+                "##heist_hub_panel",
+                ImVec2(490.0f, 394.0f),
+                true,
+                ImGuiWindowFlags_None))
         {
             ImGui::TextColored(V11Theme::Accent, "Heist Hub");
             ImGui::SameLine();
