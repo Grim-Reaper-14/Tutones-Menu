@@ -33,7 +33,7 @@ namespace Tutones::UI
             ImGui::TextDisabled("Enhanced 1.73 / b1158.13");
             ImGui::Separator();
 
-            ImGui::TextWrapped("Dedicated Acid Lab business page using the verified Enhanced resupply and production-controller mappings.");
+            ImGui::TextWrapped("Dedicated Acid Lab business page using the verified Enhanced resupply and production mappings.");
             ImGui::Spacing();
 
             ImGui::SeparatorText("Supplies");
@@ -44,19 +44,22 @@ namespace Tutones::UI
             DescribeLastV11Item("Write 1 to the supplied Global_1673820 + 7 Instant Resupply flag on the GTA script thread and verify the read-back.");
 
             ImGui::SeparatorText("Production");
-            bool fastProduction = productionState.fastProductionEnabled;
-            if (ImGui::Checkbox("Fast Production", &fastProduction))
-                static_cast<void>(productionRuntime.SetFastProduction(fastProduction));
-            DescribeLastV11Item("Continuously fire the Enhanced Acid Lab production tick so Rockstar's normal production controller processes stock as fast as it can. This uses Global_2708938 = 0 and Global_2708939 = true and stops automatically at 160 units.");
+            ImGui::BeginDisabled(productionState.actionPending);
+            if (ImGui::Button("Instant Finish Production", ImVec2(-1.0f, 0.0f)))
+                static_cast<void>(productionRuntime.QueueInstantFinish());
+            ImGui::EndDisabled();
+            DescribeLastV11Item("Immediately set the active character's Acid Lab stock stat MPX_PRODTOTALFORFACTORY6 to the verified 160-unit cap, verify the stock read-back, and kick the Enhanced production controller once so the business state refreshes.");
 
             if (productionState.stockUnits >= 0)
                 ImGui::TextDisabled("Observed Acid stock: %d / 160", productionState.stockUnits);
             else
-                ImGui::TextDisabled("Observed Acid stock: waiting for production state");
+                ImGui::TextDisabled("Observed Acid stock: press Instant Finish Production to refresh");
 
             ImGui::SeparatorText("Status");
-            if (productionState.fastProductionEnabled || productionState.haveResult)
+            if (productionState.actionPending)
                 ImGui::TextDisabled("Production: %s", productionState.message.c_str());
+            else if (productionState.haveResult)
+                ImGui::TextDisabled("Production: %s: %s", productionState.lastSucceeded ? "Success" : "Failed", productionState.message.c_str());
             else
                 ImGui::TextDisabled("Production: Ready");
 
@@ -71,6 +74,6 @@ namespace Tutones::UI
         ImGui::EndChild();
         ImGui::PopStyleColor(2);
         ImGui::PopStyleVar(2);
-        SetV11Description("Acid Lab has dedicated Instant Resupply and Fast Production controls backed by the Enhanced Acid business globals.");
+        SetV11Description("Acid Lab has dedicated Instant Resupply and Instant Finish Production controls backed by the active-character Acid stock stat and Enhanced production controller.");
     }
 }

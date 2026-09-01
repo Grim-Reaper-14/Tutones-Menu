@@ -45,8 +45,7 @@ namespace Tutones::Game::Business
 
     struct AcidLabProductionSnapshot final
     {
-        bool fastProductionEnabled{};
-        bool tickQueued{};
+        bool actionPending{};
         bool haveResult{};
         bool lastSucceeded{};
         int stockUnits{-1};
@@ -66,41 +65,28 @@ namespace Tutones::Game::Business
         {
             std::scoped_lock lock(m_Mutex);
             AcidLabProductionSnapshot snapshot = m_Snapshot;
-            snapshot.fastProductionEnabled = m_Enabled.load(std::memory_order_acquire);
-            snapshot.tickQueued = m_TickQueued.load(std::memory_order_acquire);
+            snapshot.actionPending = m_Pending.load(std::memory_order_acquire);
             return snapshot;
         }
 
-        [[nodiscard]] bool SetFastProduction(bool enabled) noexcept
+        [[nodiscard]] bool QueueInstantFinish() noexcept
         {
-            const bool wasEnabled = m_Enabled.exchange(enabled, std::memory_order_acq_rel);
-            if (wasEnabled == enabled)
-                return true;
-
-            if (!enabled)
-            {
-                Publish(true, "Fast Acid Lab production disabled");
-                TUTONES_LOG_INFO("business.acid", "Fast Acid Lab production disabled");
-                return true;
-            }
+            bool expected = false;
+            if (!m_Pending.compare_exchange_strong(expected, true, std::memory_order_acq_rel))
+                return false;
 
             {
                 std::scoped_lock lock(m_Mutex);
                 m_Snapshot.haveResult = false;
                 m_Snapshot.lastSucceeded = false;
-                m_Snapshot.message = "Fast Acid Lab production enabled; waiting for the production controller";
+                m_Snapshot.message = "Instant Acid Lab production queued";
             }
 
-            if (QueueNextTick())
-            {
-                TUTONES_LOG_INFO(
-                    "business.acid",
-                    "Fast Acid Lab production enabled using Enhanced production globals 2708938/2708939");
+            if (Runtime::GameRuntime::Get().Enqueue([this] { FinishProductionOnGameThread(); }))
                 return true;
-            }
 
-            m_Enabled.store(false, std::memory_order_release);
-            Publish(false, "Could not queue Fast Acid Lab production on the GTA script thread");
+            m_Pending.store(false, std::memory_order_release);
+            Publish(false, "Could not queue Instant Acid Lab production on the GTA script thread");
             return false;
         }
 
@@ -109,100 +95,74 @@ namespace Tutones::Game::Business
         AcidLabProductionRuntime(const AcidLabProductionRuntime&) = delete;
         AcidLabProductionRuntime& operator=(const AcidLabProductionRuntime&) = delete;
 
-        [[nodiscard]] bool QueueNextTick() noexcept
+        void FinishProductionOnGameThread() noexcept
         {
-            if (!m_Enabled.load(std::memory_order_acquire))
-                return true;
-
-            bool expected = false;
-            if (!m_TickQueued.compare_exchange_strong(expected, true, std::memory_order_acq_rel))
-                return true;
-
-            if (Runtime::GameRuntime::Get().Enqueue([this] {
-                    m_TickQueued.store(false, std::memory_order_release);
-                    TickOnGameThread();
-                }))
-            {
-                return true;
-            }
-
-            m_TickQueued.store(false, std::memory_order_release);
-            return false;
-        }
-
-        void TickOnGameThread() noexcept
-        {
-            if (!m_Enabled.load(std::memory_order_acquire))
-                return;
-
             auto& pointers = GamePointers::Get();
             bool* sessionStarted = pointers.IsSessionStarted();
+            if (!sessionStarted || !*sessionStarted)
+            {
+                Finish(false, "Join GTA Online before using Instant Acid Lab production");
+                return;
+            }
+
+            const auto before = Stats::GetInt(AcidLabProductionDetail::StockStat);
+            if (before && *before >= AcidLabProductionDetail::MaximumStockUnits)
+            {
+                SetObservedStock(*before);
+                Finish(true, "Acid Lab stock is already full at 160 / 160");
+                return;
+            }
+
+            const bool wroteStock = Stats::SetInt(
+                AcidLabProductionDetail::StockStat,
+                AcidLabProductionDetail::MaximumStockUnits);
+
+            bool controllerKicked = false;
             auto* pages = pointers.ScriptGlobals();
             auto& scripts = Script::ScriptRuntime::Get();
-
-            if (!sessionStarted || !*sessionStarted || !pages)
+            if (pages && scripts.IsReady() && scripts.FindThread(AcidLabProductionDetail::FreemodeHash))
             {
-                Publish(false, "Join GTA Online before using Fast Acid Lab production");
-                Requeue();
-                return;
-            }
-
-            if (!scripts.IsReady() || !scripts.FindThread(AcidLabProductionDetail::FreemodeHash))
-            {
-                Publish(false, "Freemode is not ready for Acid Lab production ticks");
-                Requeue();
-                return;
-            }
-
-            const auto stock = Stats::GetInt(AcidLabProductionDetail::StockStat);
-            if (stock)
-            {
+                int* timer = Script::ScriptGlobal(AcidLabProductionDetail::ProductionTimerGlobal).As<int>(pages);
+                int* trigger = Script::ScriptGlobal(AcidLabProductionDetail::ProductionTriggerGlobal).As<int>(pages);
+                if (timer && trigger)
                 {
-                    std::scoped_lock lock(m_Mutex);
-                    m_Snapshot.stockUnits = *stock;
-                }
-
-                if (*stock >= AcidLabProductionDetail::MaximumStockUnits)
-                {
-                    m_Enabled.store(false, std::memory_order_release);
-                    Publish(true, "Acid Lab stock is full; Fast Production stopped automatically");
-                    TUTONES_LOG_INFO("business.acid", "Fast Acid Lab production stopped because stock reached 160 units");
-                    return;
+                    *timer = 0;
+                    *trigger = 1;
+                    controllerKicked = *timer == 0 && *trigger == 1;
                 }
             }
 
-            int* timer = Script::ScriptGlobal(AcidLabProductionDetail::ProductionTimerGlobal).As<int>(pages);
-            int* trigger = Script::ScriptGlobal(AcidLabProductionDetail::ProductionTriggerGlobal).As<int>(pages);
-            if (!timer || !trigger)
+            const auto after = Stats::GetInt(AcidLabProductionDetail::StockStat);
+            if (after)
+                SetObservedStock(*after);
+
+            const bool success = wroteStock
+                && after
+                && *after >= AcidLabProductionDetail::MaximumStockUnits;
+
+            if (success)
             {
-                Publish(false, "Enhanced Acid Lab production globals are unavailable");
-                Requeue();
+                TUTONES_LOG_INFO(
+                    "business.acid",
+                    std::string("Instantly completed Acid Lab production at 160 units; controllerKick=")
+                        + (controllerKicked ? "true" : "false"));
+                Finish(true, "Acid Lab production instantly completed at 160 / 160");
                 return;
             }
 
-            *timer = 0;
-            *trigger = 1;
-            const bool success = *timer == 0 && *trigger == 1;
-            Publish(
-                success,
-                success
-                    ? "Fast Acid Lab production is running"
-                    : "Acid Lab production tick failed read-back verification");
-
-            Requeue();
+            TUTONES_LOG_WARN(
+                "business.acid",
+                std::string("Instant Acid Lab production failed; statWrite=")
+                    + (wroteStock ? "true" : "false")
+                    + " controllerKick=" + (controllerKicked ? "true" : "false")
+                    + " observed=" + (after ? std::to_string(*after) : std::string("unavailable")));
+            Finish(false, "Instant Acid Lab production failed stock read-back verification");
         }
 
-        void Requeue() noexcept
+        void SetObservedStock(int stockUnits) noexcept
         {
-            if (!m_Enabled.load(std::memory_order_acquire))
-                return;
-
-            if (!QueueNextTick())
-            {
-                m_Enabled.store(false, std::memory_order_release);
-                Publish(false, "Fast Acid Lab production stopped because the GTA script-thread queue is unavailable");
-                TUTONES_LOG_ERROR("business.acid", "Fast Acid Lab production lost its GTA script-thread scheduling slot");
-            }
+            std::scoped_lock lock(m_Mutex);
+            m_Snapshot.stockUnits = stockUnits;
         }
 
         void Publish(bool success, std::string message) noexcept
@@ -213,8 +173,13 @@ namespace Tutones::Game::Business
             m_Snapshot.message = std::move(message);
         }
 
-        std::atomic<bool> m_Enabled{false};
-        std::atomic<bool> m_TickQueued{false};
+        void Finish(bool success, std::string message) noexcept
+        {
+            Publish(success, std::move(message));
+            m_Pending.store(false, std::memory_order_release);
+        }
+
+        std::atomic<bool> m_Pending{false};
         mutable std::mutex m_Mutex;
         AcidLabProductionSnapshot m_Snapshot{};
     };
