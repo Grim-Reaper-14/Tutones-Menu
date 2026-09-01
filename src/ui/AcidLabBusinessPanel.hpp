@@ -45,15 +45,18 @@ namespace Tutones::UI
 
             ImGui::SeparatorText("Production");
             ImGui::BeginDisabled(productionState.actionPending);
-            if (ImGui::Button("Instant Finish Production", ImVec2(-1.0f, 0.0f)))
+            if (ImGui::Button("Instant Fill Production", ImVec2(-1.0f, 0.0f)))
                 static_cast<void>(productionRuntime.QueueInstantFinish());
             ImGui::EndDisabled();
-            DescribeLastV11Item("Immediately set the active character's Acid Lab stock stat MPX_PRODTOTALFORFACTORY6 to the verified 160-unit cap, verify the stock read-back, and kick the Enhanced production controller once so the business state refreshes.");
+            DescribeLastV11Item("Use the Enhanced Acid Lab production controller instead of forcing the stock stat. Tutones repeatedly pulses Global_2708938/2708939 on the GTA script thread, keeps Acid Lab resupply requested, and stops automatically when MPX_PRODTOTALFORFACTORY6 reaches 160 units.");
 
             if (productionState.stockUnits >= 0)
                 ImGui::TextDisabled("Observed Acid stock: %d / 160", productionState.stockUnits);
             else
-                ImGui::TextDisabled("Observed Acid stock: press Instant Finish Production to refresh");
+                ImGui::TextDisabled("Observed Acid stock: press Instant Fill Production to refresh");
+
+            if (productionState.actionPending)
+                ImGui::TextDisabled("Controller ticks: %d", productionState.ticksApplied);
 
             ImGui::SeparatorText("Status");
             if (productionState.actionPending)
@@ -74,6 +77,6 @@ namespace Tutones::UI
         ImGui::EndChild();
         ImGui::PopStyleColor(2);
         ImGui::PopStyleVar(2);
-        SetV11Description("Acid Lab has dedicated Instant Resupply and Instant Finish Production controls backed by the active-character Acid stock stat and Enhanced production controller.");
+        SetV11Description("Acid Lab has dedicated Instant Resupply and controller-driven Instant Fill Production controls for Enhanced 1.73.");
     }
 }
