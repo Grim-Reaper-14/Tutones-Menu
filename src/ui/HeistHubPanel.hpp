@@ -41,7 +41,7 @@ namespace Tutones::UI
             ImGui::Separator();
 
             ImGui::SeparatorText("Auto Shop Contracts");
-            ImGui::TextWrapped("Choose one of the eight Auto Shop robbery contracts, mark its verified prep state complete, refresh the planning board, then launch the finale when you are standing at the Auto Shop board.");
+            ImGui::TextWrapped("Choose one of the eight Auto Shop robbery contracts and mark its verified setup/prep state complete so the planning board is ready for the finale.");
 
             if (ImGui::BeginCombo("Contract##autoshop_contract", AutoShopContractName(selectedContract)))
             {
@@ -68,12 +68,6 @@ namespace Tutones::UI
                 static_cast<void>(autoShop.QueueReloadPlanning());
             ImGui::EndDisabled();
             DescribeLastV11Item("Set tuner_planning locals 406 and 408 to 2. The Auto Shop planning board must be open/running.");
-
-            ImGui::BeginDisabled(autoShopState.pending);
-            if (ImGui::Button("Launch Selected Finale", ImVec2(-1.0f, 0.0f)))
-                static_cast<void>(autoShop.QueueLaunchFinale());
-            ImGui::EndDisabled();
-            DescribeLastV11Item("Trigger tuner_planning local 3627 after the selected contract has been readied. Open the planning board first.");
 
             ImGui::BeginDisabled(autoShopState.pending);
             if (ImGui::SmallButton("Refresh Auto Shop State"))
@@ -134,6 +128,6 @@ namespace Tutones::UI
         ImGui::EndChild();
         ImGui::PopStyleColor(2);
         ImGui::PopStyleVar(2);
-        SetV11Description("HIEST -> Heist Hub: Auto Shop contract/finale preparation plus live Exotic Export waypoint and teleport tools.");
+        SetV11Description("HIEST -> Heist Hub: verified Auto Shop contract/finale preparation plus live Exotic Export waypoint and teleport tools.");
     }
 }
