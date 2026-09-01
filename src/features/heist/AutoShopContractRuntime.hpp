@@ -323,7 +323,7 @@ namespace Tutones::Game::Heist
             return true;
         }
 
-        [[nodiscard]] bool ReloadPlanningBoard(Script::GtaThread* thread) const noexcept
+        [[nodiscard]] bool ReloadPlanningBoard(Types::ScriptThread* thread) const noexcept
         {
             if (!thread || !thread->stack)
                 return false;
