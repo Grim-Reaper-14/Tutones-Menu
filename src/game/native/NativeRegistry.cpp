@@ -169,6 +169,7 @@ namespace Tutones::Game::Native
             {0xA143F68B0CD079F4ull, "GET_BLIP_INFO_ID_ENTITY_INDEX"},
             // Enhanced 1.73 crossmap target; legacy 586AFE3FF72D996E.
             {0x3CF9D442F2C902BDull, "GET_BLIP_COORDS"},
+            {0xF8D9A55D2F2892CCull, "SET_NEW_WAYPOINT"},
             {0xEA2D52183C7EA9CFull, "REQUEST_COLLISION_AT_COORD"},
             {0x62C438C53BB57AFDull, "SET_ENTITY_COORDS_NO_OFFSET"},
             {0x5C96CEA06531AB03ull, "SET_ENTITY_HEADING"},

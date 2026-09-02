@@ -3,14 +3,12 @@
 #include "../../core/logging/Logger.hpp"
 #include "../../game/GamePointers.hpp"
 #include "../../game/Natives.hpp"
-#include "../../game/native/NativeCallContext.hpp"
-#include "../../game/native/NativeHandlerValidation.hpp"
+#include "../../game/VehicleNatives.hpp"
 #include "../../game/native/NativeInvoker.hpp"
 #include "../../game/native/NativeRegistry.hpp"
 #include "../../game/script/ScriptGlobal.hpp"
 #include "../../runtime/GameRuntime.hpp"
 
-#include <array>
 #include <atomic>
 #include <cmath>
 #include <cstddef>
@@ -122,9 +120,6 @@ namespace Tutones::Game::Heist
 
         [[nodiscard]] bool QueueWaypointToActive()
         {
-            if (!Native::NativeRegistry::Get().IsReady())
-                return false;
-
             return Queue("Setting waypoint to active Exotic Export", [this] {
                 ExoticExportSnapshot state;
                 std::string error;
@@ -140,33 +135,38 @@ namespace Tutones::Game::Heist
                     return;
                 }
 
-                if (!Native::NativeRegistry::Get().CanInvokeOnCurrentThread() || !ResolveWaypointHandler())
+                if (!Native::NativeRegistry::Get().CanInvokeOnCurrentThread())
                 {
                     Finish(false, std::move(state), "Waypoint native is unavailable on the GTA script thread");
                     return;
                 }
 
-                Native::CallContext context;
-                if (!context.PushArg(state.x) || !context.PushArg(state.y))
+                ExoticExportSnapshot confirmed;
+                if (!ConfirmLiveTarget(state, confirmed, error))
                 {
-                    Finish(false, std::move(state), "Failed to prepare the Exotic Export waypoint call");
+                    Finish(false, std::move(confirmed), std::move(error));
                     return;
                 }
 
-                m_WaypointHandler(&context);
+                if (!Native::NativeInvoker::InvokeVoid(
+                        Native::NativeId::SetNewWaypoint,
+                        confirmed.x,
+                        confirmed.y))
+                {
+                    Finish(false, std::move(confirmed), "Failed to invoke the Exotic Export waypoint native");
+                    return;
+                }
+
                 TUTONES_LOG_INFO(
                     "heist.exotic_export",
                     std::string("Waypoint set to active Exotic Export at ")
-                        + std::to_string(state.x) + ", " + std::to_string(state.y));
-                Finish(true, std::move(state), "Waypoint set to the active Exotic Export vehicle");
+                        + std::to_string(confirmed.x) + ", " + std::to_string(confirmed.y));
+                Finish(true, std::move(confirmed), "Waypoint set to the active Exotic Export vehicle");
             });
         }
 
         [[nodiscard]] bool QueueTeleportToActive()
         {
-            if (!Native::NativeRegistry::Get().IsReady())
-                return false;
-
             return Queue("Locating active Exotic Export", [this] {
                 ExoticExportSnapshot state;
                 std::string error;
@@ -188,73 +188,20 @@ namespace Tutones::Game::Heist
                     return;
                 }
 
-                const auto ped = Natives::PlayerPedId();
-                if (!ped || *ped == 0)
+                if (!Native::NativeInvoker::InvokeVoid(
+                        Native::NativeId::RequestCollisionAtCoord,
+                        state.x,
+                        state.y,
+                        state.z))
                 {
-                    Finish(false, std::move(state), "Local player ped is unavailable");
+                    Finish(false, std::move(state), "Could not request collision at the Exotic Export location");
                     return;
                 }
 
-                const auto pedExists = Natives::DoesEntityExist(*ped);
-                if (!pedExists || !*pedExists)
+                if (!QueueTeleportContinuation(std::move(state), 1))
                 {
-                    Finish(false, std::move(state), "Local player ped does not exist");
-                    return;
+                    Finish(false, ExoticExportSnapshot{}, "GTA script-thread queue became unavailable during collision warmup");
                 }
-
-                Entity target = *ped;
-                bool inVehicle = false;
-                const auto insideVehicle = Natives::IsPedInAnyVehicle(*ped, true);
-                if (insideVehicle && *insideVehicle)
-                {
-                    const auto vehicle = Natives::GetVehiclePedIsIn(*ped, true);
-                    if (vehicle && *vehicle != 0)
-                    {
-                        const auto vehicleExists = Natives::DoesEntityExist(*vehicle);
-                        if (vehicleExists && *vehicleExists)
-                        {
-                            target = *vehicle;
-                            inVehicle = true;
-                        }
-                    }
-                }
-
-                const float destinationX = state.x + 2.5f;
-                const float destinationY = state.y;
-                const float destinationZ = state.z + 0.5f;
-
-                static_cast<void>(Native::NativeInvoker::InvokeVoid(
-                    Native::NativeId::RequestCollisionAtCoord,
-                    state.x,
-                    state.y,
-                    state.z));
-
-                const bool moved = Native::NativeInvoker::InvokeVoid(
-                    Native::NativeId::SetEntityCoordsNoOffset,
-                    target,
-                    destinationX,
-                    destinationY,
-                    destinationZ,
-                    std::int32_t{1},
-                    std::int32_t{1},
-                    std::int32_t{1});
-
-                if (!moved)
-                {
-                    Finish(false, std::move(state), "Failed to teleport to the active Exotic Export");
-                    return;
-                }
-
-                if (inVehicle)
-                    static_cast<void>(Natives::SetVehicleOnGroundProperly(target, 5.0f));
-
-                TUTONES_LOG_INFO(
-                    "heist.exotic_export",
-                    std::string("Teleported to active Exotic Export at ")
-                        + std::to_string(state.x) + ", "
-                        + std::to_string(state.y) + ", "
-                        + std::to_string(state.z));
-                Finish(true, std::move(state), "Teleported beside the active Exotic Export vehicle");
             });
         }
 
@@ -267,49 +214,11 @@ namespace Tutones::Game::Heist
         }
 
     private:
-        struct NativeProgram final
-        {
-            std::byte pad00[0x2C]{};
-            std::uint32_t nativeCount{};
-            std::byte pad30[0x10]{};
-            Native::NativeHandler* nativeEntrypoints{};
-            std::byte pad48[0x38]{};
-        };
-
-        static_assert(offsetof(NativeProgram, nativeCount) == 0x2C);
-        static_assert(offsetof(NativeProgram, nativeEntrypoints) == 0x40);
-        static_assert(sizeof(NativeProgram) == 0x80);
-
-        static constexpr std::uint64_t SetNewWaypointHash = 0xF8D9A55D2F2892CCull;
+        static constexpr std::size_t CollisionWarmupTicks = 3;
 
         ExoticExportRuntime() = default;
         ExoticExportRuntime(const ExoticExportRuntime&) = delete;
         ExoticExportRuntime& operator=(const ExoticExportRuntime&) = delete;
-
-        [[nodiscard]] bool ResolveWaypointHandler() noexcept
-        {
-            if (m_WaypointHandler)
-                return true;
-            if (!Native::NativeRegistry::Get().CanInvokeOnCurrentThread())
-                return false;
-
-            const auto initNativeTables = GamePointers::Get().InitNativeTables();
-            if (!initNativeTables)
-                return false;
-
-            std::array<std::uint64_t, 1> slots{SetNewWaypointHash};
-            std::array<Native::NativeHandler, 1> handlers{};
-            NativeProgram program{};
-            program.nativeCount = 1;
-            program.nativeEntrypoints = reinterpret_cast<Native::NativeHandler*>(slots.data());
-            initNativeTables(&program);
-
-            if (!Native::AssignValidatedHandlers(slots, handlers))
-                return false;
-
-            m_WaypointHandler = handlers[0];
-            return m_WaypointHandler != nullptr;
-        }
 
         template<typename Callback>
         [[nodiscard]] bool Queue(std::string pendingMessage, Callback&& callback)
@@ -395,7 +304,13 @@ namespace Tutones::Game::Heist
             }
 
             state.layoutValid = state.eventState >= ExoticExportEnhanced173::StateInactive
-                && state.eventState <= ExoticExportEnhanced173::StateCleanup;
+                && state.eventState <= ExoticExportEnhanced173::StateCleanup
+                && state.eventVariation >= -1 && state.eventVariation < 1024
+                && state.eventSubvariation >= -1 && state.eventSubvariation < 1024
+                && state.vehicleListIndex >= -1 && state.vehicleListIndex < 1024
+                && state.vehicleListVariation >= -1 && state.vehicleListVariation < 1024
+                && std::isfinite(state.triggerRange)
+                && state.triggerRange >= 0.0f && state.triggerRange <= 5000.0f;
             if (!state.layoutValid)
             {
                 error = "Enhanced Exotic Export layout validation failed";
@@ -417,6 +332,200 @@ namespace Tutones::Game::Heist
             return true;
         }
 
+        [[nodiscard]] bool ConfirmLiveTarget(
+            const ExoticExportSnapshot& expected,
+            ExoticExportSnapshot& confirmed,
+            std::string& error) const noexcept
+        {
+            if (!ReadLiveState(confirmed, error))
+                return false;
+            if (!confirmed.coordinatesValid || !SameLiveTarget(expected, confirmed))
+            {
+                error = "The active Exotic Export changed or despawned; refresh before trying again";
+                return false;
+            }
+            return true;
+        }
+
+        [[nodiscard]] static bool SameLiveTarget(
+            const ExoticExportSnapshot& expected,
+            const ExoticExportSnapshot& current) noexcept
+        {
+            const float dx = expected.x - current.x;
+            const float dy = expected.y - current.y;
+            const float dz = expected.z - current.z;
+            return expected.eventState == current.eventState
+                && expected.eventVariation == current.eventVariation
+                && expected.eventSubvariation == current.eventSubvariation
+                && expected.vehicleListIndex == current.vehicleListIndex
+                && expected.vehicleListVariation == current.vehicleListVariation
+                && (dx * dx + dy * dy) <= 0.25f
+                && std::fabs(dz) <= 0.5f;
+        }
+
+        [[nodiscard]] bool QueueTeleportContinuation(
+            ExoticExportSnapshot expected,
+            std::size_t attempt)
+        {
+            return Runtime::GameRuntime::Get().Enqueue(
+                [this, expected = std::move(expected), attempt]() mutable {
+                    ContinueTeleport(std::move(expected), attempt);
+                });
+        }
+
+        void ContinueTeleport(ExoticExportSnapshot expected, std::size_t attempt)
+        {
+            if (!Native::NativeRegistry::Get().CanInvokeOnCurrentThread())
+            {
+                Finish(false, std::move(expected), "Teleport natives became unavailable during collision warmup");
+                return;
+            }
+
+            ExoticExportSnapshot confirmed;
+            std::string error;
+            if (!ConfirmLiveTarget(expected, confirmed, error))
+            {
+                Finish(false, std::move(confirmed), std::move(error));
+                return;
+            }
+
+            if (!Native::NativeInvoker::InvokeVoid(
+                    Native::NativeId::RequestCollisionAtCoord,
+                    confirmed.x,
+                    confirmed.y,
+                    confirmed.z))
+            {
+                Finish(false, std::move(confirmed), "Collision streaming failed during Exotic Export teleport");
+                return;
+            }
+
+            if (attempt < CollisionWarmupTicks)
+            {
+                if (!QueueTeleportContinuation(std::move(confirmed), attempt + 1))
+                    Finish(false, ExoticExportSnapshot{}, "GTA script-thread queue became unavailable during collision warmup");
+                return;
+            }
+
+            TeleportToConfirmedTarget(std::move(confirmed));
+        }
+
+        void TeleportToConfirmedTarget(ExoticExportSnapshot state)
+        {
+            const auto ped = Natives::PlayerPedId();
+            if (!ped || *ped == 0)
+            {
+                Finish(false, std::move(state), "Local player ped is unavailable");
+                return;
+            }
+
+            const auto pedExists = Natives::DoesEntityExist(*ped);
+            if (!pedExists || !*pedExists)
+            {
+                Finish(false, std::move(state), "Local player ped does not exist");
+                return;
+            }
+
+            Entity target = *ped;
+            bool inVehicle = false;
+            const auto insideVehicle = Natives::IsPedInAnyVehicle(*ped, true);
+            if (insideVehicle && *insideVehicle)
+            {
+                const auto vehicle = Natives::GetVehiclePedIsIn(*ped, true);
+                if (!vehicle || *vehicle == 0)
+                {
+                    Finish(false, std::move(state), "Current vehicle is unavailable");
+                    return;
+                }
+
+                const auto vehicleExists = Natives::DoesEntityExist(*vehicle);
+                if (!vehicleExists || !*vehicleExists)
+                {
+                    Finish(false, std::move(state), "Current vehicle no longer exists");
+                    return;
+                }
+
+                target = *vehicle;
+                inVehicle = true;
+                auto haveControl = Native::NativeInvoker::Invoke<std::int32_t>(
+                    Native::NativeId::NetworkHasControlOfEntity,
+                    target);
+                if (!haveControl || *haveControl == 0)
+                {
+                    static_cast<void>(Native::NativeInvoker::Invoke<std::int32_t>(
+                        Native::NativeId::NetworkRequestControlOfEntity,
+                        target));
+                    haveControl = Native::NativeInvoker::Invoke<std::int32_t>(
+                        Native::NativeId::NetworkHasControlOfEntity,
+                        target);
+                }
+                if (!haveControl || *haveControl == 0)
+                {
+                    Finish(false, std::move(state), "Network control of the current vehicle is unavailable");
+                    return;
+                }
+            }
+
+            ExoticExportSnapshot finalState;
+            std::string error;
+            if (!ConfirmLiveTarget(state, finalState, error))
+            {
+                Finish(false, std::move(finalState), std::move(error));
+                return;
+            }
+
+            const float destinationX = finalState.x + 2.5f;
+            const float destinationY = finalState.y;
+            const float destinationZ = finalState.z + (inVehicle ? 1.0f : 0.5f);
+
+            static_cast<void>(Native::NativeInvoker::InvokeVoid(
+                Native::NativeId::SetEntityVelocity,
+                target,
+                0.0f,
+                0.0f,
+                0.0f));
+
+            if (!Native::NativeInvoker::InvokeVoid(
+                    Native::NativeId::SetEntityCoordsNoOffset,
+                    target,
+                    destinationX,
+                    destinationY,
+                    destinationZ,
+                    std::int32_t{1},
+                    std::int32_t{1},
+                    std::int32_t{1}))
+            {
+                Finish(false, std::move(finalState), "Failed to invoke the Exotic Export teleport native");
+                return;
+            }
+
+            if (inVehicle)
+                static_cast<void>(Natives::SetVehicleOnGroundProperly(target, 5.0f));
+
+            const auto actual = VehicleNatives::GetEntityCoords(target, false);
+            if (!actual)
+            {
+                Finish(false, std::move(finalState), "Unable to verify the Exotic Export teleport destination");
+                return;
+            }
+
+            const float dx = actual->x - destinationX;
+            const float dy = actual->y - destinationY;
+            const float dz = actual->z - destinationZ;
+            if ((dx * dx + dy * dy) > 36.0f || std::fabs(dz) > 15.0f)
+            {
+                Finish(false, std::move(finalState), "Exotic Export teleport did not reach the verified destination");
+                return;
+            }
+
+            TUTONES_LOG_INFO(
+                "heist.exotic_export",
+                std::string("Teleported to active Exotic Export at ")
+                    + std::to_string(finalState.x) + ", "
+                    + std::to_string(finalState.y) + ", "
+                    + std::to_string(finalState.z));
+            Finish(true, std::move(finalState), "Teleported beside the active Exotic Export vehicle");
+        }
+
         void Finish(bool success, ExoticExportSnapshot state, std::string message) noexcept
         {
             state.pending = false;
@@ -434,6 +543,5 @@ namespace Tutones::Game::Heist
         std::atomic<bool> m_Pending{false};
         mutable std::mutex m_Mutex;
         ExoticExportSnapshot m_Snapshot{};
-        Native::NativeHandler m_WaypointHandler{};
     };
 }

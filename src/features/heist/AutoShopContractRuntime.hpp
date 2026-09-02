@@ -118,17 +118,41 @@ namespace Tutones::Game::Heist
                 }
 
                 const int prepMask = AutoShopEnhanced173::PrepMaskForContract(contractIndex);
-                const bool currentWritten = Stats::SetInt("MPX_TUNER_CURRENT", contractIndex);
-                const bool prepWritten = Stats::SetInt("MPX_TUNER_GEN_BS", prepMask);
-                const auto currentReadback = Stats::GetInt("MPX_TUNER_CURRENT");
-                const auto prepReadback = Stats::GetInt("MPX_TUNER_GEN_BS");
+                const auto characterIndex = Stats::GetCharIndex();
+                if (!characterIndex)
+                {
+                    CaptureState(state);
+                    Finish(false, std::move(state), "Unable to resolve the active GTA Online character slot");
+                    return;
+                }
+
+                const auto originalCurrent = Stats::GetInt("MPX_TUNER_CURRENT", *characterIndex);
+                const auto originalPrep = Stats::GetInt("MPX_TUNER_GEN_BS", *characterIndex);
+                if (!originalCurrent || !originalPrep)
+                {
+                    CaptureState(state);
+                    Finish(false, std::move(state), "Unable to capture the original Auto Shop contract state");
+                    return;
+                }
+
+                const bool currentWritten = Stats::SetInt("MPX_TUNER_CURRENT", contractIndex, *characterIndex);
+                const bool prepWritten = Stats::SetInt("MPX_TUNER_GEN_BS", prepMask, *characterIndex);
+                const auto currentReadback = Stats::GetInt("MPX_TUNER_CURRENT", *characterIndex);
+                const auto prepReadback = Stats::GetInt("MPX_TUNER_GEN_BS", *characterIndex);
 
                 if (!currentWritten || !prepWritten
                     || !currentReadback || *currentReadback != contractIndex
                     || !prepReadback || *prepReadback != prepMask)
                 {
+                    const bool restored = RestoreContractStats(
+                        *characterIndex,
+                        *originalCurrent,
+                        *originalPrep);
                     CaptureState(state);
-                    Finish(false, std::move(state), "Auto Shop contract/prep stat write failed read-back verification");
+                    Finish(false, std::move(state),
+                        restored
+                            ? "Auto Shop stat write failed verification; original contract state restored"
+                            : "Auto Shop stat write failed verification and rollback could not be confirmed");
                     return;
                 }
 
@@ -137,7 +161,8 @@ namespace Tutones::Game::Heist
                 auto& scripts = Script::ScriptRuntime::Get();
                 if (scripts.IsReady())
                 {
-                    if (auto* thread = scripts.FindThread(AutoShopEnhanced173::TunerPlanningHash); thread && thread->stack)
+                    if (auto* thread = scripts.FindThread(AutoShopEnhanced173::TunerPlanningHash);
+                        IsCompatiblePlanningThread(thread))
                     {
                         planningRunning = true;
                         boardReloaded = ReloadPlanningBoard(thread);
@@ -195,10 +220,16 @@ namespace Tutones::Game::Heist
                 }
 
                 auto* thread = scripts.FindThread(AutoShopEnhanced173::TunerPlanningHash);
-                if (!thread || !thread->stack)
+                if (!thread)
                 {
                     CaptureState(state);
                     Finish(false, std::move(state), "Open the Auto Shop planning board first (tuner_planning is not running)");
+                    return;
+                }
+                if (!IsCompatiblePlanningThread(thread))
+                {
+                    CaptureState(state);
+                    Finish(false, std::move(state), "tuner_planning layout is incompatible; reload was blocked safely");
                     return;
                 }
 
@@ -262,7 +293,7 @@ namespace Tutones::Game::Heist
             if (scripts.IsReady())
             {
                 const auto* thread = scripts.FindThread(AutoShopEnhanced173::TunerPlanningHash);
-                state.planningRunning = thread && thread->stack;
+                state.planningRunning = IsCompatiblePlanningThread(thread);
             }
 
             if (!state.sessionStarted || !state.nativeReady)
@@ -280,7 +311,7 @@ namespace Tutones::Game::Heist
 
         [[nodiscard]] bool ReloadPlanningBoard(Types::ScriptThread* thread) const noexcept
         {
-            if (!thread || !thread->stack)
+            if (!IsCompatiblePlanningThread(thread))
                 return false;
 
             int* reloadA = Script::ScriptLocal(thread, AutoShopEnhanced173::PlanningReloadLocalA).As<int>();
@@ -288,10 +319,50 @@ namespace Tutones::Game::Heist
             if (!reloadA || !reloadB)
                 return false;
 
+            const int originalA = *reloadA;
+            const int originalB = *reloadB;
             *reloadA = AutoShopEnhanced173::PlanningReloadValue;
             *reloadB = AutoShopEnhanced173::PlanningReloadValue;
-            return *reloadA == AutoShopEnhanced173::PlanningReloadValue
+            const bool verified = *reloadA == AutoShopEnhanced173::PlanningReloadValue
                 && *reloadB == AutoShopEnhanced173::PlanningReloadValue;
+            if (!verified)
+            {
+                *reloadA = originalA;
+                *reloadB = originalB;
+            }
+            return verified;
+        }
+
+        [[nodiscard]] static bool IsCompatiblePlanningThread(const Types::ScriptThread* thread) noexcept
+        {
+            return thread
+                && thread->context.threadId != 0
+                && thread->scriptHash == AutoShopEnhanced173::TunerPlanningHash
+                && thread->context.state != Types::ScriptThreadState::Killed
+                && thread->stack
+                && static_cast<std::size_t>(thread->context.stackSize)
+                    > AutoShopEnhanced173::PlanningReloadLocalB;
+        }
+
+        [[nodiscard]] static bool RestoreContractStats(
+            int characterIndex,
+            int originalCurrent,
+            int originalPrep) noexcept
+        {
+            const bool currentRestored = Stats::SetInt(
+                "MPX_TUNER_CURRENT",
+                originalCurrent,
+                characterIndex);
+            const bool prepRestored = Stats::SetInt(
+                "MPX_TUNER_GEN_BS",
+                originalPrep,
+                characterIndex);
+            const auto currentReadback = Stats::GetInt("MPX_TUNER_CURRENT", characterIndex);
+            const auto prepReadback = Stats::GetInt("MPX_TUNER_GEN_BS", characterIndex);
+            return currentRestored
+                && prepRestored
+                && currentReadback && *currentReadback == originalCurrent
+                && prepReadback && *prepReadback == originalPrep;
         }
 
         void Finish(bool success, AutoShopContractSnapshot state, std::string message) noexcept

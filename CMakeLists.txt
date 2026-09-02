@@ -14,6 +14,8 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+include(CTest)
+
 if(DEFINED ENV{TUTONES_SOURCE_SHA} AND NOT "$ENV{TUTONES_SOURCE_SHA}" STREQUAL "")
     set(TUTONES_GIT_REVISION "$ENV{TUTONES_SOURCE_SHA}")
 else()
@@ -149,6 +151,23 @@ set_target_properties(TutonesMenu PROPERTIES
     OUTPUT_NAME "Tutones-Menu"
     PREFIX ""
 )
+
+if(BUILD_TESTING)
+    add_executable(TutonesScriptLocalTests
+        tests/ScriptLocalTests.cpp
+    )
+    target_include_directories(TutonesScriptLocalTests PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
+    )
+    if(MSVC)
+        target_compile_options(TutonesScriptLocalTests PRIVATE
+            /W4
+            /permissive-
+            /EHsc
+        )
+    endif()
+    add_test(NAME TutonesScriptLocalBounds COMMAND TutonesScriptLocalTests)
+endif()
 
 source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR}/src PREFIX "Source" FILES
     src/app/DllMain.cpp
