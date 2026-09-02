@@ -155,8 +155,14 @@ namespace Tutones::Game::Native
             {0x45FC566246B3511Bull, "SET_PED_AMMO"},
             {0x5733B7E88AFB2E3Bull, "SHOOT_SINGLE_BULLET_BETWEEN_COORDS_IGNORE_ENTITY_NEW"},
             {0xD0DDC0D0D8D33E57ull, "CREATE_AMBIENT_PICKUP"},
+            // Current Enhanced target; legacy BB40DD2270B65366 maps here.
+            {0xFD5C5BBD1FE92BB7ull, "GET_PED_IN_VEHICLE_SEAT"},
+            // Current Enhanced target; legacy B251E0B33E58B424 maps here.
             {0x89D51606F3FCA194ull, "_SET_DEPLOY_HELI_STUB_WINGS"},
             {0x0C02468829E4AA65ull, "_SET_DEPLOY_MISSILE_BAYS"},
+            // Current Enhanced target; legacy AEF12960FA943792 maps here.
+            {0xA347DA69520FE64Aull, "_ARE_HELI_STUB_WINGS_DEPLOYED"},
+            {0xEA4743874D515F13ull, "_ARE_MISSILE_BAYS_DEPLOYED"},
 
             // Vehicle Cargo Enhanced targets, resolved once with the focused
             // native table under the preferred GTA script TLS scope.

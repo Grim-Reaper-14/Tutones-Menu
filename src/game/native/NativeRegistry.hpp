@@ -150,8 +150,11 @@ namespace Tutones::Game::Native
         SetPedAmmo,
         ShootSingleBulletBetweenCoordsIgnoreEntityNew,
         CreateAmbientPickup,
+        GetPedInVehicleSeat,
         SetDeployHeliStubWings,
         SetDeployMissileBays,
+        AreHeliStubWingsDeployed,
+        AreMissileBaysDeployed,
 
         // Vehicle Cargo source/delivery natives. These live in the same focused
         // registry as every other V2 native so feature runtimes never resolve or

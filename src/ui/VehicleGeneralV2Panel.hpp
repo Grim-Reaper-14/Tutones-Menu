@@ -263,6 +263,7 @@ namespace Tutones::UI
 
             if (ImGui::BeginTable("##vehicle_general_stealth", 2, ImGuiTableFlags_SizingStretchSame))
             {
+                ImGui::BeginDisabled(vehicleState.stealthPending);
                 ImGui::TableNextRow();
                 ImGui::TableSetColumnIndex(0);
                 if (ImGui::Button("Enable Vehicle Stealth", ImVec2(-1.0f, 30.0f)))
@@ -273,6 +274,7 @@ namespace Tutones::UI
                 if (ImGui::Button("Disable Vehicle Stealth", ImVec2(-1.0f, 30.0f)))
                     static_cast<void>(runtime.QueueStealthMode(false));
                 DescribeLastV11Item("Restore the supported stealth vehicle's normal wing or missile-bay state.");
+                ImGui::EndDisabled();
                 ImGui::EndTable();
             }
             ImGui::EndDisabled();
@@ -309,7 +311,15 @@ namespace Tutones::UI
                     suspension.LastWriteSucceeded() ? "OK" : "WAITING/FAILED");
             }
             if (vehicleState.lastAction != Game::Mods::VehicleModAction::None)
-                ImGui::TextDisabled("Last vehicle action: %s", vehicleState.lastActionSucceeded ? "SUCCESS" : "FAILED");
+            {
+                const char* status = vehicleState.stealthPending
+                    && vehicleState.lastAction == Game::Mods::VehicleModAction::SetStealthMode
+                    ? "PENDING"
+                    : (vehicleState.lastActionSucceeded ? "SUCCESS" : "FAILED");
+                ImGui::TextDisabled("Last vehicle action: %s", status);
+                if (!vehicleState.lastActionMessage.empty())
+                    ImGui::TextWrapped("%s", vehicleState.lastActionMessage.c_str());
+            }
         }
 
         ImGui::EndChild();

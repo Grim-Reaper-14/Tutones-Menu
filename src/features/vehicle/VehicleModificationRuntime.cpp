@@ -1,9 +1,14 @@
 #include "VehicleModificationRuntime.hpp"
+#include "VehicleStealthLogic.hpp"
 
+#include "../../core/logging/Logger.hpp"
+#include "../../game/GamePointers.hpp"
 #include "../../game/GameState.hpp"
 #include "../../game/PlayerNatives.hpp"
 #include "../../game/VehicleNatives.hpp"
 #include "../../game/native/NativeInvoker.hpp"
+#include "../../game/script/ScriptGlobal.hpp"
+#include "../../game/script/ScriptRuntime.hpp"
 #include "../../game/vehicle/VehicleModels.hpp"
 #include "../../runtime/GameRuntime.hpp"
 
@@ -111,6 +116,15 @@ namespace Tutones::Game::Mods
             m_PendingSpawnAction = VehicleModAction::SpawnVehicle;
             m_SpawnDeadline = {};
             SetSpawnPending(0, false);
+
+            m_PendingStealthVehicle = 0;
+            m_PendingStealthModel = 0;
+            m_PendingStealthEnabled = false;
+            m_PendingStealthPhysicalConfirmed = false;
+            m_StealthDeadline = {};
+            m_NextStealthControlRequest = {};
+            m_NextStealthCommand = {};
+            m_StealthRequestQueued.store(false, std::memory_order_release);
         };
 
         auto& runtime = Runtime::GameRuntime::Get();
@@ -135,6 +149,7 @@ namespace Tutones::Game::Mods
         m_LastVehicle = 0;
         m_LastObservedModType = -1;
         m_NextRefresh = {};
+        m_StealthRequestQueued.store(false, std::memory_order_release);
         ClearSnapshot();
     }
 
@@ -407,29 +422,86 @@ namespace Tutones::Game::Mods
 
     bool VehicleModificationRuntime::QueueStealthMode(bool enabled)
     {
-        return QueueVehicleOperation(VehicleModAction::SetStealthMode, [enabled](Vehicle vehicle) {
-            const auto model = Natives::GetEntityModel(vehicle);
-            if (!model)
-                return false;
-
-            const bool deploy = !enabled;
-            if (*model == Joaat("akula") || *model == Joaat("annihilator2"))
-            {
-                return Native::NativeInvoker::InvokeVoid(
-                    Native::NativeId::SetDeployHeliStubWings,
-                    vehicle,
-                    static_cast<std::int32_t>(deploy),
-                    std::int32_t{0});
-            }
-            if (*model == Joaat("raiju"))
-            {
-                return Native::NativeInvoker::InvokeVoid(
-                    Native::NativeId::SetDeployMissileBays,
-                    vehicle,
-                    static_cast<std::int32_t>(deploy));
-            }
+        const Vehicle expectedVehicle = CurrentVehicle();
+        if (!IsRunning() || expectedVehicle == 0)
             return false;
+
+        bool expected = false;
+        if (!m_StealthRequestQueued.compare_exchange_strong(expected, true, std::memory_order_acq_rel))
+            return false;
+
+        const bool queued = Runtime::GameRuntime::Get().Enqueue([this, expectedVehicle, enabled] {
+            if (!IsRunning())
+            {
+                m_StealthRequestQueued.store(false, std::memory_order_release);
+                return;
+            }
+
+            if (CurrentVehicle() != expectedVehicle)
+            {
+                m_StealthRequestQueued.store(false, std::memory_order_release);
+                RecordAction(
+                    VehicleModAction::SetStealthMode,
+                    false,
+                    true,
+                    "Stealth request dropped because the active vehicle changed");
+                return;
+            }
+
+            const auto ped = PlayerNatives::PlayerPedId();
+            const auto driver = Native::NativeInvoker::Invoke<Ped>(
+                Native::NativeId::GetPedInVehicleSeat,
+                expectedVehicle,
+                std::int32_t{-1},
+                std::int32_t{0});
+            const auto model = Natives::GetEntityModel(expectedVehicle);
+            if (!ped || !driver || *ped == 0 || *driver != *ped)
+            {
+                m_StealthRequestQueued.store(false, std::memory_order_release);
+                RecordAction(
+                    VehicleModAction::SetStealthMode,
+                    false,
+                    false,
+                    "Vehicle stealth requires the local player in the driver seat");
+                return;
+            }
+
+            if (!model || VehicleStealth::HardwareForModel(*model) == VehicleStealth::Hardware::Unsupported)
+            {
+                m_StealthRequestQueued.store(false, std::memory_order_release);
+                RecordAction(
+                    VehicleModAction::SetStealthMode,
+                    false,
+                    false,
+                    "Stealth is supported only on the Akula, Annihilator Stealth and Raiju");
+                return;
+            }
+
+            m_PendingStealthVehicle = expectedVehicle;
+            m_PendingStealthModel = *model;
+            m_PendingStealthEnabled = enabled;
+            m_PendingStealthPhysicalConfirmed = false;
+            m_StealthDeadline = Clock::now() + StealthTimeout;
+            m_NextStealthControlRequest = {};
+            m_NextStealthCommand = {};
+
+            std::scoped_lock lock(m_Mutex);
+            m_Snapshot.lastAction = VehicleModAction::SetStealthMode;
+            m_Snapshot.lastActionSucceeded = false;
+            m_Snapshot.lastActionRejectedAsStale = false;
+            m_Snapshot.stealthPending = true;
+            m_Snapshot.stealthPhysicalConfirmed = false;
+            m_Snapshot.stealthScriptConfirmed = false;
+            m_Snapshot.lastActionMessage = enabled
+                ? "Acquiring control and enabling verified vehicle stealth"
+                : "Acquiring control and disabling verified vehicle stealth";
         });
+
+        if (queued)
+            return true;
+
+        m_StealthRequestQueued.store(false, std::memory_order_release);
+        return false;
     }
 
     Vehicle VehicleModificationRuntime::CurrentVehicle() const noexcept
@@ -457,6 +529,7 @@ namespace Tutones::Game::Mods
 
         ProcessCatalogBatch();
         ProcessPendingSpawn();
+        ProcessPendingStealth();
 
         const Vehicle vehicle = CurrentVehicle();
         const int observed = m_ObservedModType.load(std::memory_order_acquire);
@@ -634,6 +707,188 @@ namespace Tutones::Game::Mods
         m_PendingSpawnPreset.reset();
         SetSpawnPending(0, false);
         RecordAction(action, success, false);
+    }
+
+    void VehicleModificationRuntime::ProcessPendingStealth() noexcept
+    {
+        if (m_PendingStealthVehicle == 0)
+            return;
+
+        const Vehicle vehicle = m_PendingStealthVehicle;
+        const bool enabled = m_PendingStealthEnabled;
+        const auto now = Clock::now();
+        const auto timedOut = [this, now](std::string message) {
+            if (now < m_StealthDeadline)
+                return false;
+            FinishStealthAction(false, false, std::move(message));
+            return true;
+        };
+
+        if (CurrentVehicle() != vehicle)
+        {
+            FinishStealthAction(false, true, "Stealth request dropped because the active vehicle changed");
+            return;
+        }
+
+        const auto exists = Natives::DoesEntityExist(vehicle);
+        const auto currentModel = Natives::GetEntityModel(vehicle);
+        if (!exists || !*exists || !currentModel || *currentModel != m_PendingStealthModel)
+        {
+            FinishStealthAction(false, true, "The queued stealth vehicle no longer exists or its handle was reused");
+            return;
+        }
+
+        const auto ped = PlayerNatives::PlayerPedId();
+        const auto driver = Native::NativeInvoker::Invoke<Ped>(
+            Native::NativeId::GetPedInVehicleSeat,
+            vehicle,
+            std::int32_t{-1},
+            std::int32_t{0});
+        if (!ped || !driver || *ped == 0 || *driver != *ped)
+        {
+            FinishStealthAction(false, false, "Vehicle stealth requires the local player to remain in the driver seat");
+            return;
+        }
+
+        const bool* sessionStarted = GamePointers::Get().IsSessionStarted();
+        auto** globals = Script::ScriptRuntime::Get().Globals();
+        if (!sessionStarted || !*sessionStarted || !globals)
+        {
+            static_cast<void>(timedOut("GTA Online script globals were unavailable while applying vehicle stealth"));
+            return;
+        }
+
+        const auto haveControl = Native::NativeInvoker::Invoke<std::int32_t>(
+            Native::NativeId::NetworkHasControlOfEntity,
+            vehicle);
+        if (!haveControl)
+        {
+            FinishStealthAction(false, false, "The network-control native was unavailable");
+            return;
+        }
+        if (*haveControl == 0)
+        {
+            if (timedOut("Timed out acquiring network control of the stealth vehicle"))
+                return;
+
+            if (m_NextStealthControlRequest == Clock::time_point{} || now >= m_NextStealthControlRequest)
+            {
+                const auto requested = Native::NativeInvoker::Invoke<std::int32_t>(
+                    Native::NativeId::NetworkRequestControlOfEntity,
+                    vehicle);
+                if (!requested)
+                {
+                    FinishStealthAction(false, false, "The network-control request native was unavailable");
+                    return;
+                }
+                m_NextStealthControlRequest = now + StealthControlRetryInterval;
+            }
+            return;
+        }
+
+        const auto hardware = VehicleStealth::HardwareForModel(m_PendingStealthModel);
+        std::optional<std::int32_t> deployed;
+        if (hardware == VehicleStealth::Hardware::FoldingWings)
+        {
+            deployed = Native::NativeInvoker::Invoke<std::int32_t>(
+                Native::NativeId::AreHeliStubWingsDeployed,
+                vehicle);
+        }
+        else if (hardware == VehicleStealth::Hardware::MissileBays)
+        {
+            deployed = Native::NativeInvoker::Invoke<std::int32_t>(
+                Native::NativeId::AreMissileBaysDeployed,
+                vehicle);
+        }
+        else
+        {
+            FinishStealthAction(false, false, "The active vehicle no longer has supported stealth hardware");
+            return;
+        }
+
+        if (!deployed)
+        {
+            FinishStealthAction(false, false, "The stealth hardware read-back native was unavailable");
+            return;
+        }
+
+        const bool physicalMatches = VehicleStealth::PhysicalStateMatches(*deployed != 0, enabled);
+        m_PendingStealthPhysicalConfirmed = physicalMatches;
+        {
+            std::scoped_lock lock(m_Mutex);
+            m_Snapshot.stealthPhysicalConfirmed = physicalMatches;
+        }
+
+        if (!physicalMatches)
+        {
+            if (timedOut("Timed out waiting for the stealth wings or missile bays to reach the requested state"))
+                return;
+
+            if (m_NextStealthCommand == Clock::time_point{} || now >= m_NextStealthCommand)
+            {
+                const std::int32_t deploy = enabled ? 0 : 1;
+                const bool invoked = hardware == VehicleStealth::Hardware::FoldingWings
+                    ? Native::NativeInvoker::InvokeVoid(
+                        Native::NativeId::SetDeployHeliStubWings,
+                        vehicle,
+                        deploy,
+                        std::int32_t{0})
+                    : Native::NativeInvoker::InvokeVoid(
+                        Native::NativeId::SetDeployMissileBays,
+                        vehicle,
+                        deploy);
+                if (!invoked)
+                {
+                    FinishStealthAction(false, false, "The stealth hardware command native was unavailable");
+                    return;
+                }
+                m_NextStealthCommand = now + StealthCommandRetryInterval;
+            }
+            return;
+        }
+
+        {
+            std::scoped_lock lock(m_Mutex);
+            m_Snapshot.lastActionMessage = "Vehicle hardware confirmed; waiting for the GTA stealth script";
+        }
+
+        const auto player = PlayerNatives::PlayerId();
+        if (!player || *player < 0 || *player >= 32)
+        {
+            FinishStealthAction(false, false, "The local network player index was unavailable");
+            return;
+        }
+
+        const auto flagsGlobal = Script::ScriptGlobal(
+            VehicleStealth::PlayerStealthFlagsIndex(static_cast<std::size_t>(*player)));
+        const auto* flags = flagsGlobal.As<std::uint32_t>(globals);
+        if (!flags)
+        {
+            FinishStealthAction(false, false, "The Enhanced vehicle-stealth state could not be read safely");
+            return;
+        }
+
+        const auto* stealthThread = Script::ScriptRuntime::Get().FindThread(Joaat("vehicle_stealth_mode"));
+        const bool scriptActive = stealthThread
+            && stealthThread->context.state != Types::ScriptThreadState::Killed;
+        if (enabled && !scriptActive)
+        {
+            static_cast<void>(timedOut("The GTA vehicle_stealth_mode script did not become active"));
+            return;
+        }
+
+        if (!VehicleStealth::ScriptStateMatches(*flags, enabled))
+        {
+            static_cast<void>(timedOut("The GTA vehicle_stealth_mode script did not confirm the requested state"));
+            return;
+        }
+
+        FinishStealthAction(
+            true,
+            false,
+            enabled
+                ? "Vehicle stealth enabled and confirmed by GTA"
+                : "Vehicle stealth disabled and confirmed by GTA");
     }
 
     bool VehicleModificationRuntime::Refresh(Vehicle vehicle) noexcept
@@ -997,12 +1252,57 @@ namespace Tutones::Game::Mods
         });
     }
 
-    void VehicleModificationRuntime::RecordAction(VehicleModAction action, bool success, bool stale) noexcept
+    void VehicleModificationRuntime::FinishStealthAction(bool success, bool stale, std::string message) noexcept
+    {
+        const bool enabled = m_PendingStealthEnabled;
+        const bool physicalConfirmed = m_PendingStealthPhysicalConfirmed;
+
+        m_PendingStealthVehicle = 0;
+        m_PendingStealthModel = 0;
+        m_PendingStealthEnabled = false;
+        m_PendingStealthPhysicalConfirmed = false;
+        m_StealthDeadline = {};
+        m_NextStealthControlRequest = {};
+        m_NextStealthCommand = {};
+        m_StealthRequestQueued.store(false, std::memory_order_release);
+
+        {
+            std::scoped_lock lock(m_Mutex);
+            m_Snapshot.lastAction = VehicleModAction::SetStealthMode;
+            m_Snapshot.lastActionSucceeded = success;
+            m_Snapshot.lastActionRejectedAsStale = stale;
+            m_Snapshot.stealthPending = false;
+            m_Snapshot.stealthPhysicalConfirmed = physicalConfirmed;
+            m_Snapshot.stealthScriptConfirmed = success;
+            if (success)
+                m_Snapshot.stealthEnabled = enabled;
+            m_Snapshot.lastActionMessage = message;
+        }
+
+        const std::string logMessage = std::string(success ? "Succeeded: " : "Failed: ") + message;
+        if (success)
+            TUTONES_LOG_INFO("vehicle.stealth", logMessage);
+        else
+            TUTONES_LOG_WARN("vehicle.stealth", logMessage);
+    }
+
+    void VehicleModificationRuntime::RecordAction(
+        VehicleModAction action,
+        bool success,
+        bool stale,
+        std::string message) noexcept
     {
         std::scoped_lock lock(m_Mutex);
         m_Snapshot.lastAction = action;
         m_Snapshot.lastActionSucceeded = success;
         m_Snapshot.lastActionRejectedAsStale = stale;
+        m_Snapshot.lastActionMessage = std::move(message);
+        if (action == VehicleModAction::SetStealthMode)
+        {
+            m_Snapshot.stealthPending = false;
+            m_Snapshot.stealthPhysicalConfirmed = false;
+            m_Snapshot.stealthScriptConfirmed = false;
+        }
     }
 
     void VehicleModificationRuntime::SetSpawnPending(Hash model, bool pending) noexcept
@@ -1018,6 +1318,7 @@ namespace Tutones::Game::Mods
         const auto lastAction = m_Snapshot.lastAction;
         const bool lastSuccess = m_Snapshot.lastActionSucceeded;
         const bool lastStale = m_Snapshot.lastActionRejectedAsStale;
+        const std::string lastMessage = m_Snapshot.lastActionMessage;
         const bool spawnPending = m_Snapshot.spawnPending;
         const Hash pendingSpawnModel = m_Snapshot.pendingSpawnModel;
         const Vehicle lastSpawnedVehicle = m_Snapshot.lastSpawnedVehicle;
@@ -1027,6 +1328,7 @@ namespace Tutones::Game::Mods
         m_Snapshot.lastAction = lastAction;
         m_Snapshot.lastActionSucceeded = lastSuccess;
         m_Snapshot.lastActionRejectedAsStale = lastStale;
+        m_Snapshot.lastActionMessage = lastMessage;
         m_Snapshot.spawnPending = spawnPending;
         m_Snapshot.pendingSpawnModel = pendingSpawnModel;
         m_Snapshot.lastSpawnedVehicle = lastSpawnedVehicle;

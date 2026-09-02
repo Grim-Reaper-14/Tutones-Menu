@@ -167,6 +167,21 @@ if(BUILD_TESTING)
         )
     endif()
     add_test(NAME TutonesScriptLocalBounds COMMAND TutonesScriptLocalTests)
+
+    add_executable(TutonesVehicleStealthTests
+        tests/VehicleStealthTests.cpp
+    )
+    target_include_directories(TutonesVehicleStealthTests PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
+    )
+    if(MSVC)
+        target_compile_options(TutonesVehicleStealthTests PRIVATE
+            /W4
+            /permissive-
+            /EHsc
+        )
+    endif()
+    add_test(NAME TutonesVehicleStealthLogic COMMAND TutonesVehicleStealthTests)
 endif()
 
 source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR}/src PREFIX "Source" FILES
@@ -220,6 +235,7 @@ source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR}/src PREFIX "Source" FILES
     src/features/vehicle/PersonalVehicleScriptActions.cpp
     src/features/vehicle/VehicleModificationRuntime.cpp
     src/features/vehicle/VehicleModificationRuntime.hpp
+    src/features/vehicle/VehicleStealthLogic.hpp
     src/features/vehicle/VehicleWorkshopRuntime.hpp
     src/features/vehicle/VehiclePaintRuntime.cpp
     src/features/vehicle/VehiclePaintRuntime.hpp

@@ -303,13 +303,15 @@ namespace Tutones::UI
                 static_cast<void>(runtime.QueueMaxVehicle());
             DescribeLastV11Item("Apply the highest supported native LSC option to each modification slot exposed by this vehicle.");
 
+            ImGui::BeginDisabled(snapshot.stealthPending);
             if (ImGui::Button("Enable stealth", ImVec2(220.0f, 0.0f)))
                 g_Message = runtime.QueueStealthMode(true) ? "Vehicle stealth queued" : "Vehicle stealth rejected";
-            DescribeLastV11Item("Fold Akula/Annihilator2 stealth wings or close the Raiju missile bays using the Enhanced vehicle_stealth_mode behavior.");
+            DescribeLastV11Item("Acquire network control, close the supported stealth hardware, and verify GTA's Enhanced vehicle_stealth_mode state.");
             ImGui::SameLine();
             if (ImGui::Button("Disable stealth", ImVec2(-1.0f, 0.0f)))
                 g_Message = runtime.QueueStealthMode(false) ? "Vehicle stealth disable queued" : "Vehicle stealth disable rejected";
-            DescribeLastV11Item("Deploy the supported stealth vehicle's wings or missile bays again. Unsupported vehicle models are rejected.");
+            DescribeLastV11Item("Deploy the supported stealth hardware and verify that GTA cleared its vehicle-stealth state.");
+            ImGui::EndDisabled();
 
             ImGui::Separator();
             ImGui::TextDisabled("LSC restrictions: Tutones applies supported native mod slots directly; rank/purchase gates are not part of this path.");
@@ -426,10 +428,15 @@ namespace Tutones::UI
             ImGui::Text("Last action: %s", ActionName(snapshot.lastAction));
             if (snapshot.lastAction != Game::Mods::VehicleModAction::None)
             {
-                if (snapshot.lastActionRejectedAsStale)
+                if (snapshot.stealthPending && snapshot.lastAction == Game::Mods::VehicleModAction::SetStealthMode)
+                    ImGui::SameLine(), ImGui::Text("(pending)");
+                else if (snapshot.lastActionRejectedAsStale)
                     ImGui::TextDisabled("Dropped because you switched vehicles.");
                 else
                     ImGui::SameLine(), ImGui::Text("(%s)", snapshot.lastActionSucceeded ? "success" : "failed");
+
+                if (!snapshot.lastActionMessage.empty())
+                    ImGui::TextWrapped("%s", snapshot.lastActionMessage.c_str());
             }
         }
 

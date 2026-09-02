@@ -71,6 +71,11 @@ namespace Tutones::Game::Mods
         VehicleModAction lastAction{VehicleModAction::None};
         bool lastActionSucceeded{};
         bool lastActionRejectedAsStale{};
+        bool stealthPending{};
+        bool stealthPhysicalConfirmed{};
+        bool stealthScriptConfirmed{};
+        bool stealthEnabled{};
+        std::string lastActionMessage{};
     };
 
     struct VehicleCatalogSnapshot final
@@ -87,6 +92,9 @@ namespace Tutones::Game::Mods
         using Clock = std::chrono::steady_clock;
         static constexpr auto RefreshInterval = std::chrono::milliseconds{250};
         static constexpr auto SpawnTimeout = std::chrono::seconds{6};
+        static constexpr auto StealthTimeout = std::chrono::seconds{3};
+        static constexpr auto StealthControlRetryInterval = std::chrono::milliseconds{200};
+        static constexpr auto StealthCommandRetryInterval = std::chrono::milliseconds{100};
 
         static VehicleModificationRuntime& Get() noexcept;
 
@@ -157,6 +165,7 @@ namespace Tutones::Game::Mods
         bool QueueNextTick();
         void TickOnGameThread() noexcept;
         void ProcessPendingSpawn() noexcept;
+        void ProcessPendingStealth() noexcept;
         void ProcessCatalogBatch() noexcept;
         bool BeginPendingSpawn(Hash model, bool spawnInside, bool maxed, VehicleModAction action, std::optional<VehiclePreset> preset = std::nullopt) noexcept;
         bool Refresh(Vehicle vehicle) noexcept;
@@ -166,7 +175,8 @@ namespace Tutones::Game::Mods
         bool SavePresetToDisk(std::string_view name, const VehiclePreset& preset) noexcept;
         bool LoadPresetFromDisk(std::string_view name, VehiclePreset& preset) const noexcept;
         bool QueueVehicleOperation(VehicleModAction action, std::function<bool(Vehicle)> apply);
-        void RecordAction(VehicleModAction action, bool success, bool stale) noexcept;
+        void FinishStealthAction(bool success, bool stale, std::string message) noexcept;
+        void RecordAction(VehicleModAction action, bool success, bool stale, std::string message = {}) noexcept;
         void SetSpawnPending(Hash model, bool pending) noexcept;
         void ClearSnapshot() noexcept;
         [[nodiscard]] static Hash Joaat(std::string_view text) noexcept;
@@ -184,6 +194,15 @@ namespace Tutones::Game::Mods
         std::optional<VehiclePreset> m_PendingSpawnPreset{};
         VehicleModAction m_PendingSpawnAction{VehicleModAction::SpawnVehicle};
         Clock::time_point m_SpawnDeadline{};
+
+        std::atomic<bool> m_StealthRequestQueued{false};
+        Vehicle m_PendingStealthVehicle{};
+        Hash m_PendingStealthModel{};
+        bool m_PendingStealthEnabled{};
+        bool m_PendingStealthPhysicalConfirmed{};
+        Clock::time_point m_StealthDeadline{};
+        Clock::time_point m_NextStealthControlRequest{};
+        Clock::time_point m_NextStealthCommand{};
 
         std::vector<int> m_CatalogClasses{};
         std::vector<std::string> m_CatalogDisplayNames{};
