@@ -182,6 +182,21 @@ if(BUILD_TESTING)
         )
     endif()
     add_test(NAME TutonesVehicleStealthLogic COMMAND TutonesVehicleStealthTests)
+
+    add_executable(TutonesAcidLabProductionTests
+        tests/AcidLabProductionTests.cpp
+    )
+    target_include_directories(TutonesAcidLabProductionTests PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
+    )
+    if(MSVC)
+        target_compile_options(TutonesAcidLabProductionTests PRIVATE
+            /W4
+            /permissive-
+            /EHsc
+        )
+    endif()
+    add_test(NAME TutonesAcidLabProductionLogic COMMAND TutonesAcidLabProductionTests)
 endif()
 
 source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR}/src PREFIX "Source" FILES
@@ -211,6 +226,7 @@ source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR}/src PREFIX "Source" FILES
     src/core/logging/LogSink.hpp
     src/core/logging/Logger.cpp
     src/core/logging/Logger.hpp
+    src/features/business/AcidLabProductionLogic.hpp
     src/features/game/GameSessionRuntime.cpp
     src/features/game/GameSessionRuntime.hpp
     src/features/game/GameSessionTypes.hpp

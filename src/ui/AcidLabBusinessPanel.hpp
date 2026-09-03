@@ -48,15 +48,20 @@ namespace Tutones::UI
             if (ImGui::Button("Instant Fill Production", ImVec2(-1.0f, 0.0f)))
                 static_cast<void>(productionRuntime.QueueInstantFinish());
             ImGui::EndDisabled();
-            DescribeLastV11Item("Use the Enhanced Acid Lab production controller instead of forcing the stock stat. Tutones repeatedly pulses Global_2708938/2708939 on the GTA script thread, keeps Acid Lab resupply requested, and stops automatically when MPX_PRODTOTALFORFACTORY6 reaches 160 units.");
+            DescribeLastV11Item("Set the active character's verified factory-6 Acid stock to its 160-unit cap, verify the persistent stat, and refresh the live freemode business cache when it is available.");
 
             if (productionState.stockUnits >= 0)
                 ImGui::TextDisabled("Observed Acid stock: %d / 160", productionState.stockUnits);
             else
                 ImGui::TextDisabled("Observed Acid stock: press Instant Fill Production to refresh");
 
-            if (productionState.actionPending)
-                ImGui::TextDisabled("Controller ticks: %d", productionState.ticksApplied);
+            if (productionState.haveResult && productionState.lastSucceeded)
+            {
+                ImGui::TextDisabled(
+                    "Persistent stock: %s  |  Live cache: %s",
+                    productionState.persistentStockVerified ? "VERIFIED" : "FAILED",
+                    productionState.liveCacheUpdated ? "UPDATED" : "DEFERRED");
+            }
 
             ImGui::SeparatorText("Status");
             if (productionState.actionPending)
@@ -77,6 +82,6 @@ namespace Tutones::UI
         ImGui::EndChild();
         ImGui::PopStyleColor(2);
         ImGui::PopStyleVar(2);
-        SetV11Description("Acid Lab has dedicated Instant Resupply and controller-driven Instant Fill Production controls for Enhanced 1.73.");
+        SetV11Description("Acid Lab has dedicated Instant Resupply and verified persistent/live-cache Instant Fill Production controls for Enhanced 1.73.");
     }
 }
