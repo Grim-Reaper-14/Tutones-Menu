@@ -27,6 +27,7 @@ namespace Tutones::UI
         auto& runtime = Game::Mods::VehicleModificationRuntime::Get();
         auto& suspension = Game::Mods::VehicleSuspensionRuntime::Get();
         const auto vehicleState = runtime.Snapshot();
+        const auto enterLastVehicle = extras.EnterLastVehicleStatus();
         const auto gameState = Game::GameState::Get().Snapshot();
         const bool hasCurrentVehicle = gameState.inVehicle && gameState.vehicle != 0;
 
@@ -279,11 +280,25 @@ namespace Tutones::UI
             }
             ImGui::EndDisabled();
 
-            ImGui::BeginDisabled(!Game::Native::NativeRegistry::Get().IsReady());
-            if (ImGui::Button("Enter Last Vehicle", ImVec2(-1.0f, 30.0f)))
+            ImGui::BeginDisabled(
+                !Game::Native::NativeRegistry::Get().IsReady()
+                || enterLastVehicle.pending);
+            const char* enterLastVehicleLabel = enterLastVehicle.pending
+                ? "Entering Last Vehicle..."
+                : "Enter Last Vehicle";
+            if (ImGui::Button(enterLastVehicleLabel, ImVec2(-1.0f, 30.0f)))
                 static_cast<void>(extras.QueueEnterLastVehicle());
             ImGui::EndDisabled();
-            DescribeLastV11Item("Warp the local player into the driver seat of the last GTA vehicle they occupied, when that entity still exists.");
+            DescribeLastV11Item("Warp the local player into the last occupied GTA vehicle, retry briefly, and verify the local player reached its driver seat.");
+            if (enterLastVehicle.pending || enterLastVehicle.haveResult)
+            {
+                const char* status = enterLastVehicle.pending
+                    ? "PENDING"
+                    : (enterLastVehicle.succeeded ? "SUCCESS" : "FAILED");
+                ImGui::TextDisabled("Enter last vehicle: %s", status);
+                if (!enterLastVehicle.message.empty())
+                    ImGui::TextWrapped("%s", enterLastVehicle.message.c_str());
+            }
 
             ImGui::SeparatorText("Current Vehicle Status");
             ImGui::Text("Vehicle: %d", gameState.vehicle);

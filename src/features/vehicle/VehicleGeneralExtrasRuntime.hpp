@@ -1,7 +1,9 @@
 #pragma once
 
+#include "../../core/logging/Logger.hpp"
 #include "../../game/GamePointers.hpp"
 #include "../../game/Natives.hpp"
+#include "../../game/VehicleNatives.hpp"
 #include "../../game/native/NativeCallContext.hpp"
 #include "../../game/native/NativeRegistry.hpp"
 #include "../../runtime/GameRuntime.hpp"
@@ -14,14 +16,26 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <mutex>
 #include <optional>
+#include <string>
 #include <thread>
+#include <utility>
 
 namespace Tutones::Game::Mods
 {
     class VehicleGeneralExtrasRuntime final
     {
     public:
+        struct EnterLastVehicleSnapshot final
+        {
+            bool pending{};
+            bool haveResult{};
+            bool succeeded{};
+            Vehicle vehicle{};
+            std::string message{};
+        };
+
         static VehicleGeneralExtrasRuntime& Get() noexcept
         {
             static VehicleGeneralExtrasRuntime instance;
@@ -76,6 +90,12 @@ namespace Tutones::Game::Mods
         [[nodiscard]] float SpeedMph() const noexcept
         {
             return SpeedMetersPerSecond() * 2.23693629f;
+        }
+
+        [[nodiscard]] EnterLastVehicleSnapshot EnterLastVehicleStatus() const
+        {
+            std::scoped_lock lock(m_EnterLastVehicleMutex);
+            return m_EnterLastVehicleSnapshot;
         }
 
         void SetKeepVehicleFixed(bool enabled) noexcept
@@ -149,22 +169,21 @@ namespace Tutones::Game::Mods
 
         bool QueueEnterLastVehicle() noexcept
         {
-            return QueueAction([this] {
-                const Ped ped = CurrentPed();
-                if (ped == 0)
-                    return;
+            bool expected = false;
+            if (!m_EnterLastVehiclePending.compare_exchange_strong(
+                    expected,
+                    true,
+                    std::memory_order_acq_rel))
+            {
+                return false;
+            }
 
-                // GET_VEHICLE_PED_IS_IN(ped, true) returns the ped's last vehicle.
-                const auto vehicle = Natives::GetVehiclePedIsIn(ped, true);
-                if (!vehicle || *vehicle == 0)
-                    return;
+            PublishEnterLastVehiclePending("Resolving the last occupied vehicle...");
+            if (QueueAction([this] { BeginEnterLastVehicle(); }))
+                return true;
 
-                const auto exists = Natives::DoesEntityExist(*vehicle);
-                if (!exists || !*exists)
-                    return;
-
-                static_cast<void>(SetPedIntoVehicle(ped, *vehicle, -1));
-            });
+            FinishEnterLastVehicle(false, 0, "GTA script-thread queue is unavailable");
+            return false;
         }
 
         bool QueueSetEngine(bool enabled) noexcept
@@ -195,6 +214,12 @@ namespace Tutones::Game::Mods
             m_AllowHatsInVehicles.store(false, std::memory_order_release);
             m_SpeedReadout.store(false, std::memory_order_release);
             m_SpeedMetersPerSecond.store(0.0f, std::memory_order_release);
+            m_EnterLastVehiclePending.store(false, std::memory_order_release);
+
+            {
+                std::scoped_lock lock(m_EnterLastVehicleMutex);
+                m_EnterLastVehicleSnapshot = {};
+            }
 
             const auto cleanup = [this] {
                 RestoreSeatbelt();
@@ -249,7 +274,6 @@ namespace Tutones::Game::Mods
             SetVehicleEngineOnHandler,
             SetVehicleLightsHandler,
             SetVehicleFullbeamHandler,
-            SetPedIntoVehicleHandler,
             SetVehicleDoorsLockedHandler,
             GetEntitySpeedHandler,
             GetDamageDecalsHandler,
@@ -268,7 +292,6 @@ namespace Tutones::Game::Mods
             0xC229299217554C78ull, // SET_VEHICLE_ENGINE_ON
             0xBA3C1A9AA7FD9616ull, // SET_VEHICLE_LIGHTS
             0x2F12C305B28C6C59ull, // SET_VEHICLE_FULLBEAM
-            0x73CAFD2038E812B3ull, // SET_PED_INTO_VEHICLE
             0x0B74F181ADFC39BFull, // SET_VEHICLE_DOORS_LOCKED
             0xDF93B3CFAC96698Full, // GET_ENTITY_SPEED
             0xB69AE16F62A14003ull, // GET_DOES_VEHICLE_HAVE_DAMAGE_DECALS
@@ -454,17 +477,6 @@ namespace Tutones::Game::Mods
             return true;
         }
 
-        [[nodiscard]] bool SetPedIntoVehicle(Ped ped, Vehicle vehicle, int seat) noexcept
-        {
-            if (ped == 0 || vehicle == 0 || !ResolveHandlers())
-                return false;
-            Native::CallContext context;
-            if (!context.PushArg(ped) || !context.PushArg(vehicle) || !context.PushArg(seat))
-                return false;
-            m_Handlers[SetPedIntoVehicleHandler](&context);
-            return true;
-        }
-
         [[nodiscard]] bool SetVehicleDoorsLocked(Vehicle vehicle, int state) noexcept
         {
             if (vehicle == 0 || !ResolveHandlers())
@@ -540,6 +552,163 @@ namespace Tutones::Game::Mods
                 return false;
             m_Handlers[ForceEntityUpdateHandler](&context);
             return true;
+        }
+
+        void PublishEnterLastVehiclePending(std::string message) noexcept
+        {
+            std::scoped_lock lock(m_EnterLastVehicleMutex);
+            m_EnterLastVehicleSnapshot.pending = true;
+            m_EnterLastVehicleSnapshot.haveResult = false;
+            m_EnterLastVehicleSnapshot.succeeded = false;
+            m_EnterLastVehicleSnapshot.vehicle = m_PendingEnterLastVehicle;
+            m_EnterLastVehicleSnapshot.message = std::move(message);
+        }
+
+        void FinishEnterLastVehicle(bool success, Vehicle vehicle, std::string message) noexcept
+        {
+            m_PendingEnterLastPed = 0;
+            m_PendingEnterLastVehicle = 0;
+            m_EnterLastVehicleDeadline = {};
+            m_NextEnterLastVehicleAttempt = {};
+            m_EnterLastVehiclePending.store(false, std::memory_order_release);
+
+            {
+                std::scoped_lock lock(m_EnterLastVehicleMutex);
+                m_EnterLastVehicleSnapshot.pending = false;
+                m_EnterLastVehicleSnapshot.haveResult = true;
+                m_EnterLastVehicleSnapshot.succeeded = success;
+                m_EnterLastVehicleSnapshot.vehicle = vehicle;
+                m_EnterLastVehicleSnapshot.message = message;
+            }
+
+            const std::string logMessage = std::string(success ? "Succeeded: " : "Failed: ") + message;
+            if (success)
+                TUTONES_LOG_INFO("vehicle.enter_last", logMessage);
+            else
+                TUTONES_LOG_WARN("vehicle.enter_last", logMessage);
+        }
+
+        void BeginEnterLastVehicle() noexcept
+        {
+            if (!m_EnterLastVehiclePending.load(std::memory_order_acquire))
+                return;
+
+            const Ped ped = CurrentPed();
+            if (ped == 0)
+            {
+                FinishEnterLastVehicle(false, 0, "The local player ped is unavailable");
+                return;
+            }
+
+            const auto inVehicle = Natives::IsPedInAnyVehicle(ped, false);
+            if (!inVehicle)
+            {
+                FinishEnterLastVehicle(false, 0, "Could not read the local player's vehicle state");
+                return;
+            }
+            if (*inVehicle)
+            {
+                FinishEnterLastVehicle(false, 0, "Exit the current vehicle before using Enter Last Vehicle");
+                return;
+            }
+
+            // GET_VEHICLE_PED_IS_IN(ped, true) returns the ped's last vehicle.
+            const auto vehicle = Natives::GetVehiclePedIsIn(ped, true);
+            if (!vehicle || *vehicle == 0)
+            {
+                FinishEnterLastVehicle(false, 0, "GTA does not have a last occupied vehicle for the local player");
+                return;
+            }
+
+            const auto exists = Natives::DoesEntityExist(*vehicle);
+            if (!exists || !*exists)
+            {
+                FinishEnterLastVehicle(false, *vehicle, "The last occupied vehicle no longer exists");
+                return;
+            }
+
+            const auto driver = Native::NativeInvoker::Invoke<Ped>(
+                Native::NativeId::GetPedInVehicleSeat,
+                *vehicle,
+                std::int32_t{-1},
+                std::int32_t{0});
+            if (!driver)
+            {
+                FinishEnterLastVehicle(false, *vehicle, "Could not read the last vehicle's driver seat");
+                return;
+            }
+            if (*driver != 0 && *driver != ped)
+            {
+                FinishEnterLastVehicle(false, *vehicle, "The last vehicle's driver seat is occupied");
+                return;
+            }
+
+            m_PendingEnterLastPed = ped;
+            m_PendingEnterLastVehicle = *vehicle;
+            m_EnterLastVehicleDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+            m_NextEnterLastVehicleAttempt = {};
+            PublishEnterLastVehiclePending("Entering the last vehicle and verifying the driver seat...");
+            ContinueEnterLastVehicle();
+        }
+
+        void ContinueEnterLastVehicle() noexcept
+        {
+            if (!m_EnterLastVehiclePending.load(std::memory_order_acquire))
+                return;
+
+            const Ped ped = m_PendingEnterLastPed;
+            const Vehicle vehicle = m_PendingEnterLastVehicle;
+            if (ped == 0 || vehicle == 0 || CurrentPed() != ped)
+            {
+                FinishEnterLastVehicle(false, vehicle, "The local player changed while entering the last vehicle");
+                return;
+            }
+
+            const auto exists = Natives::DoesEntityExist(vehicle);
+            if (!exists || !*exists)
+            {
+                FinishEnterLastVehicle(false, vehicle, "The last occupied vehicle disappeared before entry completed");
+                return;
+            }
+
+            const auto driver = Native::NativeInvoker::Invoke<Ped>(
+                Native::NativeId::GetPedInVehicleSeat,
+                vehicle,
+                std::int32_t{-1},
+                std::int32_t{0});
+            if (!driver)
+            {
+                FinishEnterLastVehicle(false, vehicle, "Could not verify the last vehicle's driver seat");
+                return;
+            }
+
+            const auto currentVehicle = Natives::GetVehiclePedIsIn(ped, false);
+            if (currentVehicle && *currentVehicle == vehicle && *driver == ped)
+            {
+                FinishEnterLastVehicle(true, vehicle, "Entered the last vehicle and verified the driver seat");
+                return;
+            }
+            if (*driver != 0 && *driver != ped)
+            {
+                FinishEnterLastVehicle(false, vehicle, "The last vehicle's driver seat became occupied");
+                return;
+            }
+
+            const auto now = std::chrono::steady_clock::now();
+            if (now >= m_EnterLastVehicleDeadline)
+            {
+                FinishEnterLastVehicle(false, vehicle, "GTA did not confirm entry into the last vehicle within two seconds");
+                return;
+            }
+
+            if (now >= m_NextEnterLastVehicleAttempt)
+            {
+                static_cast<void>(VehicleNatives::SetPedIntoVehicle(ped, vehicle, -1));
+                m_NextEnterLastVehicleAttempt = now + std::chrono::milliseconds(100);
+            }
+
+            if (!QueueAction([this] { ContinueEnterLastVehicle(); }))
+                FinishEnterLastVehicle(false, vehicle, "GTA script-thread queue stopped before entry could be verified");
         }
 
         void ApplyKeepFixed(Vehicle vehicle) noexcept
@@ -706,7 +875,14 @@ namespace Tutones::Game::Mods
         std::atomic<bool> m_SpeedReadout{false};
         std::atomic<bool> m_Ticking{false};
         std::atomic<float> m_SpeedMetersPerSecond{0.0f};
+        std::atomic<bool> m_EnterLastVehiclePending{false};
         std::array<Native::NativeHandler, HandlerCount> m_Handlers{};
+        mutable std::mutex m_EnterLastVehicleMutex;
+        EnterLastVehicleSnapshot m_EnterLastVehicleSnapshot{};
+        Ped m_PendingEnterLastPed{};
+        Vehicle m_PendingEnterLastVehicle{};
+        std::chrono::steady_clock::time_point m_EnterLastVehicleDeadline{};
+        std::chrono::steady_clock::time_point m_NextEnterLastVehicleAttempt{};
         Ped m_LastSeatbeltPed{};
         Ped m_LastEnginePed{};
         Vehicle m_LastLightsVehicle{};
