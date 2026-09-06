@@ -29,7 +29,7 @@ namespace Tutones::UI
             ImGui::TextColored(V11Theme::Accent, "PROTECTIONS");
             ImGui::SameLine();
             ImGui::TextDisabled(subtab == 0 ? "OVERVIEW" : subtab == 1 ? "NETWORK EVENTS" : "SCRIPT EVENTS");
-            ImGui::TextDisabled("Live Enhanced packet and event protection controls.");
+            ImGui::TextDisabled("Live Enhanced packet, crash and forced-leave protection controls.");
             ImGui::Separator();
 
             if (subtab == 0)
@@ -48,8 +48,21 @@ namespace Tutones::UI
                         ImGui::Spacing();
                         ImGui::TextWrapped("%s", snapshot.status.c_str());
                         ImGui::Spacing();
+                        ImGui::SeparatorText("Core Protection");
+
+                        bool forcedLeave = snapshot.blockForcedLeave;
+                        if (ImGui::Checkbox("Forced Leave / Kick Protection", &forcedLeave))
+                            runtime.SetBlockForcedLeave(forcedLeave);
+                        DescribeLastV11Item("Blocks direct kick message types and KICK_VOTES_EVENT traffic before GTA handles it.");
+
+                        bool knownCrashes = snapshot.blockKnownCrashes;
+                        if (ImGui::Checkbox("Known Crash Protection", &knownCrashes))
+                            runtime.SetBlockKnownCrashes(knownCrashes);
+                        DescribeLastV11Item("Blocks known malformed or crash-prone network event payloads while allowing normal events through.");
+
+                        ImGui::Spacing();
                         ImGui::SeparatorText("Default Policy");
-                        ImGui::TextWrapped("Malformed packet and malformed scripted-event validation stay enabled by default. Broad event blocks remain opt-in to avoid breaking legitimate GTA Online activity.");
+                        ImGui::TextWrapped("Malformed packets, forced-leave attempts, malformed scripted events and known crash payloads are blocked by default. Broad gameplay-event blocks remain optional.");
                     }
                     ImGui::EndChild();
 
@@ -70,15 +83,26 @@ namespace Tutones::UI
                         ImGui::Text("Events blocked");
                         ImGui::SameLine(190.0f);
                         ImGui::Text("%llu", static_cast<unsigned long long>(snapshot.eventsBlocked));
+                        ImGui::Text("Forced leaves blocked");
+                        ImGui::SameLine(190.0f);
+                        ImGui::Text("%llu", static_cast<unsigned long long>(snapshot.forcedLeaveAttemptsBlocked));
+                        ImGui::Text("Crash attempts blocked");
+                        ImGui::SameLine(190.0f);
+                        ImGui::Text("%llu", static_cast<unsigned long long>(snapshot.knownCrashAttemptsBlocked));
 
                         ImGui::Spacing();
                         ImGui::SeparatorText("Last Block");
-                        if (snapshot.lastBlockedEvent >= 0)
+                        if (snapshot.lastBlockedMessageType >= 0)
+                            ImGui::Text("Message type: 0x%X", snapshot.lastBlockedMessageType);
+                        else if (snapshot.lastBlockedEvent >= 0)
                             ImGui::Text("Event ID: %d", snapshot.lastBlockedEvent);
                         else if (snapshot.lastBlockedEvent == -2)
                             ImGui::Text("Malformed packet");
                         else
                             ImGui::TextDisabled("Nothing blocked this session.");
+
+                        if (snapshot.lastBlockedPeerId != 0)
+                            ImGui::Text("Peer ID: %u", snapshot.lastBlockedPeerId);
 
                         ImGui::Spacing();
                         if (ImGui::Button("RESET COUNTERS", ImVec2(-1.0f, 36.0f)))
@@ -100,19 +124,29 @@ namespace Tutones::UI
                         ImGui::TextColored(V11Theme::Accent, "CORE FILTERS");
                         ImGui::Separator();
 
+                        bool forcedLeave = snapshot.blockForcedLeave;
+                        if (ImGui::Checkbox("Forced Leave / Kick Protection", &forcedLeave))
+                            runtime.SetBlockForcedLeave(forcedLeave);
+                        DescribeLastV11Item("Reject direct kick messages and kick-vote network events before they reach GTA.");
+
+                        bool knownCrashes = snapshot.blockKnownCrashes;
+                        if (ImGui::Checkbox("Known Crash Protection", &knownCrashes))
+                            runtime.SetBlockKnownCrashes(knownCrashes);
+                        DescribeLastV11Item("Reject known crash-prone network event payloads before GTA processes them.");
+
                         bool malformed = snapshot.blockMalformed;
                         if (ImGui::Checkbox("Malformed Packets", &malformed)) runtime.SetBlockMalformed(malformed);
-                        DescribeLastV11Item("Reject invalid message headers, impossible packet lengths and malformed PackedEvents data before GTA processes them.");
+                        DescribeLastV11Item("Reject invalid message headers, impossible packet lengths, forged event counts and malformed PackedEvents data before GTA processes them.");
 
                         bool sounds = snapshot.blockSounds;
-                        if (ImGui::Checkbox("Network Sound Events", &sounds)) runtime.SetBlockSounds(sounds);
-                        DescribeLastV11Item("Block NETWORK_PLAY_SOUND_EVENT traffic.");
+                        if (ImGui::Checkbox("Block All Network Sound Events", &sounds)) runtime.SetBlockSounds(sounds);
+                        DescribeLastV11Item("Aggressive mode. Blocks all NETWORK_PLAY_SOUND_EVENT traffic and can interfere with legitimate activity audio.");
 
                         bool explosions = snapshot.blockExplosions;
-                        if (ImGui::Checkbox("Explosion Events", &explosions)) runtime.SetBlockExplosions(explosions);
+                        if (ImGui::Checkbox("Block All Explosion Events", &explosions)) runtime.SetBlockExplosions(explosions);
 
                         bool fire = snapshot.blockFire;
-                        if (ImGui::Checkbox("Fire Events", &fire)) runtime.SetBlockFire(fire);
+                        if (ImGui::Checkbox("Block All Fire Events", &fire)) runtime.SetBlockFire(fire);
                     }
                     ImGui::EndChild();
 
@@ -136,7 +170,7 @@ namespace Tutones::UI
 
                         ImGui::Spacing();
                         ImGui::SeparatorText("Behavior");
-                        ImGui::TextWrapped("Optional event filters reject the containing PackedEvents packet when matched. Keep broad filters off unless you specifically need them.");
+                        ImGui::TextWrapped("Crash and kick protection is selective and enabled by default. Optional broad event filters reject the containing PackedEvents packet when matched.");
                     }
                     ImGui::EndChild();
 
