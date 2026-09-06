@@ -8,6 +8,7 @@
 #include "../core/logging/Logger.hpp"
 #include "../features/game/GameSessionRuntime.hpp"
 #include "../features/network/NetworkRuntime.hpp"
+#include "../features/network/ProtectionRuntime.hpp"
 #include "../features/player/OffRadarRuntime.hpp"
 #include "../features/player/PlayerRuntime.hpp"
 #include "../features/recovery/RecoveryRuntime.hpp"
@@ -229,9 +230,6 @@ namespace Tutones::App
 
         StagePersistedMenuSettings();
 
-        // Renderer, hooks, and input are the application-critical menu shell.
-        // GTA pointer/native/runtime failures are fail-soft so V2 remains visible
-        // and the logger can explain which gameplay capabilities are unavailable.
         TUTONES_LOG_INFO("app", "Core services ready; starting renderer bootstrap");
         if (!Render::Renderer::Get().Initialize())
         {
@@ -260,9 +258,6 @@ namespace Tutones::App
             return false;
         }
 
-        // Input must come up with the render shell, not after the GTA gameplay
-        // runtime. That keeps F4 alive even if an Enhanced pointer or script hook
-        // is temporarily unavailable on a new game build.
         TUTONES_LOG_INFO("app", "Render hooks ready; initializing menu input routing");
         if (!UI::Input::Get().Initialize())
         {
@@ -285,12 +280,10 @@ namespace Tutones::App
 
         if (gameRuntimeReady)
         {
+            Game::Protections::ProtectionRuntime::Get().PrepareForStart();
             TUTONES_LOG_INFO("app", "Game runtime ready; starting centralized BackendHub");
             if (!Backend::BackendHub::Get().Initialize())
             {
-                // BackendHub is deliberately fail-soft. Keeping the render/input/core alive
-                // preserves diagnostics and prevents one feature-layer failure from unloading
-                // the DLL. All hub-managed gameplay features remain unavailable until fixed.
                 TUTONES_LOG_ERROR(
                     "app",
                     "BackendHub initialization failed; menu core will remain available for diagnostics");
@@ -341,6 +334,9 @@ namespace Tutones::App
         UI::Input::Get().Shutdown();
 
         ReleaseWorldStateBeforeRuntimeShutdown();
+
+        TUTONES_LOG_DEBUG("app", "Stopping network protection hook before global MinHook teardown");
+        Game::Protections::ProtectionRuntime::Get().Stop();
 
         TUTONES_LOG_DEBUG("app", "Stopping GTA script/native runtime before MinHook teardown");
         Runtime::GameRuntime::Get().Shutdown();
