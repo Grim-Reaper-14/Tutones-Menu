@@ -29,7 +29,7 @@ namespace Tutones::UI
             ImGui::TextColored(V11Theme::Accent, "PROTECTIONS");
             ImGui::SameLine();
             ImGui::TextDisabled(subtab == 0 ? "OVERVIEW" : subtab == 1 ? "NETWORK EVENTS" : "SCRIPT EVENTS");
-            ImGui::TextDisabled("Live Enhanced packet, crash and forced-leave protection controls.");
+            ImGui::TextDisabled("Live Enhanced crash protection with session-safe network handling.");
             ImGui::Separator();
 
             if (subtab == 0)
@@ -51,9 +51,9 @@ namespace Tutones::UI
                         ImGui::SeparatorText("Core Protection");
 
                         bool forcedLeave = snapshot.blockForcedLeave;
-                        if (ImGui::Checkbox("Forced Leave / Kick Protection", &forcedLeave))
+                        if (ImGui::Checkbox("Aggressive Direct Kick Blocking", &forcedLeave))
                             runtime.SetBlockForcedLeave(forcedLeave);
-                        DescribeLastV11Item("Blocks direct kick message types and KICK_VOTES_EVENT traffic before GTA handles it.");
+                        DescribeLastV11Item("Optional. Blocks the direct host KickPlayer message. Off by default because suppressing legitimate host/session removal can desynchronize or isolate your client from the lobby.");
 
                         bool knownCrashes = snapshot.blockKnownCrashes;
                         if (ImGui::Checkbox("Known Crash Protection", &knownCrashes))
@@ -62,7 +62,7 @@ namespace Tutones::UI
 
                         ImGui::Spacing();
                         ImGui::SeparatorText("Default Policy");
-                        ImGui::TextWrapped("Malformed packets, forced-leave attempts, malformed scripted events and known crash payloads are blocked by default. Broad gameplay-event blocks remain optional.");
+                        ImGui::TextWrapped("Malformed packets, malformed scripted events and known crash payloads are blocked by default. Host/session kick requests and kick-vote traffic are allowed through to preserve lobby synchronization. Aggressive direct kick blocking is optional.");
                     }
                     ImGui::EndChild();
 
@@ -83,7 +83,7 @@ namespace Tutones::UI
                         ImGui::Text("Events blocked");
                         ImGui::SameLine(190.0f);
                         ImGui::Text("%llu", static_cast<unsigned long long>(snapshot.eventsBlocked));
-                        ImGui::Text("Forced leaves blocked");
+                        ImGui::Text("Direct kicks blocked");
                         ImGui::SameLine(190.0f);
                         ImGui::Text("%llu", static_cast<unsigned long long>(snapshot.forcedLeaveAttemptsBlocked));
                         ImGui::Text("Crash attempts blocked");
@@ -125,9 +125,9 @@ namespace Tutones::UI
                         ImGui::Separator();
 
                         bool forcedLeave = snapshot.blockForcedLeave;
-                        if (ImGui::Checkbox("Forced Leave / Kick Protection", &forcedLeave))
+                        if (ImGui::Checkbox("Aggressive Direct Kick Blocking", &forcedLeave))
                             runtime.SetBlockForcedLeave(forcedLeave);
-                        DescribeLastV11Item("Reject direct kick messages and kick-vote network events before they reach GTA.");
+                        DescribeLastV11Item("Optional and disabled by default. Blocks only the direct KickPlayer message; RequestKickFromHost and kick-vote/session traffic are left intact to prevent lobby desync.");
 
                         bool knownCrashes = snapshot.blockKnownCrashes;
                         if (ImGui::Checkbox("Known Crash Protection", &knownCrashes))
@@ -136,7 +136,7 @@ namespace Tutones::UI
 
                         bool malformed = snapshot.blockMalformed;
                         if (ImGui::Checkbox("Malformed Packets", &malformed)) runtime.SetBlockMalformed(malformed);
-                        DescribeLastV11Item("Reject invalid message headers, impossible packet lengths, forged event counts and malformed PackedEvents data before GTA processes them.");
+                        DescribeLastV11Item("Reject invalid message headers, impossible packet lengths and out-of-bounds PackedEvents data without requiring the advisory event count to match exactly.");
 
                         bool sounds = snapshot.blockSounds;
                         if (ImGui::Checkbox("Block All Network Sound Events", &sounds)) runtime.SetBlockSounds(sounds);
@@ -170,7 +170,7 @@ namespace Tutones::UI
 
                         ImGui::Spacing();
                         ImGui::SeparatorText("Behavior");
-                        ImGui::TextWrapped("Crash and kick protection is selective and enabled by default. Optional broad event filters reject the containing PackedEvents packet when matched.");
+                        ImGui::TextWrapped("Crash protection is selective and enabled by default. Normal host migration, kick requests, vote traffic and session synchronization are preserved. Broad gameplay-event filters remain optional.");
                     }
                     ImGui::EndChild();
 
