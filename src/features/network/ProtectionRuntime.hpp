@@ -21,7 +21,7 @@ namespace Tutones::Game::Protections
     {
         bool installed{};
         bool blockMalformed{true};
-        bool blockForcedLeave{true};
+        bool blockForcedLeave{};
         bool blockKnownCrashes{true};
         bool blockSounds{};
         bool blockExplosions{};
@@ -102,8 +102,8 @@ namespace Tutones::Game::Protections
             m_Installed.store(true, std::memory_order_release);
             TUTONES_LOG_INFO(
                 "protections",
-                "Enhanced ReceiveNetMessage protection hook installed with crash and forced-leave filtering");
-            return SetStatus(true, "Enhanced crash, kick and packet protections active");
+                "Enhanced ReceiveNetMessage protection hook installed with crash and session-safe filtering");
+            return SetStatus(true, "Enhanced crash and packet protections active; session traffic preserved");
         }
 
         void Stop() noexcept
@@ -198,7 +198,6 @@ namespace Tutones::Game::Protections
             Allow,
             Malformed,
             KnownCrash,
-            ForcedLeave,
         };
 
         class NetEvent
@@ -371,13 +370,19 @@ namespace Tutones::Game::Protections
                 return;
             }
 
-            // Current Enhanced netMessage::Type values.
-            constexpr std::uint64_t RequestKickFromHost = 0x0D;
+            // Enhanced netMessage::Type values. RequestKickFromHost (0x0D) is
+            // intentionally passed through because it participates in normal session
+            // management. Blindly dropping it can isolate this client from the lobby.
             constexpr std::uint64_t KickPlayer = 0x34;
             constexpr std::uint64_t PackedEvents = 0x4F;
 
+            // KickPlayer is a host-kick message. Until Tutones has authenticated
+            // session-host identity, blocking it cannot reliably distinguish a spoofed
+            // malicious kick from legitimate host/session removal. Keep this aggressive
+            // behavior opt-in and disabled by default so normal host migration/session
+            // synchronization cannot strand the local client in a ghost lobby.
             if (self.m_BlockForcedLeave.load(std::memory_order_acquire)
-                && (messageType == RequestKickFromHost || messageType == KickPlayer))
+                && messageType == KickPlayer)
             {
                 self.BlockForcedLeave(static_cast<int>(messageType), frame->peerId);
                 return;
@@ -399,11 +404,13 @@ namespace Tutones::Game::Protections
             if (bufferSize > 7296 || bufferSize > reader.Remaining())
                 return BlockMalformedPacket(peerId);
 
+            // The 5-bit event count is advisory for protection parsing. Current
+            // Enhanced handling walks the bounded PackedEvents payload by its declared
+            // bit size; requiring an exact count match can reject legitimate traffic and
+            // desynchronize the session. Size/bounds validation remains authoritative.
+            static_cast<void>(count);
             std::size_t remaining = static_cast<std::size_t>(bufferSize);
-            std::uint64_t parsed{};
 
-            // Inspect the entire declared PackedEvents payload instead of trusting the
-            // 5-bit count as a loop bound. This prevents hidden events after a forged count.
             while (remaining >= 39)
             {
                 const std::size_t before = reader.Position();
@@ -457,14 +464,6 @@ namespace Tutones::Game::Protections
                     BlockPacket(id, -1, peerId);
                     return true;
                 }
-                else if (verdict == PayloadVerdict::ForcedLeave
-                    && m_BlockForcedLeave.load(std::memory_order_acquire))
-                {
-                    m_EventsBlocked.fetch_add(1, std::memory_order_relaxed);
-                    m_ForcedLeaveAttemptsBlocked.fetch_add(1, std::memory_order_relaxed);
-                    BlockPacket(id, -1, peerId);
-                    return true;
-                }
 
                 if (!reader.Skip(static_cast<std::size_t>(eventDataSize)))
                     return BlockMalformedPacket(peerId);
@@ -473,13 +472,7 @@ namespace Tutones::Game::Protections
                 if (consumed > remaining)
                     return BlockMalformedPacket(peerId);
                 remaining -= consumed;
-                ++parsed;
             }
-
-            // A forged event count can otherwise hide events from filters. Treat a
-            // mismatch as malformed while still permitting normal trailing padding bits.
-            if (parsed != count)
-                return BlockMalformedPacket(peerId);
 
             return false;
         }
@@ -561,9 +554,9 @@ namespace Tutones::Game::Protections
                 return PayloadVerdict::Allow;
             }
 
-            case 64: // KICK_VOTES_EVENT
-                return PayloadVerdict::ForcedLeave;
-
+            // KICK_VOTES_EVENT is intentionally not blanket-blocked. Vote/session
+            // coordination is legitimate traffic and suppressing every instance can
+            // desynchronize the local client from the lobby.
             default:
                 return PayloadVerdict::Allow;
             }
@@ -636,7 +629,7 @@ namespace Tutones::Game::Protections
         std::atomic<bool> m_Installed{false};
         std::atomic<bool> m_ShuttingDown{false};
         std::atomic<bool> m_BlockMalformed{true};
-        std::atomic<bool> m_BlockForcedLeave{true};
+        std::atomic<bool> m_BlockForcedLeave{false};
         std::atomic<bool> m_BlockKnownCrashes{true};
         std::atomic<bool> m_BlockSounds{false};
         std::atomic<bool> m_BlockExplosions{false};
