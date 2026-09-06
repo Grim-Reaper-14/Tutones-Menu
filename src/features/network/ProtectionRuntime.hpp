@@ -7,10 +7,12 @@
 #include <MinHook.h>
 
 #include <atomic>
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <mutex>
 #include <string>
+#include <thread>
 #include <utility>
 
 namespace Tutones::Game::Protections
@@ -19,7 +21,9 @@ namespace Tutones::Game::Protections
     {
         bool installed{};
         bool blockMalformed{true};
-        bool blockSounds{true};
+        bool blockForcedLeave{true};
+        bool blockKnownCrashes{true};
+        bool blockSounds{};
         bool blockExplosions{};
         bool blockFire{};
         bool blockWeaponDamage{};
@@ -32,7 +36,11 @@ namespace Tutones::Game::Protections
         std::uint64_t packetsBlocked{};
         std::uint64_t eventsInspected{};
         std::uint64_t eventsBlocked{};
+        std::uint64_t forcedLeaveAttemptsBlocked{};
+        std::uint64_t knownCrashAttemptsBlocked{};
         int lastBlockedEvent{-1};
+        int lastBlockedMessageType{-1};
+        std::uint32_t lastBlockedPeerId{};
         std::string status{"Not installed"};
     };
 
@@ -45,10 +53,21 @@ namespace Tutones::Game::Protections
             return instance;
         }
 
+        void PrepareForStart() noexcept
+        {
+            std::scoped_lock lock(m_LifecycleMutex);
+            if (!m_Installed.load(std::memory_order_acquire) && !m_Target)
+                m_ShuttingDown.store(false, std::memory_order_release);
+        }
+
         bool Start() noexcept
         {
+            std::scoped_lock lifecycleLock(m_LifecycleMutex);
+
             if (m_Installed.load(std::memory_order_acquire))
                 return true;
+            if (m_ShuttingDown.load(std::memory_order_acquire))
+                return SetStatus(false, "Protection runtime is shutting down");
 
             const auto& module = GamePointers::Get().Module();
             auto* match = Memory::PatternScanner::FindFirst(module, "48 81 C1 00 03 00 00 4C 89 E2");
@@ -81,24 +100,40 @@ namespace Tutones::Game::Protections
             }
 
             m_Installed.store(true, std::memory_order_release);
-            TUTONES_LOG_INFO("protections", "Yim-style Enhanced ReceiveNetMessage protection hook installed");
-            return SetStatus(true, "Enhanced packet protections active");
+            TUTONES_LOG_INFO(
+                "protections",
+                "Enhanced ReceiveNetMessage protection hook installed with crash and forced-leave filtering");
+            return SetStatus(true, "Enhanced crash, kick and packet protections active");
         }
 
         void Stop() noexcept
         {
+            std::scoped_lock lifecycleLock(m_LifecycleMutex);
+            m_ShuttingDown.store(true, std::memory_order_release);
             m_Installed.store(false, std::memory_order_release);
+
             if (m_Target)
             {
-                ::MH_DisableHook(m_Target);
-                ::MH_RemoveHook(m_Target);
+                const auto disabled = ::MH_DisableHook(m_Target);
+                if (disabled != MH_OK && disabled != MH_ERROR_DISABLED && disabled != MH_ERROR_NOT_CREATED)
+                    TUTONES_LOG_WARN("protections", "Failed to disable protection hook cleanly during shutdown");
+
+                while (m_ActiveCallbacks.load(std::memory_order_acquire) != 0)
+                    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+
+                const auto removed = ::MH_RemoveHook(m_Target);
+                if (removed != MH_OK && removed != MH_ERROR_NOT_CREATED)
+                    TUTONES_LOG_WARN("protections", "Failed to remove protection hook cleanly during shutdown");
             }
+
             m_Target = nullptr;
             m_Original = nullptr;
             SetStatus(false, "Stopped");
         }
 
         void SetBlockMalformed(bool value) noexcept { m_BlockMalformed.store(value, std::memory_order_release); }
+        void SetBlockForcedLeave(bool value) noexcept { m_BlockForcedLeave.store(value, std::memory_order_release); }
+        void SetBlockKnownCrashes(bool value) noexcept { m_BlockKnownCrashes.store(value, std::memory_order_release); }
         void SetBlockSounds(bool value) noexcept { m_BlockSounds.store(value, std::memory_order_release); }
         void SetBlockExplosions(bool value) noexcept { m_BlockExplosions.store(value, std::memory_order_release); }
         void SetBlockFire(bool value) noexcept { m_BlockFire.store(value, std::memory_order_release); }
@@ -114,6 +149,8 @@ namespace Tutones::Game::Protections
             ProtectionSnapshot out;
             out.installed = m_Installed.load(std::memory_order_acquire);
             out.blockMalformed = m_BlockMalformed.load(std::memory_order_acquire);
+            out.blockForcedLeave = m_BlockForcedLeave.load(std::memory_order_acquire);
+            out.blockKnownCrashes = m_BlockKnownCrashes.load(std::memory_order_acquire);
             out.blockSounds = m_BlockSounds.load(std::memory_order_acquire);
             out.blockExplosions = m_BlockExplosions.load(std::memory_order_acquire);
             out.blockFire = m_BlockFire.load(std::memory_order_acquire);
@@ -127,7 +164,11 @@ namespace Tutones::Game::Protections
             out.packetsBlocked = m_PacketsBlocked.load(std::memory_order_acquire);
             out.eventsInspected = m_EventsInspected.load(std::memory_order_acquire);
             out.eventsBlocked = m_EventsBlocked.load(std::memory_order_acquire);
+            out.forcedLeaveAttemptsBlocked = m_ForcedLeaveAttemptsBlocked.load(std::memory_order_acquire);
+            out.knownCrashAttemptsBlocked = m_KnownCrashAttemptsBlocked.load(std::memory_order_acquire);
             out.lastBlockedEvent = m_LastBlockedEvent.load(std::memory_order_acquire);
+            out.lastBlockedMessageType = m_LastBlockedMessageType.load(std::memory_order_acquire);
+            out.lastBlockedPeerId = m_LastBlockedPeerId.load(std::memory_order_acquire);
             std::scoped_lock lock(m_StatusMutex);
             out.status = m_Status;
             return out;
@@ -139,13 +180,25 @@ namespace Tutones::Game::Protections
             m_PacketsBlocked.store(0, std::memory_order_release);
             m_EventsInspected.store(0, std::memory_order_release);
             m_EventsBlocked.store(0, std::memory_order_release);
+            m_ForcedLeaveAttemptsBlocked.store(0, std::memory_order_release);
+            m_KnownCrashAttemptsBlocked.store(0, std::memory_order_release);
             m_LastBlockedEvent.store(-1, std::memory_order_release);
+            m_LastBlockedMessageType.store(-1, std::memory_order_release);
+            m_LastBlockedPeerId.store(0, std::memory_order_release);
         }
 
     private:
         enum class NetEventType : int
         {
             FrameReceived = 4,
+        };
+
+        enum class PayloadVerdict
+        {
+            Allow,
+            Malformed,
+            KnownCrash,
+            ForcedLeave,
         };
 
         class NetEvent
@@ -217,6 +270,14 @@ namespace Tutones::Game::Protections
                 return copy.Read(count, out);
             }
 
+            [[nodiscard]] BitReader Limited(std::size_t count) const noexcept
+            {
+                BitReader copy = *this;
+                if (count < copy.Remaining())
+                    copy.m_Bits = copy.m_Pos + count;
+                return copy;
+            }
+
             [[nodiscard]] std::size_t Position() const noexcept { return m_Pos; }
             [[nodiscard]] std::size_t Remaining() const noexcept { return m_Bits >= m_Pos ? m_Bits - m_Pos : 0; }
 
@@ -228,14 +289,35 @@ namespace Tutones::Game::Protections
 
         ProtectionRuntime() = default;
 
+        class CallbackGuard final
+        {
+        public:
+            explicit CallbackGuard(ProtectionRuntime& owner) noexcept
+                : m_Owner(owner)
+            {
+                m_Owner.m_ActiveCallbacks.fetch_add(1, std::memory_order_acq_rel);
+            }
+
+            ~CallbackGuard()
+            {
+                m_Owner.m_ActiveCallbacks.fetch_sub(1, std::memory_order_acq_rel);
+            }
+
+        private:
+            ProtectionRuntime& m_Owner;
+        };
+
         static void ReceiveNetMessageDetour(void* a1, void* manager, NetEvent* event)
         {
             auto& self = Get();
+            CallbackGuard callback(self);
+
             const auto original = self.m_Original;
             if (!original)
                 return;
 
-            if (!self.m_Installed.load(std::memory_order_acquire)
+            if (self.m_ShuttingDown.load(std::memory_order_acquire)
+                || !self.m_Installed.load(std::memory_order_acquire)
                 || !event
                 || event->GetEventType() != NetEventType::FrameReceived)
             {
@@ -249,7 +331,7 @@ namespace Tutones::Game::Protections
             {
                 if (self.m_BlockMalformed.load(std::memory_order_acquire))
                 {
-                    self.BlockPacket(-2);
+                    self.BlockPacket(-2, -1, frame->peerId);
                     return;
                 }
                 original(a1, manager, event);
@@ -262,7 +344,7 @@ namespace Tutones::Game::Protections
             {
                 if (self.m_BlockMalformed.load(std::memory_order_acquire))
                 {
-                    self.BlockPacket(-2);
+                    self.BlockPacket(-2, -1, frame->peerId);
                     return;
                 }
                 original(a1, manager, event);
@@ -282,33 +364,47 @@ namespace Tutones::Game::Protections
             {
                 if (self.m_BlockMalformed.load(std::memory_order_acquire))
                 {
-                    self.BlockPacket(-2);
+                    self.BlockPacket(-2, -1, frame->peerId);
                     return;
                 }
                 original(a1, manager, event);
                 return;
             }
 
-            // PackedEvents = 0x4F in current YimMenuV2 Enhanced netMessage::Type.
-            if (messageType == 0x4F && self.ShouldBlockPackedEvents(reader))
+            // Current Enhanced netMessage::Type values.
+            constexpr std::uint64_t RequestKickFromHost = 0x0D;
+            constexpr std::uint64_t KickPlayer = 0x34;
+            constexpr std::uint64_t PackedEvents = 0x4F;
+
+            if (self.m_BlockForcedLeave.load(std::memory_order_acquire)
+                && (messageType == RequestKickFromHost || messageType == KickPlayer))
+            {
+                self.BlockForcedLeave(static_cast<int>(messageType), frame->peerId);
+                return;
+            }
+
+            if (messageType == PackedEvents && self.ShouldBlockPackedEvents(reader, frame->peerId))
                 return;
 
             original(a1, manager, event);
         }
 
-        [[nodiscard]] bool ShouldBlockPackedEvents(BitReader& reader) noexcept
+        [[nodiscard]] bool ShouldBlockPackedEvents(BitReader& reader, std::uint32_t peerId) noexcept
         {
             std::uint64_t count{};
             std::uint64_t bufferSize{};
             if (!reader.Read(5, count) || !reader.Read(15, bufferSize))
-                return BlockMalformedPacket();
+                return BlockMalformedPacket(peerId);
 
             if (bufferSize > 7296 || bufferSize > reader.Remaining())
-                return BlockMalformedPacket();
+                return BlockMalformedPacket(peerId);
 
             std::size_t remaining = static_cast<std::size_t>(bufferSize);
             std::uint64_t parsed{};
-            while (remaining >= 39 && parsed < count)
+
+            // Inspect the entire declared PackedEvents payload instead of trusting the
+            // 5-bit count as a loop bound. This prevents hidden events after a forged count.
+            while (remaining >= 39)
             {
                 const std::size_t before = reader.Position();
                 std::uint64_t eventId{};
@@ -321,45 +417,175 @@ namespace Tutones::Game::Protections
                     || !reader.Read(8, handledBits)
                     || !reader.Read(15, eventDataSize)
                     || !reader.Read(1, hasExtra))
-                    return BlockMalformedPacket();
+                    return BlockMalformedPacket(peerId);
                 if (hasExtra && !reader.Skip(16))
-                    return BlockMalformedPacket();
+                    return BlockMalformedPacket(peerId);
+
+                const std::size_t headerBits = reader.Position() - before;
+                if (headerBits > remaining)
+                    return BlockMalformedPacket(peerId);
 
                 m_EventsInspected.fetch_add(1, std::memory_order_relaxed);
-                if (eventDataSize > reader.Remaining() || eventDataSize > 4096)
-                    return BlockMalformedPacket();
+                if (eventDataSize > reader.Remaining()
+                    || eventDataSize > remaining - headerBits)
+                    return BlockMalformedPacket(peerId);
 
                 const int id = static_cast<int>(eventId);
-                bool block = IsConfiguredEventBlocked(id);
-
-                if (id == 28 && !block && m_BlockMalformedScriptEvents.load(std::memory_order_acquire))
-                {
-                    // CScriptedGameEvent::Deserialize begins with a 32-bit byte count;
-                    // YimMenuV2 stores at most 54 int64 arguments (432 bytes).
-                    std::uint64_t argsSize{};
-                    if (eventDataSize < 32 || !reader.Peek(32, argsSize)
-                        || argsSize > 432
-                        || (32 + argsSize * 8) > eventDataSize)
-                        block = true;
-                }
-
-                if (block)
+                if (IsConfiguredEventBlocked(id))
                 {
                     m_EventsBlocked.fetch_add(1, std::memory_order_relaxed);
-                    BlockPacket(id);
+                    BlockPacket(id, -1, peerId);
+                    return true;
+                }
+
+                const auto payload = reader.Limited(static_cast<std::size_t>(eventDataSize));
+                const auto verdict = InspectEventPayload(id, payload);
+                if (verdict == PayloadVerdict::Malformed)
+                {
+                    if (m_BlockMalformed.load(std::memory_order_acquire))
+                    {
+                        m_EventsBlocked.fetch_add(1, std::memory_order_relaxed);
+                        BlockPacket(-2, -1, peerId);
+                        return true;
+                    }
+                }
+                else if (verdict == PayloadVerdict::KnownCrash
+                    && m_BlockKnownCrashes.load(std::memory_order_acquire))
+                {
+                    m_EventsBlocked.fetch_add(1, std::memory_order_relaxed);
+                    m_KnownCrashAttemptsBlocked.fetch_add(1, std::memory_order_relaxed);
+                    BlockPacket(id, -1, peerId);
+                    return true;
+                }
+                else if (verdict == PayloadVerdict::ForcedLeave
+                    && m_BlockForcedLeave.load(std::memory_order_acquire))
+                {
+                    m_EventsBlocked.fetch_add(1, std::memory_order_relaxed);
+                    m_ForcedLeaveAttemptsBlocked.fetch_add(1, std::memory_order_relaxed);
+                    BlockPacket(id, -1, peerId);
                     return true;
                 }
 
                 if (!reader.Skip(static_cast<std::size_t>(eventDataSize)))
-                    return BlockMalformedPacket();
+                    return BlockMalformedPacket(peerId);
 
                 const std::size_t consumed = reader.Position() - before;
                 if (consumed > remaining)
-                    return BlockMalformedPacket();
+                    return BlockMalformedPacket(peerId);
                 remaining -= consumed;
                 ++parsed;
             }
+
+            // A forged event count can otherwise hide events from filters. Treat a
+            // mismatch as malformed while still permitting normal trailing padding bits.
+            if (parsed != count)
+                return BlockMalformedPacket(peerId);
+
             return false;
+        }
+
+        [[nodiscard]] PayloadVerdict InspectEventPayload(int id, BitReader payload) const noexcept
+        {
+            switch (id)
+            {
+            case 27: // DOOR_BREAK_EVENT; current Enhanced Yim protection treats it as non-legitimate traffic.
+                return PayloadVerdict::KnownCrash;
+
+            case 28: // SCRIPTED_GAME_EVENT
+            {
+                if (!m_BlockMalformedScriptEvents.load(std::memory_order_acquire))
+                    return PayloadVerdict::Allow;
+
+                std::uint64_t argsSize{};
+                if (!payload.Read(32, argsSize))
+                    return PayloadVerdict::Malformed;
+
+                // CScriptedGameEvent stores at most 54 int64 arguments = 432 bytes.
+                if (argsSize > 432 || argsSize * 8 > payload.Remaining())
+                    return PayloadVerdict::Malformed;
+                return PayloadVerdict::Allow;
+            }
+
+            case 33: // SCRIPT_WORLD_STATE_EVENT
+            {
+                std::uint64_t type{};
+                std::uint64_t ignored{};
+                if (!payload.Read(4, type) || !payload.Read(1, ignored))
+                    return PayloadVerdict::Malformed;
+                if (!ReadGameScriptId(payload))
+                    return PayloadVerdict::Malformed;
+
+                // PopGroupOverride crash: invalid zero population group with the
+                // known invalid percentages used by crash payloads.
+                if (type == 2)
+                {
+                    std::uint64_t popSchedule{};
+                    std::uint64_t popGroup{};
+                    std::uint64_t percentage{};
+                    if (!payload.Read(8, popSchedule)
+                        || !payload.Read(32, popGroup)
+                        || !payload.Read(7, percentage))
+                        return PayloadVerdict::Malformed;
+
+                    if (popGroup == 0 && (percentage == 0 || percentage == 103))
+                        return PayloadVerdict::KnownCrash;
+                }
+                return PayloadVerdict::Allow;
+            }
+
+            case 50: // SCRIPT_ENTITY_STATE_CHANGE_EVENT
+            {
+                std::uint64_t entity{};
+                std::uint64_t type{};
+                std::uint64_t unknown{};
+                if (!payload.Read(13, entity)
+                    || !payload.Read(4, type)
+                    || !payload.Read(32, unknown))
+                    return PayloadVerdict::Malformed;
+
+                // Current Enhanced values are 0..9. Values above the last valid type
+                // are rejected before the game can dispatch an invalid state change.
+                if (type > 9)
+                    return PayloadVerdict::KnownCrash;
+
+                // SettingOfTaskVehicleTempAction crash payloads use actions 15..18.
+                if (type == 6)
+                {
+                    std::uint64_t vehicleId{};
+                    std::uint64_t action{};
+                    if (!payload.Read(13, vehicleId) || !payload.Read(8, action))
+                        return PayloadVerdict::Malformed;
+                    if (action >= 15 && action <= 18)
+                        return PayloadVerdict::KnownCrash;
+                }
+                return PayloadVerdict::Allow;
+            }
+
+            case 64: // KICK_VOTES_EVENT
+                return PayloadVerdict::ForcedLeave;
+
+            default:
+                return PayloadVerdict::Allow;
+            }
+        }
+
+        [[nodiscard]] static bool ReadGameScriptId(BitReader& payload) noexcept
+        {
+            std::uint64_t ignored{};
+            std::uint64_t hasPositionHash{};
+            std::uint64_t hasInstanceId{};
+
+            if (!payload.Read(32, ignored) || !payload.Read(32, ignored))
+                return false;
+            if (!payload.Read(1, hasPositionHash))
+                return false;
+            if (hasPositionHash && !payload.Read(32, ignored))
+                return false;
+            if (!payload.Read(1, hasInstanceId))
+                return false;
+            if (hasInstanceId && !payload.Read(8, ignored))
+                return false;
+            return true;
         }
 
         [[nodiscard]] bool IsConfiguredEventBlocked(int id) const noexcept
@@ -378,18 +604,26 @@ namespace Tutones::Game::Protections
             }
         }
 
-        [[nodiscard]] bool BlockMalformedPacket() noexcept
+        [[nodiscard]] bool BlockMalformedPacket(std::uint32_t peerId) noexcept
         {
             if (!m_BlockMalformed.load(std::memory_order_acquire))
                 return false;
-            BlockPacket(-2);
+            BlockPacket(-2, -1, peerId);
             return true;
         }
 
-        void BlockPacket(int eventId) noexcept
+        void BlockForcedLeave(int messageType, std::uint32_t peerId) noexcept
+        {
+            m_ForcedLeaveAttemptsBlocked.fetch_add(1, std::memory_order_relaxed);
+            BlockPacket(-1, messageType, peerId);
+        }
+
+        void BlockPacket(int eventId, int messageType, std::uint32_t peerId) noexcept
         {
             m_PacketsBlocked.fetch_add(1, std::memory_order_relaxed);
             m_LastBlockedEvent.store(eventId, std::memory_order_release);
+            m_LastBlockedMessageType.store(messageType, std::memory_order_release);
+            m_LastBlockedPeerId.store(peerId, std::memory_order_release);
         }
 
         bool SetStatus(bool result, std::string status)
@@ -400,8 +634,11 @@ namespace Tutones::Game::Protections
         }
 
         std::atomic<bool> m_Installed{false};
+        std::atomic<bool> m_ShuttingDown{false};
         std::atomic<bool> m_BlockMalformed{true};
-        std::atomic<bool> m_BlockSounds{true};
+        std::atomic<bool> m_BlockForcedLeave{true};
+        std::atomic<bool> m_BlockKnownCrashes{true};
+        std::atomic<bool> m_BlockSounds{false};
         std::atomic<bool> m_BlockExplosions{false};
         std::atomic<bool> m_BlockFire{false};
         std::atomic<bool> m_BlockWeaponDamage{false};
@@ -414,9 +651,15 @@ namespace Tutones::Game::Protections
         std::atomic<std::uint64_t> m_PacketsBlocked{0};
         std::atomic<std::uint64_t> m_EventsInspected{0};
         std::atomic<std::uint64_t> m_EventsBlocked{0};
+        std::atomic<std::uint64_t> m_ForcedLeaveAttemptsBlocked{0};
+        std::atomic<std::uint64_t> m_KnownCrashAttemptsBlocked{0};
+        std::atomic<std::uint32_t> m_ActiveCallbacks{0};
         std::atomic<int> m_LastBlockedEvent{-1};
+        std::atomic<int> m_LastBlockedMessageType{-1};
+        std::atomic<std::uint32_t> m_LastBlockedPeerId{0};
         void* m_Target{};
         ReceiveNetMessageFn m_Original{};
+        mutable std::mutex m_LifecycleMutex;
         mutable std::mutex m_StatusMutex;
         std::string m_Status{"Not installed"};
     };
