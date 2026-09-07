@@ -16,8 +16,6 @@ namespace Tutones::UI
         const auto state = runtime.Snapshot();
 
         ImGui::SeparatorText("Salvage Yard Robberies");
-        ImGui::TextDisabled("Enhanced source: vehrob_planning.c / GPBD_Flow SALV23Flow");
-        ImGui::TextDisabled("Current-robbery prep writes are verified and rolled back on failure. Finale launch remains untouched.");
 
         ImGui::BeginDisabled(state.pending);
         if (ImGui::Button("Complete Current Robbery Preps", ImVec2(-1.0f, 0.0f)))
@@ -47,7 +45,6 @@ namespace Tutones::UI
         ImGui::Text("Slot 1: %d", state.weeklyStatuses[0]);
         ImGui::Text("Slot 2: %d", state.weeklyStatuses[1]);
         ImGui::Text("Slot 3: %d", state.weeklyStatuses[2]);
-        ImGui::TextDisabled("Status values are shown raw until every Enhanced status enum is mapped from the decompile.");
 
         ImGui::SeparatorText("Live Flow Flags");
         ImGui::Text("General: 0x%08X", state.generalFlags);
@@ -62,9 +59,7 @@ namespace Tutones::UI
         ImGui::Text("Native backend: %s", state.nativeReady ? "Ready" : "Unavailable");
         ImGui::Text("Script globals: %s", state.globalsReady ? "Ready" : "Unavailable");
 
-        if (state.pending)
-            ImGui::TextDisabled("%s", state.message.c_str());
-        else if (state.haveResult)
+        if (state.pending || state.haveResult)
             ImGui::TextDisabled("%s", state.message.c_str());
     }
 }
