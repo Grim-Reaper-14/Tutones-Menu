@@ -36,9 +36,6 @@ namespace Tutones::UI
         selectedAct = std::clamp(selectedAct, 0, ActCount - 1);
 
         ImGui::SeparatorText("Doomsday Heist");
-        ImGui::TextDisabled("Enhanced source: gb_gang_ops_planning.c");
-        ImGui::TextDisabled("Planning stats and cuts use read-back verification and rollback. Mission-controller instant-finish writes are intentionally excluded.");
-
         ImGui::SeparatorText("Act Setup");
         ImGui::SetNextItemWidth(-1.0f);
         if (ImGui::BeginCombo("##doomsday_act", ActName(selectedAct)))
@@ -64,7 +61,6 @@ namespace Tutones::UI
             static_cast<void>(runtime.QueueRefresh());
         }
         ImGui::EndDisabled();
-        ImGui::TextDisabled("After applying setup, close and reopen the Facility planning screen to force its normal redraw path.");
 
         ImGui::SeparatorText("Player Pay Cuts");
         ImGui::SetNextItemWidth(-1.0f);
@@ -89,7 +85,7 @@ namespace Tutones::UI
         if (ImGui::Button("100 Each##doomsday", ImVec2(-1.0f, 0.0f)))
             cuts = CutArray{{100, 100, 100, 100}};
 
-        ImGui::TextDisabled("Configured total: %d%%", cuts[0] + cuts[1] + cuts[2] + cuts[3]);
+        ImGui::Text("Configured total: %d%%", cuts[0] + cuts[1] + cuts[2] + cuts[3]);
         ImGui::BeginDisabled(state.pending);
         if (ImGui::Button("Apply Doomsday Cuts", ImVec2(-1.0f, 0.0f)))
             static_cast<void>(runtime.QueueCuts(cuts));
@@ -113,9 +109,7 @@ namespace Tutones::UI
                 state.cuts[0], state.cuts[1], state.cuts[2], state.cuts[3]);
         }
 
-        if (state.pending)
-            ImGui::TextDisabled("%s", state.message.c_str());
-        else if (state.haveResult)
+        if (state.pending || state.haveResult)
             ImGui::TextDisabled("%s", state.message.c_str());
     }
 }
