@@ -110,17 +110,17 @@ namespace Tutones::UI
         else if (selectedBusinessPage == 9)
         {
             RenderMoneyFrontsPanel();
-            SetV11Description("Money Fronts M25 player-flow telemetry. Raw mission and flag state stays read-only until exact current bit semantics are verified from the Enhanced decompile.");
+            SetV11Description("Money Fronts controls: edit heat for Hands On Car Wash, Smoke on the Water and Higgins Helitours, set all heat to 0 or 100, collect the Car Wash safe, and inspect live M25 flow state.");
         }
         else if (selectedBusinessPage == 10)
         {
             RenderAgencyBusinessPanel();
-            SetV11Description("Agency Fixer-flow telemetry from appfixersecurity: live Security Contract board, rewards, contract count, earnings, story cooldown, Payphone bonus method and progression flags.");
+            SetV11Description("Agency controls: rewrite all three Security Contract board slots, choose contract type and difficulty, clear the short contract delay and Dr. Dre replay cooldown, plus inspect live Fixer flow state.");
         }
         else
         {
             RenderGarmentFactoryPanel();
-            SetV11Description("Garment Factory / Agents of Sabotage telemetry from the current Hacker24 player-flow block. Active FIB File and raw progression flags stay read-only until each write path is verified.");
+            SetV11Description("Garment Factory controls: select the active FIB File, complete or reset its three preps, unbrick the computer, collect the factory safe, and inspect live Hacker24 flow state.");
         }
     }
 }
