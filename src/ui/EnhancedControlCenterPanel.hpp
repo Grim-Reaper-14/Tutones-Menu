@@ -67,7 +67,7 @@ namespace Tutones::UI
                     {
                         ImGui::BeginTooltip();
                         ImGui::TextUnformatted(definition.semanticName);
-                        ImGui::TextDisabled("Decompile: %s", definition.decompileFile);
+                        ImGui::TextDisabled("Enhanced decompile: %s", definition.decompileFile);
                         if (state.programLoaded)
                         {
                             ImGui::Separator();
@@ -115,7 +115,7 @@ namespace Tutones::UI
         inline void RenderResolver(const Snapshot& snapshot) noexcept
         {
             ImGui::TextWrapped(
-                "Semantic names are the stable Tutones-facing layer. Raw Global_ and local indexes should sit behind a build-specific resolver and stay disabled until their current Enhanced layout is validated.");
+                "DecompileScript accepts only the current GTA V Enhanced layout. Legacy globals, locals, script offsets, and cross-version fallback mappings are never used; unresolved entries stay disabled until their Enhanced layout is validated.");
             ImGui::Spacing();
 
             if (ImGui::BeginTable(
@@ -165,7 +165,7 @@ namespace Tutones::UI
         {
             ImGui::TextColored(V11Theme::Accent, "Enhanced Control Center");
             ImGui::SameLine();
-            ImGui::TextDisabled("Acid Labs decompile map");
+            ImGui::TextDisabled("Enhanced-only decompile map");
             ImGui::Separator();
 
             ImGui::Text("Script runtime: %s", snapshot.scriptRuntimeReady ? "READY" : "WAITING");
@@ -176,7 +176,7 @@ namespace Tutones::UI
             if (ImGui::Button(snapshot.pending ? "Refreshing..." : "Refresh Enhanced Catalog", ImVec2(-1.0f, 28.0f)))
                 static_cast<void>(runtime.QueueRefresh());
             ImGui::EndDisabled();
-            DescribeLastV11Item("Resolve the known Enhanced controllers through Tutones' shared ScriptRuntime on the GTA game thread.");
+            DescribeLastV11Item("Resolve only verified GTA V Enhanced controllers through Tutones' shared ScriptRuntime on the GTA game thread. Legacy mappings are not accepted.");
 
             if (snapshot.haveResult || snapshot.pending)
                 ImGui::TextDisabled("%s", snapshot.message.c_str());
@@ -239,6 +239,6 @@ namespace Tutones::UI
         ImGui::EndChild();
         ImGui::PopStyleColor(2);
         ImGui::PopStyleVar(2);
-        SetV11Description("Enhanced Control Center: semantic script resolver and live controller diagnostics sourced from the GTA V Enhanced decompile layout.");
+        SetV11Description("Enhanced Control Center: Enhanced-only semantic script resolver and live controller diagnostics; Legacy offsets and fallback mappings are excluded.");
     }
 }
