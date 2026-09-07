@@ -4,11 +4,108 @@
 #include "V11Theme.hpp"
 #include "../features/heist/AutoShopContractRuntime.hpp"
 #include "../features/heist/ExoticExportRuntime.hpp"
+#include "../game/script/ScriptRuntime.hpp"
 
 #include <imgui.h>
 
+#include <array>
+#include <cstdint>
+
 namespace Tutones::UI
 {
+    namespace HeistHubDetail
+    {
+        struct EnhancedHeistFamily final
+        {
+            const char* name;
+            const char* scope;
+            const char* liveScript;
+        };
+
+        // Visible Enhanced-only catalog. A liveScript is supplied only when this
+        // repo has a current Enhanced script name that can be identified without
+        // borrowing a Legacy local/global layout or fallback offset.
+        inline constexpr std::array<EnhancedHeistFamily, 13> EnhancedHeists{{
+            {"Original Heists", "Apartment / classic heists", nullptr},
+            {"Doomsday Heist", "Facility Acts I - III", nullptr},
+            {"Diamond Casino Heist", "Arcade planning and finale", nullptr},
+            {"Cayo Perico Heist", "Kosatka planning / island heist", "heist_island_planning"},
+            {"The Contract / Agency", "Agency VIP Contract", nullptr},
+            {"Auto Shop Contracts", "Tuner robbery contracts", "tuner_planning"},
+            {"Exotic Exports", "Auto Shop VEHICLE_LIST event", nullptr},
+            {"Salvage Yard Robberies", "Vehicle robbery content", nullptr},
+            {"Cluckin' Bell Farm Raid", "Cluckin' Bell raid content", nullptr},
+            {"Garment Factory / FIB Files", "Garment Factory robbery files", nullptr},
+            {"Oscar Guzman Flies Again", "Oscar Guzman content", nullptr},
+            {"KnoWay Out", "Enhanced robbery content", nullptr},
+            {"Kortz Center", "Enhanced robbery content", nullptr},
+        }};
+
+        [[nodiscard]] constexpr char LowerAscii(char value) noexcept
+        {
+            return value >= 'A' && value <= 'Z'
+                ? static_cast<char>(value + ('a' - 'A'))
+                : value;
+        }
+
+        [[nodiscard]] constexpr std::uint32_t Joaat(const char* text) noexcept
+        {
+            std::uint32_t hash{};
+            if (!text)
+                return hash;
+
+            while (*text)
+            {
+                hash += static_cast<unsigned char>(LowerAscii(*text++));
+                hash += hash << 10;
+                hash ^= hash >> 6;
+            }
+            hash += hash << 3;
+            hash ^= hash >> 11;
+            hash += hash << 15;
+            return hash;
+        }
+
+        inline void RenderEnhancedCatalog() noexcept
+        {
+            ImGui::SeparatorText("Enhanced Heist Catalog");
+            ImGui::TextWrapped("GTA V Enhanced-only heist families. This catalog does not use Legacy globals, locals, script layouts, or fallback offsets.");
+
+            if (ImGui::BeginTable(
+                    "##enhanced_heist_catalog",
+                    3,
+                    ImGuiTableFlags_BordersInnerH | ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp))
+            {
+                ImGui::TableSetupColumn("Heist", ImGuiTableColumnFlags_WidthStretch, 1.45f);
+                ImGui::TableSetupColumn("Scope", ImGuiTableColumnFlags_WidthStretch, 1.85f);
+                ImGui::TableSetupColumn("Enhanced", ImGuiTableColumnFlags_WidthFixed, 78.0f);
+                ImGui::TableHeadersRow();
+
+                auto& scripts = Game::Script::ScriptRuntime::Get();
+                for (const auto& heist : EnhancedHeists)
+                {
+                    const bool hasLiveScript = heist.liveScript && *heist.liveScript;
+                    const bool loaded = hasLiveScript
+                        && scripts.FindProgram(Joaat(heist.liveScript)) != nullptr;
+
+                    ImGui::TableNextRow();
+                    ImGui::TableSetColumnIndex(0);
+                    ImGui::TextUnformatted(heist.name);
+                    ImGui::TableSetColumnIndex(1);
+                    ImGui::TextDisabled("%s", heist.scope);
+                    ImGui::TableSetColumnIndex(2);
+                    if (hasLiveScript)
+                        ImGui::TextDisabled("%s", loaded ? "LOADED" : "IDLE");
+                    else
+                        ImGui::TextDisabled("CATALOG");
+                }
+                ImGui::EndTable();
+            }
+
+            ImGui::TextDisabled("LOADED/IDLE = verified Enhanced script name is tracked live. CATALOG = family is visible without inventing an unverified write path.");
+        }
+    }
+
     inline void RenderHeistHubPanel() noexcept
     {
         using Game::Heist::AutoShopContractName;
@@ -39,6 +136,9 @@ namespace Tutones::UI
             ImGui::SameLine();
             ImGui::TextDisabled("Enhanced 1.73 / b1158.13");
             ImGui::Separator();
+
+            HeistHubDetail::RenderEnhancedCatalog();
+            ImGui::Spacing();
 
             ImGui::SeparatorText("Auto Shop Contracts");
             ImGui::TextWrapped("Choose one of the eight Auto Shop robbery contracts and mark its verified setup/prep state complete so the planning board is ready for the finale.");
@@ -128,6 +228,6 @@ namespace Tutones::UI
         ImGui::EndChild();
         ImGui::PopStyleColor(2);
         ImGui::PopStyleVar(2);
-        SetV11Description("HIEST -> Heist Hub: verified Auto Shop contract/finale preparation plus live Exotic Export waypoint and teleport tools.");
+        SetV11Description("HEIST -> Heist Hub: Enhanced-only heist catalog with verified Auto Shop contract preparation and live Exotic Export tools.");
     }
 }
