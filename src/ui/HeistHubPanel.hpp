@@ -1,5 +1,6 @@
 #pragma once
 
+#include "V11Description.hpp"
 #include "V11Theme.hpp"
 #include "../features/heist/AutoShopContractRuntime.hpp"
 #include "../features/heist/ExoticExportRuntime.hpp"
@@ -119,5 +120,6 @@ namespace Tutones::UI
         ImGui::EndChild();
         ImGui::PopStyleColor(2);
         ImGui::PopStyleVar(2);
+        SetV11Description("");
     }
 }
