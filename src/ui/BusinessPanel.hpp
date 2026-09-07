@@ -5,6 +5,7 @@
 #include "BunkerBusinessPanel.hpp"
 #include "EnhancedControlCenterPanel.hpp"
 #include "HangarBusinessPanel.hpp"
+#include "MoneyFrontsPanel.hpp"
 #include "MotorcycleClubPanel.hpp"
 #include "NightclubPanel.hpp"
 #include "SpecialCargoBusinessPanel.hpp"
@@ -68,6 +69,8 @@ namespace Tutones::UI
             tabButton("Vehicle Cargo", 7, 110.0f);
             ImGui::SameLine();
             tabButton("Bail Office", 8, 96.0f);
+            ImGui::SameLine();
+            tabButton("Money Fronts", 9, 108.0f);
 
             ImGui::PopStyleVar(3);
         }
@@ -119,10 +122,15 @@ namespace Tutones::UI
             RenderVehicleCargoBusinessPanel();
             SetV11Description("Vehicle Cargo cooldown and sell-value read/write controls with current-value refresh and read-back verification.");
         }
-        else
+        else if (selectedBusinessPage == 8)
         {
             RenderBailOfficePanel();
             SetV11Description("Bail Office target-board telemetry from the Enhanced appBailOffice flow: standard target, mission, reward, completion and Most Wanted rotation state.");
+        }
+        else
+        {
+            RenderMoneyFrontsPanel();
+            SetV11Description("Money Fronts M25 player-flow telemetry. Raw mission and flag state stays read-only until exact current bit semantics are verified from the Enhanced decompile.");
         }
     }
 }
