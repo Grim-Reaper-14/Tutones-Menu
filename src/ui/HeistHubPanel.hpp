@@ -73,20 +73,71 @@ namespace Tutones::UI
 
         inline void RenderCayoPericoHeist() noexcept
         {
-            using Game::Heist::CayoPericoEnhanced173::RequiredPrimaryEquipment;
+            using namespace Game::Heist::CayoPericoEnhanced173;
             using Game::Heist::CayoPericoRuntime;
 
             auto& runtime = CayoPericoRuntime::Get();
             const auto state = runtime.Snapshot();
 
+            static int selectedTarget = 5;
+            static int selectedDifficulty = 0;
+            static int selectedWeapon = 1;
+            selectedTarget = std::clamp(selectedTarget, 0, TargetCount - 1);
+            selectedDifficulty = std::clamp(selectedDifficulty, 0, 1);
+            selectedWeapon = std::clamp(selectedWeapon, 1, WeaponCount);
+
             ImGui::SeparatorText("Cayo Perico Heist");
             ImGui::TextDisabled("Enhanced 1.73 source: heist_island_planning.c");
-            ImGui::TextDisabled("Mission controller: fm_mission_controller_2020.c");
+            ImGui::TextDisabled("Setup writes are verified and rolled back if read-back fails.");
 
+            ImGui::SeparatorText("Setup");
+            ImGui::SetNextItemWidth(-1.0f);
+            if (ImGui::BeginCombo("##cayo_target", PrimaryTargetName(selectedTarget)))
+            {
+                for (int target = 0; target < TargetCount; ++target)
+                {
+                    const bool selected = target == selectedTarget;
+                    if (ImGui::Selectable(PrimaryTargetName(target), selected))
+                        selectedTarget = target;
+                    if (selected)
+                        ImGui::SetItemDefaultFocus();
+                }
+                ImGui::EndCombo();
+            }
+
+            const char* difficultyPreview = selectedDifficulty == 0 ? "Normal" : "Hard";
+            ImGui::SetNextItemWidth(-1.0f);
+            if (ImGui::BeginCombo("##cayo_difficulty", difficultyPreview))
+            {
+                if (ImGui::Selectable("Normal", selectedDifficulty == 0))
+                    selectedDifficulty = 0;
+                if (ImGui::Selectable("Hard", selectedDifficulty == 1))
+                    selectedDifficulty = 1;
+                ImGui::EndCombo();
+            }
+
+            ImGui::SetNextItemWidth(-1.0f);
+            if (ImGui::BeginCombo("##cayo_weapon", WeaponLoadoutName(selectedWeapon)))
+            {
+                for (int weapon = 1; weapon <= WeaponCount; ++weapon)
+                {
+                    const bool selected = weapon == selectedWeapon;
+                    if (ImGui::Selectable(WeaponLoadoutName(weapon), selected))
+                        selectedWeapon = weapon;
+                    if (selected)
+                        ImGui::SetItemDefaultFocus();
+                }
+                ImGui::EndCombo();
+            }
+
+            const int difficulty = selectedDifficulty == 0 ? NormalDifficulty : HardDifficulty;
             ImGui::BeginDisabled(state.pending);
+            if (ImGui::Button("Complete Cayo Setup", ImVec2(-1.0f, 0.0f)))
+                static_cast<void>(runtime.QueueSetup(selectedTarget, difficulty, selectedWeapon));
             if (ImGui::Button("Refresh Cayo State", ImVec2(-1.0f, 0.0f)))
                 static_cast<void>(runtime.QueueRefresh());
             ImGui::EndDisabled();
+            ImGui::TextDisabled("This setup pass does not change loot or payout values.");
 
             ImGui::SeparatorText("Live planning state");
             ImGui::Text("Session: %s", state.sessionStarted ? "Online" : "Offline");
@@ -95,7 +146,9 @@ namespace Tutones::UI
 
             if (state.haveResult && state.lastSucceeded)
             {
-                ImGui::Text("Player ID: %d", state.playerId);
+                ImGui::Text("Primary target: %s", PrimaryTargetName(state.primaryTarget));
+                ImGui::Text("Difficulty: %s", DifficultyName(state.difficulty));
+                ImGui::Text("Weapon loadout: %s", WeaponLoadoutName(state.weaponLoadout));
                 ImGui::Text("Target variation: %d", state.targetVariation);
                 ImGui::Text("Primary equipment: %s", RequiredPrimaryEquipment(state.targetVariation));
                 ImGui::Text("Progress flags: 0x%08X", state.progressionFlags);
@@ -114,8 +167,6 @@ namespace Tutones::UI
                 ImGui::TextDisabled("%s", state.message.c_str());
             else if (state.haveResult)
                 ImGui::TextDisabled("%s", state.message.c_str());
-            else
-                ImGui::TextDisabled("Read-only telemetry first; no Cayo state is modified by this page.");
         }
 
         inline void RenderSalvageYard() noexcept
