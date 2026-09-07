@@ -3,6 +3,7 @@
 #include "V11Description.hpp"
 #include "V11Theme.hpp"
 #include "../features/heist/AutoShopContractRuntime.hpp"
+#include "../features/heist/CayoPericoRuntime.hpp"
 #include "../features/heist/ExoticExportRuntime.hpp"
 
 #include <imgui.h>
@@ -72,11 +73,49 @@ namespace Tutones::UI
 
         inline void RenderCayoPericoHeist() noexcept
         {
-            RenderDecompileReference(
-                "Cayo Perico Heist",
-                "heist_island_planning.c",
-                "fm_mission_controller_2020.c",
-                "Cayo uses the island planning script and the 2020 mission controller. This keeps Cayo state isolated from the classic mission-controller flow before any writes are enabled.");
+            using Game::Heist::CayoPericoEnhanced173::RequiredPrimaryEquipment;
+            using Game::Heist::CayoPericoRuntime;
+
+            auto& runtime = CayoPericoRuntime::Get();
+            const auto state = runtime.Snapshot();
+
+            ImGui::SeparatorText("Cayo Perico Heist");
+            ImGui::TextDisabled("Enhanced 1.73 source: heist_island_planning.c");
+            ImGui::TextDisabled("Mission controller: fm_mission_controller_2020.c");
+
+            ImGui::BeginDisabled(state.pending);
+            if (ImGui::Button("Refresh Cayo State", ImVec2(-1.0f, 0.0f)))
+                static_cast<void>(runtime.QueueRefresh());
+            ImGui::EndDisabled();
+
+            ImGui::SeparatorText("Live planning state");
+            ImGui::Text("Session: %s", state.sessionStarted ? "Online" : "Offline");
+            ImGui::Text("Script globals: %s", state.globalsReady ? "Ready" : "Unavailable");
+            ImGui::Text("Planning board: %s", state.planningRunning ? "Running" : "Idle");
+
+            if (state.haveResult && state.lastSucceeded)
+            {
+                ImGui::Text("Player ID: %d", state.playerId);
+                ImGui::Text("Target variation: %d", state.targetVariation);
+                ImGui::Text("Primary equipment: %s", RequiredPrimaryEquipment(state.targetVariation));
+                ImGui::Text("Progress flags: 0x%08X", state.progressionFlags);
+                ImGui::Text("Intel flags: 0x%08X", state.intelFlags);
+
+                ImGui::SeparatorText("Scoped intel");
+                ImGui::Text("Power Station: %s", state.powerStationScoped ? "Scoped" : "Not scoped");
+                ImGui::Text("Control Tower: %s", state.controlTowerScoped ? "Scoped" : "Not scoped");
+                ImGui::Text("Bolt Cutters: %s", state.boltCuttersScoped ? "Scoped" : "Not scoped");
+                ImGui::Text("Grappling Equipment: %s", state.grapplingScoped ? "Scoped" : "Not scoped");
+                ImGui::Text("Guard Clothing: %s", state.guardClothingScoped ? "Scoped" : "Not scoped");
+                ImGui::Text("Supply Truck: %s", state.supplyTruckScoped ? "Scoped" : "Not scoped");
+            }
+
+            if (state.pending)
+                ImGui::TextDisabled("%s", state.message.c_str());
+            else if (state.haveResult)
+                ImGui::TextDisabled("%s", state.message.c_str());
+            else
+                ImGui::TextDisabled("Read-only telemetry first; no Cayo state is modified by this page.");
         }
 
         inline void RenderSalvageYard() noexcept
