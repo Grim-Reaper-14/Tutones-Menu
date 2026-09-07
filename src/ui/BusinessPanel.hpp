@@ -24,61 +24,35 @@ namespace Tutones::UI
         inline void RenderBusinessTabs(int& selectedBusinessPage) noexcept
         {
             ImGui::SetCursorPos(ImVec2(226.0f, 16.0f));
-            ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(6.0f, 6.0f));
-            ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 5.0f);
-            ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(10.0f, 7.0f));
-
-            const auto tabButton = [&](const char* label, int page, float width)
+            if (ImGui::BeginChild("##business_tab_strip", ImVec2(490.0f, 34.0f), false))
             {
-                const bool selected = selectedBusinessPage == page;
-                if (selected)
+                if (ImGui::BeginTabBar("##business_tabs", ImGuiTabBarFlags_FittingPolicyScroll))
                 {
-                    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(
-                        V11Theme::Accent.x,
-                        V11Theme::Accent.y,
-                        V11Theme::Accent.z,
-                        0.28f));
-                    ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(
-                        V11Theme::Accent.x,
-                        V11Theme::Accent.y,
-                        V11Theme::Accent.z,
-                        0.82f));
+                    const auto tab = [&](const char* label, int page)
+                    {
+                        if (ImGui::BeginTabItem(label))
+                        {
+                            selectedBusinessPage = page;
+                            ImGui::EndTabItem();
+                        }
+                    };
+
+                    tab("Enhanced", 0);
+                    tab("Nightclub", 1);
+                    tab("Special Cargo", 2);
+                    tab("Bunker", 3);
+                    tab("Motorcycle Club", 4);
+                    tab("Acid Lab", 5);
+                    tab("Hangar", 6);
+                    tab("Vehicle Cargo", 7);
+                    tab("Bail Office", 8);
+                    tab("Money Fronts", 9);
+                    tab("Agency", 10);
+                    tab("Garment Factory", 11);
+                    ImGui::EndTabBar();
                 }
-
-                const bool pressed = ImGui::Button(label, ImVec2(width, 34.0f));
-
-                if (selected)
-                    ImGui::PopStyleColor(2);
-
-                if (pressed)
-                    selectedBusinessPage = page;
-            };
-
-            tabButton("Enhanced", 0, 86.0f);
-            ImGui::SameLine();
-            tabButton("Nightclub", 1, 88.0f);
-            ImGui::SameLine();
-            tabButton("Special Cargo", 2, 116.0f);
-            ImGui::SameLine();
-            tabButton("Bunker", 3, 76.0f);
-            ImGui::SameLine();
-            tabButton("Motorcycle Club", 4, 126.0f);
-            ImGui::SameLine();
-            tabButton("Acid Lab", 5, 78.0f);
-            ImGui::SameLine();
-            tabButton("Hangar", 6, 78.0f);
-            ImGui::SameLine();
-            tabButton("Vehicle Cargo", 7, 110.0f);
-            ImGui::SameLine();
-            tabButton("Bail Office", 8, 96.0f);
-            ImGui::SameLine();
-            tabButton("Money Fronts", 9, 108.0f);
-            ImGui::SameLine();
-            tabButton("Agency", 10, 78.0f);
-            ImGui::SameLine();
-            tabButton("Garment Factory", 11, 124.0f);
-
-            ImGui::PopStyleVar(3);
+            }
+            ImGui::EndChild();
         }
     }
 
