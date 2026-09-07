@@ -5,6 +5,7 @@
 #include "GamePointers.hpp"
 #include "native/NativeCallContext.hpp"
 #include "native/NativeRegistry.hpp"
+#include "../core/logging/Logger.hpp"
 
 #include <array>
 #include <cmath>
@@ -128,8 +129,17 @@ namespace Tutones::Game
 
             inline bool ConfigureNetworkedSpawn(Vehicle vehicle) noexcept
             {
-                if (vehicle == 0 || !ResolveSpawnPostHandlers())
+                if (vehicle == 0)
+                {
+                    TUTONES_LOG_ERROR("vehicle.spawn", "Cannot configure persistence for a null vehicle handle");
                     return false;
+                }
+
+                if (!ResolveSpawnPostHandlers())
+                {
+                    TUTONES_LOG_ERROR("vehicle.spawn", "Could not resolve the Enhanced network-persistence native handlers");
+                    return false;
+                }
 
                 // Keep Tutones-created vehicles owned by the script while the
                 // player enters them. Without this, GTA can treat the freshly
@@ -140,6 +150,7 @@ namespace Tutones::Game
                         || !context.PushArg(std::int32_t{1})
                         || !context.PushArg(std::int32_t{1}))
                     {
+                        TUTONES_LOG_ERROR("vehicle.spawn", "Failed to prepare SET_ENTITY_AS_MISSION_ENTITY arguments");
                         return false;
                     }
                     SpawnPostHandlers()[SetEntityAsMissionEntity](&context);
@@ -151,27 +162,43 @@ namespace Tutones::Game
                         || !context.PushArg("MPBitset")
                         || !context.PushArg(std::int32_t{0}))
                     {
+                        TUTONES_LOG_ERROR("vehicle.spawn", "Failed to prepare MPBitset persistence arguments");
                         return false;
                     }
                     SpawnPostHandlers()[DecorSetInt](&context);
                 }
 
+                // A freshly created network entity can briefly exist before its
+                // net-object ID is visible to VEH_TO_NET. Retry the lookup instead
+                // of accepting a disposable vehicle after one transient miss.
+                constexpr int NetworkIdAcquireAttempts = 4;
                 int networkId{};
+                for (int attempt = 0; attempt < NetworkIdAcquireAttempts && networkId <= 0; ++attempt)
                 {
                     Native::CallContext context;
                     if (!context.PushArg(vehicle))
+                    {
+                        TUTONES_LOG_ERROR("vehicle.spawn", "Failed to prepare VEH_TO_NET arguments");
                         return false;
+                    }
+
                     SpawnPostHandlers()[VehToNet](&context);
                     networkId = context.GetReturnValue<int>();
                 }
 
                 if (networkId <= 0)
+                {
+                    TUTONES_LOG_ERROR("vehicle.spawn", "VEH_TO_NET returned no network ID after persistence retries");
                     return false;
+                }
 
                 {
                     Native::CallContext context;
                     if (!context.PushArg(networkId) || !context.PushArg(std::int32_t{1}))
+                    {
+                        TUTONES_LOG_ERROR("vehicle.spawn", "Failed to prepare SET_NETWORK_ID_EXISTS_ON_ALL_MACHINES arguments");
                         return false;
+                    }
                     SpawnPostHandlers()[SetNetworkIdExistsOnAllMachines](&context);
                 }
 
@@ -181,7 +208,10 @@ namespace Tutones::Game
                 {
                     Native::CallContext context;
                     if (!context.PushArg(networkId) || !context.PushArg(std::int32_t{1}))
+                    {
+                        TUTONES_LOG_ERROR("vehicle.spawn", "Failed to prepare SET_NETWORK_ID_CAN_MIGRATE arguments");
                         return false;
+                    }
                     SpawnPostHandlers()[SetNetworkIdCanMigrate](&context);
                 }
 
@@ -323,6 +353,10 @@ namespace Tutones::Game
                 }
             }
 
+            // Network vehicles are created as mission entities immediately. Waiting
+            // until after CREATE_VEHICLE leaves a cleanup window where GTA can mark
+            // the new entity disposable before Tutones finishes network registration.
+            const bool createAsMissionEntity = isNetwork || netMissionEntity;
             auto created = Native::NativeInvoker::Invoke<Vehicle>(
                 Native::NativeId::CreateVehicle,
                 model,
@@ -331,7 +365,7 @@ namespace Tutones::Game
                 spawnZ,
                 heading,
                 static_cast<std::int32_t>(isNetwork),
-                static_cast<std::int32_t>(netMissionEntity),
+                static_cast<std::int32_t>(createAsMissionEntity),
                 static_cast<std::int32_t>(p7));
 
             if (!created || *created == 0)
@@ -341,8 +375,11 @@ namespace Tutones::Game
             // their network ID to all machines immediately after CREATE_VEHICLE.
             // Tutones additionally keeps the entity mission-owned and migration-safe
             // so GTA does not clean it up during the enter/ownership handoff.
-            if (isNetwork)
-                static_cast<void>(Detail::ConfigureNetworkedSpawn(*created));
+            if (isNetwork && !Detail::ConfigureNetworkedSpawn(*created))
+            {
+                TUTONES_LOG_ERROR("vehicle.spawn", "Network vehicle persistence setup failed; rejecting the spawn instead of reporting a disposable vehicle as ready");
+                return std::nullopt;
+            }
 
             // Put the new vehicle on the ground before optional enter/max handling.
             static_cast<void>(Natives::SetVehicleOnGroundProperly(*created, 0.0f));
