@@ -22,13 +22,11 @@ namespace Tutones::Game::VehicleFeatures
         bool vehicleAvailabilitySupported{};
         bool priceGateSupported{};
         bool purchaseGateSupported{};
+        bool despawnBypassSupported{};
+        bool despawnBypassApplied{};
         bool applied{};
     };
 
-    // Enhanced appinternet script patches derived from the current decompiled
-    // vehicle website flow. This does not patch the game executable; the shared
-    // ScriptPatchRuntime shadows only the matching script bytecode while the
-    // appinternet program executes and restores the original program on disable.
     class DlcVehicleRuntime final
     {
     public:
@@ -53,8 +51,6 @@ namespace Tutones::Game::VehicleFeatures
                 return false;
             }
 
-            // Current Enhanced appinternet paths, mirrored from the decompiled
-            // vehicle availability/price/purchase checks used by YimMenuV2.
             m_VehicleAvailabilityPatch = patches.AddPatch(
                 AppInternetHash,
                 Script::ScriptPointer("VehiclePOSIXPatch", "59 ? ? 72 2E 02 01"),
@@ -68,12 +64,26 @@ namespace Tutones::Game::VehicleFeatures
                 Script::ScriptPointer("BuyVehiclePatch", "5D ? ? ? 06 56 ? ? 38 00 25 ? 50").Add(5),
                 std::vector<std::uint8_t>{0x55});
 
-            if (m_VehicleAvailabilityPatch == 0 || m_PriceGatePatch == 0 || m_PurchaseGatePatch == 0)
+            // GTA's Enhanced shop_controller has a separate MP-vehicle kick-out
+            // path in Story Mode. Arm the same verified Enhanced script patch used
+            // by the reference implementation so a newly exposed DLC vehicle is
+            // not immediately removed when the player takes control of it.
+            m_DespawnBypassPatch = patches.AddPatch(
+                ShopControllerHash,
+                Script::ScriptPointer(
+                    "DlcVehicleDespawnBypass",
+                    "2D 01 04 00 00 2C ? ? ? 56 ? ? 71").Add(5),
+                std::vector<std::uint8_t>{0x71, 0x2E, 0x01, 0x01});
+
+            if (m_VehicleAvailabilityPatch == 0
+                || m_PriceGatePatch == 0
+                || m_PurchaseGatePatch == 0
+                || m_DespawnBypassPatch == 0)
             {
                 CleanupPatches();
                 patches.Stop();
                 m_Running.store(false, std::memory_order_release);
-                TUTONES_LOG_ERROR("vehicle.dlc", "Could not register all appinternet DLC vehicle patches");
+                TUTONES_LOG_ERROR("vehicle.dlc", "Could not register all Enhanced DLC vehicle patches");
                 PublishSnapshot();
                 return false;
             }
@@ -88,7 +98,7 @@ namespace Tutones::Game::VehicleFeatures
                 return false;
             }
 
-            TUTONES_LOG_INFO("vehicle.dlc", "Registered Enhanced appinternet vehicle availability patches");
+            TUTONES_LOG_INFO("vehicle.dlc", "Registered Enhanced DLC website and despawn patches");
             return true;
         }
 
@@ -100,16 +110,13 @@ namespace Tutones::Game::VehicleFeatures
             patches.Stop();
             PublishSnapshot();
             if (wasRunning)
-                TUTONES_LOG_INFO("vehicle.dlc", "DLC vehicle website runtime stopped");
+                TUTONES_LOG_INFO("vehicle.dlc", "DLC vehicle runtime stopped");
         }
 
         void SetEnabled(bool enabled) noexcept
         {
             m_Enabled.store(enabled, std::memory_order_release);
 
-            // The ImGui controls render from the published snapshot. Publish the
-            // requested state immediately so the checkbox cannot snap back while
-            // the game-thread patch tick is waiting to run.
             std::scoped_lock lock(m_Mutex);
             m_Snapshot.enabled = enabled;
         }
@@ -133,10 +140,8 @@ namespace Tutones::Game::VehicleFeatures
     private:
         DlcVehicleRuntime() = default;
 
-        // Precomputed JOAAT("appinternet"). Keeping this as a literal avoids the
-        // MSVC in-class constexpr evaluation issue that previously affected other
-        // Tutones script hashes.
         static constexpr std::uint32_t AppInternetHash = 0x6A172273u;
+        static constexpr std::uint32_t ShopControllerHash = 0x39DA738Bu;
 
         bool QueueNextTick()
         {
@@ -151,15 +156,12 @@ namespace Tutones::Game::VehicleFeatures
                 return;
 
             auto& patches = Script::ScriptPatchRuntime::Get();
-
-            // Arm the Enhanced appinternet patches as soon as the user enables
-            // the feature. Support is discovered when appinternet first executes;
-            // waiting for Status(...).supported before enabling would let that
-            // first website pass run unpatched and could leave DLC entries gated.
             const bool shouldEnable = Enabled() && patches.HookActive();
+
             static_cast<void>(patches.SetPatchEnabled(m_VehicleAvailabilityPatch, shouldEnable));
             static_cast<void>(patches.SetPatchEnabled(m_PriceGatePatch, shouldEnable));
             static_cast<void>(patches.SetPatchEnabled(m_PurchaseGatePatch, shouldEnable));
+            static_cast<void>(patches.SetPatchEnabled(m_DespawnBypassPatch, shouldEnable));
             PublishSnapshot();
 
             if (IsRunning() && !QueueNextTick())
@@ -175,6 +177,7 @@ namespace Tutones::Game::VehicleFeatures
         void CleanupPatches() noexcept
         {
             auto& patches = Script::ScriptPatchRuntime::Get();
+
             if (m_VehicleAvailabilityPatch != 0)
             {
                 static_cast<void>(patches.SetPatchEnabled(m_VehicleAvailabilityPatch, false));
@@ -190,9 +193,16 @@ namespace Tutones::Game::VehicleFeatures
                 static_cast<void>(patches.SetPatchEnabled(m_PurchaseGatePatch, false));
                 patches.RemovePatch(m_PurchaseGatePatch);
             }
+            if (m_DespawnBypassPatch != 0)
+            {
+                static_cast<void>(patches.SetPatchEnabled(m_DespawnBypassPatch, false));
+                patches.RemovePatch(m_DespawnBypassPatch);
+            }
+
             m_VehicleAvailabilityPatch = 0;
             m_PriceGatePatch = 0;
             m_PurchaseGatePatch = 0;
+            m_DespawnBypassPatch = 0;
         }
 
         void PublishSnapshot() noexcept
@@ -201,6 +211,7 @@ namespace Tutones::Game::VehicleFeatures
             const auto availability = patches.Status(m_VehicleAvailabilityPatch);
             const auto price = patches.Status(m_PriceGatePatch);
             const auto purchase = patches.Status(m_PurchaseGatePatch);
+            const auto despawn = patches.Status(m_DespawnBypassPatch);
 
             DlcVehicleSnapshot next{};
             next.running = IsRunning();
@@ -210,6 +221,8 @@ namespace Tutones::Game::VehicleFeatures
             next.vehicleAvailabilitySupported = availability.supported;
             next.priceGateSupported = price.supported;
             next.purchaseGateSupported = purchase.supported;
+            next.despawnBypassSupported = despawn.supported;
+            next.despawnBypassApplied = despawn.active;
             next.applied = availability.active && price.active && purchase.active;
 
             std::scoped_lock lock(m_Mutex);
@@ -221,6 +234,7 @@ namespace Tutones::Game::VehicleFeatures
         Script::ScriptPatchHandle m_VehicleAvailabilityPatch{};
         Script::ScriptPatchHandle m_PriceGatePatch{};
         Script::ScriptPatchHandle m_PurchaseGatePatch{};
+        Script::ScriptPatchHandle m_DespawnBypassPatch{};
         mutable std::mutex m_Mutex;
         DlcVehicleSnapshot m_Snapshot{};
     };
