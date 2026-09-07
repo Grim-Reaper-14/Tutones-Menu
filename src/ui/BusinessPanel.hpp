@@ -1,6 +1,7 @@
 #pragma once
 
 #include "AcidLabBusinessPanel.hpp"
+#include "BailOfficePanel.hpp"
 #include "BunkerBusinessPanel.hpp"
 #include "EnhancedControlCenterPanel.hpp"
 #include "HangarBusinessPanel.hpp"
@@ -65,6 +66,8 @@ namespace Tutones::UI
             tabButton("Hangar", 6, 78.0f);
             ImGui::SameLine();
             tabButton("Vehicle Cargo", 7, 110.0f);
+            ImGui::SameLine();
+            tabButton("Bail Office", 8, 96.0f);
 
             ImGui::PopStyleVar(3);
         }
@@ -111,10 +114,15 @@ namespace Tutones::UI
             RenderHangarBusinessPanel();
             SetV11Description("Hangar / Air Freight business controls and Enhanced tuning values in the V2 Business Hub.");
         }
-        else
+        else if (selectedBusinessPage == 7)
         {
             RenderVehicleCargoBusinessPanel();
             SetV11Description("Vehicle Cargo cooldown and sell-value read/write controls with current-value refresh and read-back verification.");
+        }
+        else
+        {
+            RenderBailOfficePanel();
+            SetV11Description("Bail Office target-board telemetry from the Enhanced appBailOffice flow: standard target, mission, reward, completion and Most Wanted rotation state.");
         }
     }
 }
