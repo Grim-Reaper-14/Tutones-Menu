@@ -122,9 +122,9 @@ namespace Tutones::UI
                 {{"W", "C", "O", "K"}},
                 {{"Weapon components/tints, player props, outfits and animation playback.", "Scripted freecam plus advanced vehicle native controls.", "Custom blips, particle effects, bodyguards, IPL streaming and interior tools.", "Developer console for native handlers, tunables, running scripts, locals and backend health."}}, 4, true},
             {"H", "HEISTS",
-                {{"Auto Shop", "Exotic Exports", nullptr, nullptr}},
-                {{"A", "E", nullptr, nullptr}},
-                {{nullptr, nullptr, nullptr, nullptr}}, 2, true},
+                {{"Heist Hub", nullptr, nullptr, nullptr}},
+                {{"H", nullptr, nullptr, nullptr}},
+                {{"Enhanced decompile-backed tabs for Apartment, Doomsday, Diamond Casino, Cayo Perico, Auto Shop and Salvage Yard heist families, with Exotic Exports retained as a utility."}}, 1, true},
         }};
 
         void RenderTutonesRuntimeOverlays() noexcept
