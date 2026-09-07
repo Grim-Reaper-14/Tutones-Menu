@@ -1,5 +1,6 @@
 #include "DeveloperDiagnosticsPanel.hpp"
 #include "EnhancedUtilityPanel.hpp"
+#include "ScriptValueDiffPanel.hpp"
 
 namespace Tutones::UI
 {
@@ -64,6 +65,9 @@ namespace Tutones::UI
             row("Bodyguards", bodyguards);
             row("Last native probe", probe, state.lastProbeResolved);
             row("Action", state.pending ? "PENDING" : (state.haveResult ? (state.lastSucceeded ? "SUCCESS" : "FAILED") : "READY"), state.lastSucceeded);
+
+            if (page == 3)
+                DeveloperDiagnosticsDetail::RenderScriptValueDiffLauncher(true);
 
             // Vehicle and World native pages now expose the larger Enhanced
             // utility suite in a separate window so the existing panel layout
