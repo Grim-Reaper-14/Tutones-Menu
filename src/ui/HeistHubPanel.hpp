@@ -316,6 +316,35 @@ namespace Tutones::UI
             RenderSalvageYardPanel();
         }
 
+        inline void RenderMoneyFronts() noexcept
+        {
+            ImGui::SeparatorText("Money Fronts");
+            ImGui::TextDisabled("Enhanced internal family: TYCOON25 / BUSINESS_TYCOON");
+            ImGui::Spacing();
+
+            ImGui::SeparatorText("Verified decompile routing");
+            ImGui::Text("Root content slots:");
+            ImGui::TextColored(V11Theme::Accent, "TYCOON25_MISSION_ROOT_CONTENT_ID_0 .. _5");
+            ImGui::TextWrapped("The Enhanced scripts expose six Rockstar root-content mission slots for the TYCOON25 business family. The surrounding flow also exposes Car Wash customer-car work and Money Fronts odd-job controls.");
+
+            ImGui::Spacing();
+            ImGui::Text("Related work:");
+            ImGui::BulletText("Car Wash customer vehicles / work flow");
+            ImGui::BulletText("Security Transporter odd job");
+            ImGui::BulletText("Medical Courier odd job");
+            ImGui::BulletText("Money-laundering, heat and cooldown state");
+
+            ImGui::Spacing();
+            ImGui::Text("Known routing:");
+            ImGui::TextDisabled("Laptop business type 10 -> BUSINESS_TYCOON");
+            ImGui::TextDisabled("Money Fronts contact/photo flow -> Raf");
+
+            ImGui::SeparatorText("Runtime status");
+            ImGui::TextDisabled("Reference-only for this build.");
+            ImGui::TextWrapped("Mission launch controls stay disabled until the freemode selector/launcher write chain that consumes the TYCOON25 root-content IDs is verified end-to-end.");
+            ImGui::TextDisabled("No M25 telemetry field is used as a fake mission launcher.");
+        }
+
         inline void RenderAutoShop() noexcept
         {
             using Game::Heist::AutoShopContractName;
@@ -454,6 +483,12 @@ namespace Tutones::UI
                 if (ImGui::BeginTabItem("Salvage Yard"))
                 {
                     HeistHubDetail::RenderSalvageYard();
+                    ImGui::EndTabItem();
+                }
+
+                if (ImGui::BeginTabItem("Money Fronts"))
+                {
+                    HeistHubDetail::RenderMoneyFronts();
                     ImGui::EndTabItem();
                 }
 
