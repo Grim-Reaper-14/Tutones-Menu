@@ -82,6 +82,8 @@ namespace Tutones::Game
                 DecorSetInt,
                 VehToNet,
                 SetNetworkIdExistsOnAllMachines,
+                SetNetworkIdCanMigrate,
+                SetEntityAsMissionEntity,
                 SpawnPostHandlerCount,
             };
 
@@ -94,7 +96,7 @@ namespace Tutones::Game
             inline bool ResolveSpawnPostHandlers() noexcept
             {
                 auto& handlers = SpawnPostHandlers();
-                if (handlers[0] && handlers[1] && handlers[2])
+                if (handlers[0] && handlers[1] && handlers[2] && handlers[3] && handlers[4])
                     return true;
                 if (!Native::NativeRegistry::Get().CanInvokeOnCurrentThread())
                     return false;
@@ -104,11 +106,14 @@ namespace Tutones::Game
                     return false;
 
                 // Current GTA V Enhanced mappings from YimMenuV2's enhanced crossmap:
-                // DECOR_SET_INT, VEH_TO_NET, SET_NETWORK_ID_EXISTS_ON_ALL_MACHINES.
+                // DECOR_SET_INT, VEH_TO_NET, SET_NETWORK_ID_EXISTS_ON_ALL_MACHINES,
+                // SET_NETWORK_ID_CAN_MIGRATE and SET_ENTITY_AS_MISSION_ENTITY.
                 std::array<std::uint64_t, SpawnPostHandlerCount> slots{
                     0xEE8559BBFC27701Bull,
                     0x913A6486719A87D2ull,
                     0x3C1752E361ED8FC9ull,
+                    0x8FC511FC963C67E5ull,
+                    0xEE0BCDB1B5E36BCBull,
                 };
 
                 NativeProgram program{};
@@ -118,13 +123,27 @@ namespace Tutones::Game
 
                 for (std::size_t i = 0; i < slots.size(); ++i)
                     handlers[i] = reinterpret_cast<Native::NativeHandler>(static_cast<std::uintptr_t>(slots[i]));
-                return handlers[0] && handlers[1] && handlers[2];
+                return handlers[0] && handlers[1] && handlers[2] && handlers[3] && handlers[4];
             }
 
             inline bool ConfigureNetworkedSpawn(Vehicle vehicle) noexcept
             {
                 if (vehicle == 0 || !ResolveSpawnPostHandlers())
                     return false;
+
+                // Keep Tutones-created vehicles owned by the script while the
+                // player enters them. Without this, GTA can treat the freshly
+                // created entity as disposable during the network handoff.
+                {
+                    Native::CallContext context;
+                    if (!context.PushArg(vehicle)
+                        || !context.PushArg(std::int32_t{1})
+                        || !context.PushArg(std::int32_t{1}))
+                    {
+                        return false;
+                    }
+                    SpawnPostHandlers()[SetEntityAsMissionEntity](&context);
+                }
 
                 {
                     Native::CallContext context;
@@ -154,6 +173,16 @@ namespace Tutones::Game
                     if (!context.PushArg(networkId) || !context.PushArg(std::int32_t{1}))
                         return false;
                     SpawnPostHandlers()[SetNetworkIdExistsOnAllMachines](&context);
+                }
+
+                // Permit ownership migration instead of leaving the vehicle tied
+                // to the creator's initial network owner. This prevents normal
+                // session ownership changes from cleaning up the spawned car.
+                {
+                    Native::CallContext context;
+                    if (!context.PushArg(networkId) || !context.PushArg(std::int32_t{1}))
+                        return false;
+                    SpawnPostHandlers()[SetNetworkIdCanMigrate](&context);
                 }
 
                 return true;
@@ -310,6 +339,8 @@ namespace Tutones::Game
 
             // YimMenuV2 marks spawned network vehicles with MPBitset and broadcasts
             // their network ID to all machines immediately after CREATE_VEHICLE.
+            // Tutones additionally keeps the entity mission-owned and migration-safe
+            // so GTA does not clean it up during the enter/ownership handoff.
             if (isNetwork)
                 static_cast<void>(Detail::ConfigureNetworkedSpawn(*created));
 
