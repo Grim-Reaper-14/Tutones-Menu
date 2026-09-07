@@ -55,6 +55,14 @@ namespace Tutones::Game::Business
         inline constexpr std::size_t ContractsArrayOffset = 19;
         inline constexpr std::size_t ContractSize = 3;
         inline constexpr int ContractSlots = 3;
+        inline constexpr int ContractTypes = 6;
+        inline constexpr int ContractDifficulties = 3;
+
+        // appfixersecurity::func_30 uses bit 31 of Global_1984422.f_1 to
+        // disable accepting another Security Contract for the current short delay.
+        inline constexpr std::size_t SecuritySessionGlobal = 1984422;
+        inline constexpr std::size_t SecuritySessionFlagsOffset = 1;
+        inline constexpr std::uint32_t SecurityContractDelayMask = 0x80000000u;
 
         [[nodiscard]] inline const char* SecurityContractName(int type) noexcept
         {
@@ -67,6 +75,17 @@ namespace Tutones::Game::Business
             case 4: return "Asset Protection";
             case 5: return "Liquidize Assets";
             default: return "Unknown Security Contract";
+            }
+        }
+
+        [[nodiscard]] inline const char* SecurityContractDifficultyName(int difficulty) noexcept
+        {
+            switch (difficulty)
+            {
+            case 0: return "Professional";
+            case 1: return "Specialist";
+            case 2: return "Specialist+";
+            default: return "Unknown";
             }
         }
     }
@@ -88,6 +107,7 @@ namespace Tutones::Game::Business
         bool nativeReady{};
         bool globalsReady{};
         bool securityAppRunning{};
+        bool securityContractDelayActive{};
         int playerId{-1};
         std::uint32_t generalFlags{};
         std::uint32_t completedFlags{};
@@ -123,6 +143,188 @@ namespace Tutones::Game::Business
                     success
                         ? "Agency contract-board state refreshed"
                         : "Unable to read Enhanced Agency state");
+            });
+        }
+
+        [[nodiscard]] bool QueueSetContractSlot(int slot, int type, int difficulty)
+        {
+            using namespace AgencyEnhanced173;
+            if (slot < 0 || slot >= ContractSlots
+                || type < 0 || type >= ContractTypes
+                || difficulty < 0 || difficulty >= ContractDifficulties)
+            {
+                return false;
+            }
+
+            return Queue("Updating Security Contract board slot", [this, slot, type, difficulty] {
+                AgencySnapshot before;
+                if (!CaptureState(before))
+                {
+                    Finish(false, std::move(before), "Agency flow is unavailable");
+                    return;
+                }
+
+                auto& scripts = Script::ScriptRuntime::Get();
+                auto** globals = scripts.Globals();
+                if (!globals || before.playerId < 0)
+                {
+                    Finish(false, std::move(before), "Agency globals are unavailable");
+                    return;
+                }
+
+                const auto flow = Script::ScriptGlobal(FlowGlobal)
+                    .At(static_cast<std::size_t>(before.playerId), PlayerEntrySize)
+                    .At(FixerFlowOffset);
+                const auto contract = flow.At(ContractsArrayOffset)
+                    .At(static_cast<std::size_t>(slot), ContractSize);
+
+                auto* typeSlot = contract.At(0).As<std::int32_t>(globals);
+                auto* difficultySlot = contract.At(1).As<std::int32_t>(globals);
+                if (!typeSlot || !difficultySlot)
+                {
+                    Finish(false, std::move(before), "Security Contract slot is unavailable");
+                    return;
+                }
+
+                const std::int32_t originalType = *typeSlot;
+                const std::int32_t originalDifficulty = *difficultySlot;
+                *typeSlot = type;
+                *difficultySlot = difficulty;
+
+                if (*typeSlot != type || *difficultySlot != difficulty)
+                {
+                    *typeSlot = originalType;
+                    *difficultySlot = originalDifficulty;
+                    AgencySnapshot rolledBack;
+                    static_cast<void>(CaptureState(rolledBack));
+                    Finish(false, std::move(rolledBack), "Security Contract write failed and was rolled back");
+                    return;
+                }
+
+                AgencySnapshot after;
+                if (!CaptureState(after)
+                    || !after.contracts[static_cast<std::size_t>(slot)].readable
+                    || after.contracts[static_cast<std::size_t>(slot)].type != type
+                    || after.contracts[static_cast<std::size_t>(slot)].difficulty != difficulty)
+                {
+                    *typeSlot = originalType;
+                    *difficultySlot = originalDifficulty;
+                    AgencySnapshot rolledBack;
+                    static_cast<void>(CaptureState(rolledBack));
+                    Finish(false, std::move(rolledBack), "Security Contract verification failed and was rolled back");
+                    return;
+                }
+
+                Finish(
+                    true,
+                    std::move(after),
+                    "Security Contract board slot updated; reopen or refresh The Contract app if it was already open");
+            });
+        }
+
+        [[nodiscard]] bool QueueClearStoryCooldown()
+        {
+            using namespace AgencyEnhanced173;
+            return Queue("Clearing Dr. Dre story replay cooldown", [this] {
+                AgencySnapshot before;
+                if (!CaptureState(before))
+                {
+                    Finish(false, std::move(before), "Agency flow is unavailable");
+                    return;
+                }
+
+                auto** globals = Script::ScriptRuntime::Get().Globals();
+                if (!globals || before.playerId < 0)
+                {
+                    Finish(false, std::move(before), "Agency globals are unavailable");
+                    return;
+                }
+
+                const auto flow = Script::ScriptGlobal(FlowGlobal)
+                    .At(static_cast<std::size_t>(before.playerId), PlayerEntrySize)
+                    .At(FixerFlowOffset);
+                auto* cooldown = flow.At(StoryCooldownOffset).As<std::int32_t>(globals);
+                if (!cooldown)
+                {
+                    Finish(false, std::move(before), "Dr. Dre story cooldown slot is unavailable");
+                    return;
+                }
+
+                const std::int32_t original = *cooldown;
+                *cooldown = 0;
+                if (*cooldown != 0)
+                {
+                    *cooldown = original;
+                    AgencySnapshot rolledBack;
+                    static_cast<void>(CaptureState(rolledBack));
+                    Finish(false, std::move(rolledBack), "Dr. Dre cooldown write failed and was rolled back");
+                    return;
+                }
+
+                AgencySnapshot after;
+                if (!CaptureState(after) || after.storyCooldown != 0)
+                {
+                    *cooldown = original;
+                    AgencySnapshot rolledBack;
+                    static_cast<void>(CaptureState(rolledBack));
+                    Finish(false, std::move(rolledBack), "Dr. Dre cooldown verification failed and was rolled back");
+                    return;
+                }
+
+                Finish(true, std::move(after), "Dr. Dre story replay cooldown cleared");
+            });
+        }
+
+        [[nodiscard]] bool QueueClearSecurityContractDelay()
+        {
+            using namespace AgencyEnhanced173;
+            return Queue("Clearing Security Contract short delay", [this] {
+                AgencySnapshot before;
+                if (!CaptureState(before))
+                {
+                    Finish(false, std::move(before), "Agency flow is unavailable");
+                    return;
+                }
+
+                auto** globals = Script::ScriptRuntime::Get().Globals();
+                if (!globals)
+                {
+                    Finish(false, std::move(before), "Agency globals are unavailable");
+                    return;
+                }
+
+                auto* flags = Script::ScriptGlobal(SecuritySessionGlobal)
+                    .At(SecuritySessionFlagsOffset)
+                    .As<std::int32_t>(globals);
+                if (!flags)
+                {
+                    Finish(false, std::move(before), "Security Contract delay state is unavailable");
+                    return;
+                }
+
+                const std::int32_t original = *flags;
+                const std::uint32_t cleared = static_cast<std::uint32_t>(original) & ~SecurityContractDelayMask;
+                *flags = static_cast<std::int32_t>(cleared);
+                if ((static_cast<std::uint32_t>(*flags) & SecurityContractDelayMask) != 0)
+                {
+                    *flags = original;
+                    AgencySnapshot rolledBack;
+                    static_cast<void>(CaptureState(rolledBack));
+                    Finish(false, std::move(rolledBack), "Security Contract delay write failed and was rolled back");
+                    return;
+                }
+
+                AgencySnapshot after;
+                if (!CaptureState(after) || after.securityContractDelayActive)
+                {
+                    *flags = original;
+                    AgencySnapshot rolledBack;
+                    static_cast<void>(CaptureState(rolledBack));
+                    Finish(false, std::move(rolledBack), "Security Contract delay verification failed and was rolled back");
+                    return;
+                }
+
+                Finish(true, std::move(after), "Current Security Contract short delay cleared");
             });
         }
 
@@ -219,6 +421,14 @@ namespace Tutones::Game::Business
             state.shortTrips = static_cast<std::uint32_t>(*shortTrips);
             state.contractCount = *contractCount;
             state.earnings = *earnings;
+
+            if (const auto* sessionFlags = Script::ScriptGlobal(SecuritySessionGlobal)
+                    .At(SecuritySessionFlagsOffset)
+                    .As<std::int32_t>(globals))
+            {
+                state.securityContractDelayActive =
+                    (static_cast<std::uint32_t>(*sessionFlags) & SecurityContractDelayMask) != 0;
+            }
 
             const auto contracts = flow.At(ContractsArrayOffset);
             bool anyContract = false;
