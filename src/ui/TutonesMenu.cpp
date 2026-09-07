@@ -62,9 +62,9 @@ namespace ImGui
 
     inline bool TutonesV2BeginChild(
         const char* strId,
-        const ImVec2& size,
-        bool border,
-        ImGuiWindowFlags windowFlags) noexcept
+        const ImVec2& size = ImVec2(0, 0),
+        bool border = false,
+        ImGuiWindowFlags windowFlags = 0) noexcept
     {
         if (strId && std::strcmp(strId, "##v11_rail_input") == 0)
             windowFlags |= ImGuiWindowFlags_NoMouseInputs;
