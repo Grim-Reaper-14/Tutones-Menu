@@ -2,6 +2,7 @@
 
 #include "V11Description.hpp"
 #include "V11Theme.hpp"
+#include "CasinoHeistPanel.hpp"
 #include "../features/heist/AutoShopContractRuntime.hpp"
 #include "../features/heist/CayoLootRuntime.hpp"
 #include "../features/heist/CayoPericoRuntime.hpp"
@@ -65,11 +66,7 @@ namespace Tutones::UI
 
         inline void RenderCasinoHeist() noexcept
         {
-            RenderDecompileReference(
-                "Diamond Casino Heist",
-                "gb_casino_heist_planning.c",
-                "fm_mission_controller.c",
-                "The Arcade planning board has its own decompiled planning script. This page is ready for scoped target, approach, crew and prep controls after their Enhanced state is confirmed.");
+            RenderCasinoHeistPanel();
         }
 
         inline void RenderCayoPericoHeist() noexcept
