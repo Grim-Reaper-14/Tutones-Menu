@@ -5,6 +5,7 @@
 #include "BailOfficePanel.hpp"
 #include "BunkerBusinessPanel.hpp"
 #include "EnhancedControlCenterPanel.hpp"
+#include "GarmentFactoryPanel.hpp"
 #include "HangarBusinessPanel.hpp"
 #include "MoneyFrontsPanel.hpp"
 #include "MotorcycleClubPanel.hpp"
@@ -74,6 +75,8 @@ namespace Tutones::UI
             tabButton("Money Fronts", 9, 108.0f);
             ImGui::SameLine();
             tabButton("Agency", 10, 78.0f);
+            ImGui::SameLine();
+            tabButton("Garment Factory", 11, 124.0f);
 
             ImGui::PopStyleVar(3);
         }
@@ -135,10 +138,15 @@ namespace Tutones::UI
             RenderMoneyFrontsPanel();
             SetV11Description("Money Fronts M25 player-flow telemetry. Raw mission and flag state stays read-only until exact current bit semantics are verified from the Enhanced decompile.");
         }
-        else
+        else if (selectedBusinessPage == 10)
         {
             RenderAgencyBusinessPanel();
             SetV11Description("Agency Fixer-flow telemetry from appfixersecurity: live Security Contract board, rewards, contract count, earnings, story cooldown, Payphone bonus method and progression flags.");
+        }
+        else
+        {
+            RenderGarmentFactoryPanel();
+            SetV11Description("Garment Factory / Agents of Sabotage telemetry from the current Hacker24 player-flow block. Active FIB File and raw progression flags stay read-only until each write path is verified.");
         }
     }
 }
