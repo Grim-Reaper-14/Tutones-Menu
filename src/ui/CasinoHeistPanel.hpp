@@ -64,9 +64,6 @@ namespace Tutones::UI
         selectedVehicle = std::clamp(selectedVehicle, 0, VehicleCount - 1);
 
         ImGui::SeparatorText("Diamond Casino Heist");
-        ImGui::TextDisabled("Enhanced source: gb_casino_heist_planning.c");
-        ImGui::TextDisabled("Verified setup writes use read-back and rollback. No finale-launch shortcut is used.");
-
         ImGui::SeparatorText("Planning Setup");
         ImGui::SetNextItemWidth(-1.0f);
         if (ImGui::BeginCombo("##casino_target", TargetName(selectedTarget)))
@@ -176,8 +173,6 @@ namespace Tutones::UI
             ImGui::EndCombo();
         }
 
-        ImGui::TextDisabled("Complete Setup also scopes all 10 POIs, all 11 access points, weakens Duggan security, enables Level 2 passes and marks prep bitsets complete.");
-
         const bool busy = state.pending;
         ImGui::BeginDisabled(busy);
         if (ImGui::Button("Apply + Complete Casino Setup", ImVec2(-1.0f, 0.0f)))
@@ -229,8 +224,7 @@ namespace Tutones::UI
         if (ImGui::Button("100 Each##casino", ImVec2(-1.0f, 0.0f)))
             cuts = CutArray{{100, 100, 100, 100}};
 
-        const int cutTotal = cuts[0] + cuts[1] + cuts[2] + cuts[3];
-        ImGui::TextDisabled("Configured total: %d%%", cutTotal);
+        ImGui::Text("Configured total: %d%%", cuts[0] + cuts[1] + cuts[2] + cuts[3]);
         ImGui::BeginDisabled(busy);
         if (ImGui::Button("Apply Casino Cuts", ImVec2(-1.0f, 0.0f)))
             static_cast<void>(runtime.QueueCuts(cuts));
@@ -267,9 +261,7 @@ namespace Tutones::UI
                 state.cuts[3]);
         }
 
-        if (state.pending)
-            ImGui::TextDisabled("%s", state.message.c_str());
-        else if (state.haveResult)
+        if (state.pending || state.haveResult)
             ImGui::TextDisabled("%s", state.message.c_str());
     }
 }
