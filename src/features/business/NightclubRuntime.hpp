@@ -32,6 +32,7 @@ namespace Tutones::Game::Business
         inline constexpr std::size_t TunablesGlobal = 262145;
         inline constexpr const char* PopularityStat = "MPX_CLUB_POPULARITY";
         inline constexpr int MaximumPopularity = 1000;
+        inline constexpr int InstantProductionTimeMs = 1000;
 
         inline constexpr std::array<const char*, 7> GoodNames{{
             "Sporting Goods",
@@ -88,6 +89,8 @@ namespace Tutones::Game::Business
             24062, 24063, 24064, 24065, 24066, 24067, 24068,
         }};
 
+        // GTA V Enhanced 1.73 / b1158.13 Nightclub warehouse production timers.
+        // DecompileScript remains Enhanced-only: no Legacy local/global fallback is used.
         inline constexpr std::array<std::size_t, 7> ProductionTimeOffsets{{
             24040, 24041, 24042, 24043, 24044, 24045, 24046,
         }};
@@ -121,6 +124,8 @@ namespace Tutones::Game::Business
         bool actionPending{};
         bool haveResult{};
         bool lastSucceeded{};
+        bool instantProductionEnabled{};
+        bool instantProductionRestoreAvailable{};
         std::uint64_t revision{};
         std::string message{"Ready"};
     };
@@ -139,6 +144,8 @@ namespace Tutones::Game::Business
             std::scoped_lock lock(m_Mutex);
             NightclubSnapshot snapshot = m_Snapshot;
             snapshot.actionPending = m_Pending.load(std::memory_order_acquire);
+            snapshot.instantProductionEnabled = m_InstantProductionEnabled.load(std::memory_order_acquire);
+            snapshot.instantProductionRestoreAvailable = m_HavePreviousProductionTimes;
             return snapshot;
         }
 
@@ -174,6 +181,71 @@ namespace Tutones::Game::Business
 
             return QueueAction("Nightclub equipment multiplier", [multiplier] {
                 return WriteFloat(NightclubData::EquipmentUpgradeMultiplierOffset, multiplier);
+            });
+        }
+
+        [[nodiscard]] bool QueueSetInstantProduction(bool enabled)
+        {
+            if (enabled == m_InstantProductionEnabled.load(std::memory_order_acquire))
+                return true;
+
+            if (enabled)
+            {
+                return QueueAction("Nightclub instant production", [this] {
+                    std::array<int, NightclubData::ProductionTimeOffsets.size()> previous{};
+                    for (std::size_t index = 0; index < previous.size(); ++index)
+                    {
+                        if (!ReadInt(NightclubData::ProductionTimeOffsets[index], previous[index]))
+                            return false;
+                    }
+
+                    for (std::size_t index = 0; index < previous.size(); ++index)
+                    {
+                        if (WriteInt(
+                                NightclubData::ProductionTimeOffsets[index],
+                                NightclubData::InstantProductionTimeMs))
+                        {
+                            continue;
+                        }
+
+                        // Do not leave a half-applied set of production timers.
+                        for (std::size_t restore = 0; restore < index; ++restore)
+                            static_cast<void>(WriteInt(NightclubData::ProductionTimeOffsets[restore], previous[restore]));
+                        return false;
+                    }
+
+                    {
+                        std::scoped_lock lock(m_Mutex);
+                        m_PreviousProductionTimes = previous;
+                        m_HavePreviousProductionTimes = true;
+                    }
+                    m_InstantProductionEnabled.store(true, std::memory_order_release);
+                    return true;
+                });
+            }
+
+            return QueueAction("Nightclub instant production restore", [this] {
+                std::array<int, NightclubData::ProductionTimeOffsets.size()> previous{};
+                {
+                    std::scoped_lock lock(m_Mutex);
+                    if (!m_HavePreviousProductionTimes)
+                        return false;
+                    previous = m_PreviousProductionTimes;
+                }
+
+                bool restored = true;
+                for (std::size_t index = 0; index < previous.size(); ++index)
+                    restored = WriteInt(NightclubData::ProductionTimeOffsets[index], previous[index]) && restored;
+
+                if (!restored)
+                    return false;
+
+                m_InstantProductionEnabled.store(false, std::memory_order_release);
+                {
+                    std::scoped_lock lock(m_Mutex);
+                    m_HavePreviousProductionTimes = false;
+                }
+                return true;
             });
         }
 
@@ -235,6 +307,20 @@ namespace Tutones::Game::Business
         {
             bool* sessionStarted = GamePointers::Get().IsSessionStarted();
             return sessionStarted && *sessionStarted && GamePointers::Get().ScriptGlobals() != nullptr;
+        }
+
+        [[nodiscard]] static bool ReadInt(std::size_t offset, int& value) noexcept
+        {
+            if (!SessionReady())
+                return false;
+
+            auto* pages = GamePointers::Get().ScriptGlobals();
+            int* target = Script::ScriptGlobal(NightclubData::TunablesGlobal).At(offset).As<int>(pages);
+            if (!target)
+                return false;
+
+            value = *target;
+            return value >= 0;
         }
 
         [[nodiscard]] static bool WriteInt(std::size_t offset, int value) noexcept
@@ -330,7 +416,10 @@ namespace Tutones::Game::Business
         }
 
         std::atomic<bool> m_Pending{false};
+        std::atomic<bool> m_InstantProductionEnabled{false};
         mutable std::mutex m_Mutex;
+        std::array<int, NightclubData::ProductionTimeOffsets.size()> m_PreviousProductionTimes{};
+        bool m_HavePreviousProductionTimes{};
         NightclubSnapshot m_Snapshot{};
     };
 }
