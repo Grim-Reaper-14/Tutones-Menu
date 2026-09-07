@@ -121,10 +121,10 @@ namespace Tutones::UI
                 {{"Workshop", "Vehicle & Camera", "World Tools", "Diagnostics"}},
                 {{"W", "C", "O", "K"}},
                 {{"Weapon components/tints, player props, outfits and animation playback.", "Scripted freecam plus advanced vehicle native controls.", "Custom blips, particle effects, bodyguards, IPL streaming and interior tools.", "Developer console for native handlers, tunables, running scripts, locals and backend health."}}, 4, true},
-            {"H", "HIEST",
-                {{"Heist Hub", nullptr, nullptr, nullptr}},
-                {{"H", nullptr, nullptr, nullptr}},
-                {{"Dedicated heist workspace. Auto Shop contracts and other verified heist workflows can be built here without changing the existing Business menu."}}, 1, true},
+            {"H", "HEISTS",
+                {{"Auto Shop", "Exotic Exports", nullptr, nullptr}},
+                {{"A", "E", nullptr, nullptr}},
+                {{nullptr, nullptr, nullptr, nullptr}}, 2, true},
         }};
 
         void RenderTutonesRuntimeOverlays() noexcept
