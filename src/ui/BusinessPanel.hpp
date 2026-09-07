@@ -115,7 +115,7 @@ namespace Tutones::UI
         else if (selectedBusinessPage == 10)
         {
             RenderAgencyBusinessPanel();
-            SetV11Description("Agency controls: rewrite all three Security Contract board slots, choose contract type and difficulty, clear the short contract delay and Dr. Dre replay cooldown, plus inspect live Fixer flow state.");
+            SetV11Description("Agency controls: select and complete Dr. Dre contract progression, edit finale payout, kill Dre/Security/Payphone cooldowns, collect the Agency safe, rewrite Security Contract board slots, and inspect live Fixer flow state.");
         }
         else
         {
