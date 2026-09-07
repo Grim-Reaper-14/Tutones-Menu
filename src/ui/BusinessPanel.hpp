@@ -1,6 +1,7 @@
 #pragma once
 
 #include "AcidLabBusinessPanel.hpp"
+#include "AgencyBusinessPanel.hpp"
 #include "BailOfficePanel.hpp"
 #include "BunkerBusinessPanel.hpp"
 #include "EnhancedControlCenterPanel.hpp"
@@ -71,6 +72,8 @@ namespace Tutones::UI
             tabButton("Bail Office", 8, 96.0f);
             ImGui::SameLine();
             tabButton("Money Fronts", 9, 108.0f);
+            ImGui::SameLine();
+            tabButton("Agency", 10, 78.0f);
 
             ImGui::PopStyleVar(3);
         }
@@ -127,10 +130,15 @@ namespace Tutones::UI
             RenderBailOfficePanel();
             SetV11Description("Bail Office target-board telemetry from the Enhanced appBailOffice flow: standard target, mission, reward, completion and Most Wanted rotation state.");
         }
-        else
+        else if (selectedBusinessPage == 9)
         {
             RenderMoneyFrontsPanel();
             SetV11Description("Money Fronts M25 player-flow telemetry. Raw mission and flag state stays read-only until exact current bit semantics are verified from the Enhanced decompile.");
+        }
+        else
+        {
+            RenderAgencyBusinessPanel();
+            SetV11Description("Agency Fixer-flow telemetry from appfixersecurity: live Security Contract board, rewards, contract count, earnings, story cooldown, Payphone bonus method and progression flags.");
         }
     }
 }
