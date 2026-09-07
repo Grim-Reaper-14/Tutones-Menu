@@ -110,7 +110,7 @@ namespace Tutones::UI
             break;
 
         case 11:
-            RenderHeistHubPanel();
+            RenderHeistHubPanel(m_Item);
             break;
 
         default:
