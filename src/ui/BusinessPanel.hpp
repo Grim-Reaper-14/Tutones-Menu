@@ -84,7 +84,7 @@ namespace Tutones::UI
         else if (selectedBusinessPage == 1)
         {
             RenderNightclubPanel();
-            SetV11Description("Nightclub business tuning for Enhanced 1.73 / b1158.13: goods, cooldowns, production, equipment upgrade multiplier, and popularity income.");
+            SetV11Description("");
         }
         else if (selectedBusinessPage == 2)
         {
