@@ -92,12 +92,29 @@ namespace Tutones::UI
         {
             using namespace Game::Business;
 
+            auto& runtime = NightclubRuntime::Get();
+            const auto snapshot = runtime.Snapshot();
+
+            ImGui::SeparatorText("Instant Production");
+            ImGui::TextWrapped("Accelerate all seven mapped Enhanced Nightclub warehouse production timers to one second. Turning it off restores the values captured before enabling it.");
+            ImGui::BeginDisabled(snapshot.actionPending);
+            if (ImGui::Button(
+                    snapshot.instantProductionEnabled ? "Disable Instant Production" : "Enable Instant Production",
+                    ImVec2(-1.0f, 0.0f)))
+            {
+                static_cast<void>(runtime.QueueSetInstantProduction(!snapshot.instantProductionEnabled));
+            }
+            ImGui::EndDisabled();
+            DescribeLastV11Item("Use only the seven Enhanced 1.73 Nightclub production timer tunables. No Legacy offsets or stock/capacity rewrites are used.");
+            ImGui::TextDisabled(
+                "Instant production: %s | restore snapshot: %s",
+                snapshot.instantProductionEnabled ? "ON" : "OFF",
+                snapshot.instantProductionRestoreAvailable ? "READY" : "NONE");
+
             ImGui::SeparatorText("Production Upgrade");
             ImGui::InputFloat("Equipment multiplier", &g_Profile.equipmentUpgradeMultiplier, 0.05f, 0.10f, "%.2f");
             g_Profile.equipmentUpgradeMultiplier = std::clamp(g_Profile.equipmentUpgradeMultiplier, 0.0f, 100.0f);
 
-            auto& runtime = NightclubRuntime::Get();
-            const auto snapshot = runtime.Snapshot();
             ImGui::BeginDisabled(snapshot.actionPending);
             if (ImGui::Button("Apply equipment multiplier", ImVec2(-1.0f, 0.0f)))
                 static_cast<void>(runtime.QueueApplyUpgradeMultiplier(g_Profile.equipmentUpgradeMultiplier));
