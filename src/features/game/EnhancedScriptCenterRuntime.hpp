@@ -14,6 +14,16 @@
 
 namespace Tutones::Game::EnhancedScripts
 {
+    // DecompileScript is intentionally GTA V Enhanced-only. Do not add Legacy
+    // globals, locals, script layouts, or cross-version fallback offsets here.
+    enum class Edition : std::uint8_t
+    {
+        Enhanced,
+    };
+
+    inline constexpr const char* DecompileEdition = "GTA V Enhanced";
+    inline constexpr const char* DecompileRevision = "1.73 / b1158.13";
+
     namespace Detail
     {
         [[nodiscard]] constexpr std::uint32_t Joaat(const char* text) noexcept
@@ -54,6 +64,7 @@ namespace Tutones::Game::EnhancedScripts
         const char* decompileFile{};
         Area area{};
         std::uint32_t hash{};
+        Edition edition{Edition::Enhanced};
     };
 
     inline constexpr std::array Definitions{
@@ -78,6 +89,18 @@ namespace Tutones::Game::EnhancedScripts
         Definition{"DLC.Mansion.Limo", "Mansion Limo", "am_mansion_limo", "am_mansion_limo.c", Area::Dlc, Detail::Joaat("am_mansion_limo")},
         Definition{"DLC.Mansion.LuxuryCar", "Mansion Luxury Car", "am_mansion_luxury_car", "am_mansion_luxury_car.c", Area::Dlc, Detail::Joaat("am_mansion_luxury_car")},
     };
+
+    [[nodiscard]] constexpr bool IsEnhancedOnlyCatalog() noexcept
+    {
+        for (const auto& definition : Definitions)
+        {
+            if (definition.edition != Edition::Enhanced)
+                return false;
+        }
+        return true;
+    }
+
+    static_assert(IsEnhancedOnlyCatalog(), "DecompileScript catalog must remain GTA V Enhanced-only");
 
     struct ScriptState final
     {
@@ -120,7 +143,7 @@ namespace Tutones::Game::EnhancedScripts
             if (!m_Pending.compare_exchange_strong(expected, true, std::memory_order_acq_rel))
                 return false;
 
-            SetPending("Refreshing Enhanced decompile script catalog");
+            SetPending("Refreshing Enhanced-only decompile script catalog");
             if (Tutones::Runtime::GameRuntime::Get().Enqueue([this] {
                 Snapshot state;
                 if (bool* sessionStarted = GamePointers::Get().IsSessionStarted())
@@ -156,8 +179,8 @@ namespace Tutones::Game::EnhancedScripts
                     }
                 }
 
-                TUTONES_LOG_DEBUG("enhanced.script_center", "Enhanced decompile script catalog refreshed");
-                Finish(true, std::move(state), "Enhanced decompile script catalog refreshed");
+                TUTONES_LOG_DEBUG("enhanced.script_center", "Enhanced-only decompile script catalog refreshed");
+                Finish(true, std::move(state), "Enhanced-only decompile script catalog refreshed");
             }))
             {
                 return true;
