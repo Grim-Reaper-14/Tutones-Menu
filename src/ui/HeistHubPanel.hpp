@@ -14,6 +14,80 @@ namespace Tutones::UI
 {
     namespace HeistHubDetail
     {
+        inline void RenderDecompileReference(
+            const char* title,
+            const char* planningScript,
+            const char* missionController,
+            const char* note) noexcept
+        {
+            ImGui::SeparatorText(title);
+            ImGui::TextDisabled("Enhanced decompile-backed");
+            ImGui::Spacing();
+
+            ImGui::Text("Planning script:");
+            ImGui::SameLine();
+            ImGui::TextColored(V11Theme::Accent, "%s", planningScript);
+
+            if (missionController && missionController[0] != '\0')
+            {
+                ImGui::Text("Mission controller:");
+                ImGui::SameLine();
+                ImGui::TextColored(V11Theme::Accent, "%s", missionController);
+            }
+
+            ImGui::Spacing();
+            ImGui::TextWrapped("%s", note);
+            ImGui::Spacing();
+            ImGui::SeparatorText("Runtime status");
+            ImGui::TextDisabled("Reference-only until the Enhanced 1.73 write state is verified.");
+            ImGui::TextDisabled("No guessed globals, locals or finale-launch writes are exposed here.");
+        }
+
+        inline void RenderApartmentHeists() noexcept
+        {
+            RenderDecompileReference(
+                "Apartment Heists",
+                "fm_mission_controller.c",
+                "fm_mission_controller.c",
+                "The original Online heists share the classic mission-controller path. This tab is reserved for verified setup, finale and payout state once the current Enhanced offsets are mapped safely.");
+        }
+
+        inline void RenderDoomsdayHeist() noexcept
+        {
+            RenderDecompileReference(
+                "Doomsday Heist",
+                "gb_gang_ops_planning.c",
+                "fm_mission_controller.c",
+                "Facility planning is backed by gb_gang_ops_planning. Runtime controls stay disabled until its current Enhanced planning state and mission-controller handoff are verified together.");
+        }
+
+        inline void RenderCasinoHeist() noexcept
+        {
+            RenderDecompileReference(
+                "Diamond Casino Heist",
+                "gb_casino_heist_planning.c",
+                "fm_mission_controller.c",
+                "The Arcade planning board has its own decompiled planning script. This page is ready for scoped target, approach, crew and prep controls after their Enhanced state is confirmed.");
+        }
+
+        inline void RenderCayoPericoHeist() noexcept
+        {
+            RenderDecompileReference(
+                "Cayo Perico Heist",
+                "heist_island_planning.c",
+                "fm_mission_controller_2020.c",
+                "Cayo uses the island planning script and the 2020 mission controller. This keeps Cayo state isolated from the classic mission-controller flow before any writes are enabled.");
+        }
+
+        inline void RenderSalvageYard() noexcept
+        {
+            RenderDecompileReference(
+                "Salvage Yard Robberies",
+                "vehrob_planning.c",
+                "",
+                "Salvage Yard robbery planning is present in the Enhanced decompile set. Contract selection, planning and completion writes will remain disabled until the current script state is mapped and tested.");
+        }
+
         inline void RenderAutoShop() noexcept
         {
             using Game::Heist::AutoShopContractName;
@@ -26,6 +100,7 @@ namespace Tutones::UI
             selectedContract = std::clamp(selectedContract, 0, ContractCount - 1);
 
             ImGui::SeparatorText("Auto Shop Contracts");
+            ImGui::TextDisabled("Enhanced source: tuner_planning.c");
             ImGui::SetNextItemWidth(-1.0f);
             if (ImGui::BeginCombo("##autoshop_contract", AutoShopContractName(selectedContract)))
             {
@@ -73,6 +148,7 @@ namespace Tutones::UI
             const auto state = runtime.Snapshot();
 
             ImGui::SeparatorText("Exotic Exports");
+            ImGui::TextDisabled("Existing decompile-backed utility retained outside the heist families.");
             ImGui::BeginDisabled(state.pending);
             if (ImGui::Button("Refresh Active Export", ImVec2(-1.0f, 0.0f)))
                 static_cast<void>(runtime.QueueRefresh());
@@ -100,6 +176,8 @@ namespace Tutones::UI
 
     inline void RenderHeistHubPanel(std::size_t page) noexcept
     {
+        static_cast<void>(page);
+
         ImGui::SetCursorPos(ImVec2(226.0f, 52.0f));
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(14.0f, 12.0f));
         ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 3.0f);
@@ -108,13 +186,57 @@ namespace Tutones::UI
 
         if (ImGui::BeginChild("##heist_panel", ImVec2(490.0f, 394.0f), true))
         {
-            ImGui::TextColored(V11Theme::Accent, page == 1 ? "Exotic Exports" : "Auto Shop");
+            ImGui::TextColored(V11Theme::Accent, "Enhanced Heist Hub");
+            ImGui::SameLine();
+            ImGui::TextDisabled("decompiled script routing");
             ImGui::Separator();
 
-            if (page == 1)
-                HeistHubDetail::RenderExoticExports();
-            else
-                HeistHubDetail::RenderAutoShop();
+            if (ImGui::BeginTabBar("##enhanced_heist_tabs", ImGuiTabBarFlags_FittingPolicyScroll))
+            {
+                if (ImGui::BeginTabItem("Apartment"))
+                {
+                    HeistHubDetail::RenderApartmentHeists();
+                    ImGui::EndTabItem();
+                }
+
+                if (ImGui::BeginTabItem("Doomsday"))
+                {
+                    HeistHubDetail::RenderDoomsdayHeist();
+                    ImGui::EndTabItem();
+                }
+
+                if (ImGui::BeginTabItem("Casino"))
+                {
+                    HeistHubDetail::RenderCasinoHeist();
+                    ImGui::EndTabItem();
+                }
+
+                if (ImGui::BeginTabItem("Cayo Perico"))
+                {
+                    HeistHubDetail::RenderCayoPericoHeist();
+                    ImGui::EndTabItem();
+                }
+
+                if (ImGui::BeginTabItem("Auto Shop"))
+                {
+                    HeistHubDetail::RenderAutoShop();
+                    ImGui::EndTabItem();
+                }
+
+                if (ImGui::BeginTabItem("Salvage Yard"))
+                {
+                    HeistHubDetail::RenderSalvageYard();
+                    ImGui::EndTabItem();
+                }
+
+                if (ImGui::BeginTabItem("Exports"))
+                {
+                    HeistHubDetail::RenderExoticExports();
+                    ImGui::EndTabItem();
+                }
+
+                ImGui::EndTabBar();
+            }
         }
 
         ImGui::EndChild();
