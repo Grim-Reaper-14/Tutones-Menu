@@ -106,6 +106,12 @@ namespace Tutones::Game::VehicleFeatures
         void SetEnabled(bool enabled) noexcept
         {
             m_Enabled.store(enabled, std::memory_order_release);
+
+            // The ImGui controls render from the published snapshot. Publish the
+            // requested state immediately so the checkbox cannot snap back while
+            // the game-thread patch tick is waiting to run.
+            std::scoped_lock lock(m_Mutex);
+            m_Snapshot.enabled = enabled;
         }
 
         [[nodiscard]] bool Enabled() const noexcept
@@ -145,15 +151,12 @@ namespace Tutones::Game::VehicleFeatures
                 return;
 
             auto& patches = Script::ScriptPatchRuntime::Get();
-            const auto availability = patches.Status(m_VehicleAvailabilityPatch);
-            const auto price = patches.Status(m_PriceGatePatch);
-            const auto purchase = patches.Status(m_PurchaseGatePatch);
-            const bool supported = patches.HookActive()
-                && availability.supported
-                && price.supported
-                && purchase.supported;
-            const bool shouldEnable = Enabled() && supported;
 
+            // Arm the Enhanced appinternet patches as soon as the user enables
+            // the feature. Support is discovered when appinternet first executes;
+            // waiting for Status(...).supported before enabling would let that
+            // first website pass run unpatched and could leave DLC entries gated.
+            const bool shouldEnable = Enabled() && patches.HookActive();
             static_cast<void>(patches.SetPatchEnabled(m_VehicleAvailabilityPatch, shouldEnable));
             static_cast<void>(patches.SetPatchEnabled(m_PriceGatePatch, shouldEnable));
             static_cast<void>(patches.SetPatchEnabled(m_PurchaseGatePatch, shouldEnable));
