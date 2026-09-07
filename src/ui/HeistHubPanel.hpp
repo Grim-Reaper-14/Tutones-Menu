@@ -3,6 +3,7 @@
 #include "V11Description.hpp"
 #include "V11Theme.hpp"
 #include "../features/heist/AutoShopContractRuntime.hpp"
+#include "../features/heist/CayoLootRuntime.hpp"
 #include "../features/heist/CayoPericoRuntime.hpp"
 #include "../features/heist/ExoticExportRuntime.hpp"
 
@@ -74,21 +75,52 @@ namespace Tutones::UI
         inline void RenderCayoPericoHeist() noexcept
         {
             using namespace Game::Heist::CayoPericoEnhanced173;
+            using namespace Game::Heist::CayoLootEnhanced173;
+            using Game::Heist::CayoLootConfig;
+            using Game::Heist::CayoLootRuntime;
             using Game::Heist::CayoPericoRuntime;
 
             auto& runtime = CayoPericoRuntime::Get();
+            auto& lootRuntime = CayoLootRuntime::Get();
             const auto state = runtime.Snapshot();
+            const auto lootState = lootRuntime.Snapshot();
 
             static int selectedTarget = 5;
             static int selectedDifficulty = 0;
             static int selectedWeapon = 1;
+            static CayoLootConfig lootConfig{};
+            static CutArray cuts{{100, 0, 0, 0}};
+            static bool lootInitialized = false;
+            static bool cutsInitialized = false;
+
             selectedTarget = std::clamp(selectedTarget, 0, TargetCount - 1);
             selectedDifficulty = std::clamp(selectedDifficulty, 0, 1);
             selectedWeapon = std::clamp(selectedWeapon, 1, WeaponCount);
 
+            if (!lootInitialized && lootState.lootReady)
+            {
+                lootConfig.cash = lootState.cash;
+                lootConfig.coke = lootState.coke;
+                lootConfig.gold = lootState.gold;
+                lootConfig.weed = lootState.weed;
+                lootConfig.paintings = lootState.paintings;
+                lootConfig.cashValue = lootState.cashValue;
+                lootConfig.cokeValue = lootState.cokeValue;
+                lootConfig.goldValue = lootState.goldValue;
+                lootConfig.weedValue = lootState.weedValue;
+                lootConfig.paintingValue = lootState.paintingValue;
+                lootInitialized = true;
+            }
+
+            if (!cutsInitialized && lootState.cutsReady)
+            {
+                cuts = lootState.cuts;
+                cutsInitialized = true;
+            }
+
             ImGui::SeparatorText("Cayo Perico Heist");
             ImGui::TextDisabled("Enhanced 1.73 source: heist_island_planning.c");
-            ImGui::TextDisabled("Setup writes are verified and rolled back if read-back fails.");
+            ImGui::TextDisabled("Setup, loot and cuts verify writes and roll back on read-back failure.");
 
             ImGui::SeparatorText("Setup");
             ImGui::SetNextItemWidth(-1.0f);
@@ -131,13 +163,123 @@ namespace Tutones::UI
             }
 
             const int difficulty = selectedDifficulty == 0 ? NormalDifficulty : HardDifficulty;
-            ImGui::BeginDisabled(state.pending);
+            const bool busy = state.pending || lootState.pending;
+            ImGui::BeginDisabled(busy);
             if (ImGui::Button("Complete Cayo Setup", ImVec2(-1.0f, 0.0f)))
                 static_cast<void>(runtime.QueueSetup(selectedTarget, difficulty, selectedWeapon));
-            if (ImGui::Button("Refresh Cayo State", ImVec2(-1.0f, 0.0f)))
+            if (ImGui::Button("Refresh All Cayo State", ImVec2(-1.0f, 0.0f)))
+            {
                 static_cast<void>(runtime.QueueRefresh());
+                static_cast<void>(lootRuntime.QueueRefresh());
+            }
             ImGui::EndDisabled();
-            ImGui::TextDisabled("This setup pass does not change loot or payout values.");
+
+            ImGui::SeparatorText("Secondary Loot");
+            const float spacing = ImGui::GetStyle().ItemSpacing.x;
+            const float halfWidth = (ImGui::GetContentRegionAvail().x - spacing) * 0.5f;
+            if (ImGui::Button("All Loot", ImVec2(halfWidth, 0.0f)))
+            {
+                lootConfig.cash = true;
+                lootConfig.coke = true;
+                lootConfig.gold = true;
+                lootConfig.weed = true;
+                lootConfig.paintings = true;
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Clear Loot", ImVec2(-1.0f, 0.0f)))
+            {
+                lootConfig.cash = false;
+                lootConfig.coke = false;
+                lootConfig.gold = false;
+                lootConfig.weed = false;
+                lootConfig.paintings = false;
+            }
+
+            ImGui::Checkbox("Cash", &lootConfig.cash);
+            ImGui::SameLine(140.0f);
+            ImGui::SetNextItemWidth(-1.0f);
+            ImGui::InputInt("##cayo_cash_value", &lootConfig.cashValue, 1000, 10000);
+
+            ImGui::Checkbox("Coke", &lootConfig.coke);
+            ImGui::SameLine(140.0f);
+            ImGui::SetNextItemWidth(-1.0f);
+            ImGui::InputInt("##cayo_coke_value", &lootConfig.cokeValue, 1000, 10000);
+
+            ImGui::Checkbox("Gold", &lootConfig.gold);
+            ImGui::SameLine(140.0f);
+            ImGui::SetNextItemWidth(-1.0f);
+            ImGui::InputInt("##cayo_gold_value", &lootConfig.goldValue, 1000, 10000);
+
+            ImGui::Checkbox("Weed", &lootConfig.weed);
+            ImGui::SameLine(140.0f);
+            ImGui::SetNextItemWidth(-1.0f);
+            ImGui::InputInt("##cayo_weed_value", &lootConfig.weedValue, 1000, 10000);
+
+            ImGui::Checkbox("Paintings", &lootConfig.paintings);
+            ImGui::SameLine(140.0f);
+            ImGui::SetNextItemWidth(-1.0f);
+            ImGui::InputInt("##cayo_paint_value", &lootConfig.paintingValue, 1000, 10000);
+
+            lootConfig.cashValue = std::clamp(lootConfig.cashValue, 0, MaximumLootValue);
+            lootConfig.cokeValue = std::clamp(lootConfig.cokeValue, 0, MaximumLootValue);
+            lootConfig.goldValue = std::clamp(lootConfig.goldValue, 0, MaximumLootValue);
+            lootConfig.weedValue = std::clamp(lootConfig.weedValue, 0, MaximumLootValue);
+            lootConfig.paintingValue = std::clamp(lootConfig.paintingValue, 0, MaximumLootValue);
+
+            ImGui::BeginDisabled(busy);
+            if (ImGui::Button("Apply Secondary Loot", ImVec2(-1.0f, 0.0f)))
+                static_cast<void>(lootRuntime.QueueApplyLoot(lootConfig));
+            ImGui::EndDisabled();
+            ImGui::TextDisabled("Values are per-loot values. Selected loot is also marked scoped on the planning board.");
+
+            if (lootState.lootReady)
+            {
+                ImGui::Text("Current Cash: %s / $%d", lootState.cash ? "ON" : "OFF", lootState.cashValue);
+                ImGui::Text("Current Coke: %s / $%d", lootState.coke ? "ON" : "OFF", lootState.cokeValue);
+                ImGui::Text("Current Gold: %s / $%d", lootState.gold ? "ON" : "OFF", lootState.goldValue);
+                ImGui::Text("Current Weed: %s / $%d", lootState.weed ? "ON" : "OFF", lootState.weedValue);
+                ImGui::Text("Current Paintings: %s / $%d", lootState.paintings ? "ON" : "OFF", lootState.paintingValue);
+            }
+
+            ImGui::SeparatorText("Player Pay Cuts");
+            ImGui::SetNextItemWidth(-1.0f);
+            ImGui::InputInt("Player 1 %##cayo_cut1", &cuts[0], 1, 5);
+            ImGui::SetNextItemWidth(-1.0f);
+            ImGui::InputInt("Player 2 %##cayo_cut2", &cuts[1], 1, 5);
+            ImGui::SetNextItemWidth(-1.0f);
+            ImGui::InputInt("Player 3 %##cayo_cut3", &cuts[2], 1, 5);
+            ImGui::SetNextItemWidth(-1.0f);
+            ImGui::InputInt("Player 4 %##cayo_cut4", &cuts[3], 1, 5);
+
+            for (int& cut : cuts)
+                cut = std::clamp(cut, 0, 100);
+
+            const float thirdWidth = (ImGui::GetContentRegionAvail().x - (spacing * 2.0f)) / 3.0f;
+            if (ImGui::Button("Solo 100", ImVec2(thirdWidth, 0.0f)))
+                cuts = CutArray{{100, 0, 0, 0}};
+            ImGui::SameLine();
+            if (ImGui::Button("25 Each", ImVec2(thirdWidth, 0.0f)))
+                cuts = CutArray{{25, 25, 25, 25}};
+            ImGui::SameLine();
+            if (ImGui::Button("100 Each", ImVec2(-1.0f, 0.0f)))
+                cuts = CutArray{{100, 100, 100, 100}};
+
+            const int cutTotal = cuts[0] + cuts[1] + cuts[2] + cuts[3];
+            ImGui::TextDisabled("Configured total: %d%%", cutTotal);
+            ImGui::BeginDisabled(busy);
+            if (ImGui::Button("Apply Player Cuts", ImVec2(-1.0f, 0.0f)))
+                static_cast<void>(lootRuntime.QueueApplyCuts(cuts));
+            ImGui::EndDisabled();
+
+            if (lootState.cutsReady)
+            {
+                ImGui::Text(
+                    "Current cuts: P1 %d%% | P2 %d%% | P3 %d%% | P4 %d%%",
+                    lootState.cuts[0],
+                    lootState.cuts[1],
+                    lootState.cuts[2],
+                    lootState.cuts[3]);
+            }
 
             ImGui::SeparatorText("Live planning state");
             ImGui::Text("Session: %s", state.sessionStarted ? "Online" : "Offline");
@@ -164,9 +306,14 @@ namespace Tutones::UI
             }
 
             if (state.pending)
-                ImGui::TextDisabled("%s", state.message.c_str());
+                ImGui::TextDisabled("Setup: %s", state.message.c_str());
             else if (state.haveResult)
-                ImGui::TextDisabled("%s", state.message.c_str());
+                ImGui::TextDisabled("Setup: %s", state.message.c_str());
+
+            if (lootState.pending)
+                ImGui::TextDisabled("Loot/Cuts: %s", lootState.message.c_str());
+            else if (lootState.haveResult)
+                ImGui::TextDisabled("Loot/Cuts: %s", lootState.message.c_str());
         }
 
         inline void RenderSalvageYard() noexcept
