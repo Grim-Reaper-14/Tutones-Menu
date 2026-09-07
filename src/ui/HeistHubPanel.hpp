@@ -3,6 +3,7 @@
 #include "V11Description.hpp"
 #include "V11Theme.hpp"
 #include "CasinoHeistPanel.hpp"
+#include "DoomsdayHeistPanel.hpp"
 #include "SalvageYardPanel.hpp"
 #include "../features/heist/AutoShopContractRuntime.hpp"
 #include "../features/heist/CayoLootRuntime.hpp"
@@ -58,11 +59,7 @@ namespace Tutones::UI
 
         inline void RenderDoomsdayHeist() noexcept
         {
-            RenderDecompileReference(
-                "Doomsday Heist",
-                "gb_gang_ops_planning.c",
-                "fm_mission_controller.c",
-                "Facility planning is backed by gb_gang_ops_planning. Runtime controls stay disabled until its current Enhanced planning state and mission-controller handoff are verified together.");
+            RenderDoomsdayHeistPanel();
         }
 
         inline void RenderCasinoHeist() noexcept
