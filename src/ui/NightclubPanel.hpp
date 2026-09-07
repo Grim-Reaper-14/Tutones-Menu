@@ -1,6 +1,5 @@
 #pragma once
 
-#include "V11Description.hpp"
 #include "V11Theme.hpp"
 #include "../features/business/NightclubRuntime.hpp"
 
@@ -38,16 +37,9 @@ namespace Tutones::UI
 
             const auto index = static_cast<std::size_t>(g_SelectedGood);
             ImGui::InputInt("Stock value", &g_Profile.stockValues[index], 100, 1000);
-            DescribeLastV11Item("Global_262145 stock-sale value for the selected Nightclub warehouse good.");
-
             ImGui::InputInt("Special order stock value", &g_Profile.specialOrderStockValues[index], 100, 1000);
-            DescribeLastV11Item("Global_262145 special-order value for the selected Nightclub warehouse good.");
-
             ImGui::InputInt("Max units", &g_Profile.maxUnits[index], 1, 10);
-            DescribeLastV11Item("Maximum warehouse units for the selected Nightclub good.");
-
             ImGui::InputInt("Production time (ms)", &g_Profile.productionTimes[index], 1000, 60000);
-            DescribeLastV11Item("Production interval in milliseconds for the selected Nightclub good.");
 
             g_Profile.stockValues[index] = std::max(g_Profile.stockValues[index], 0);
             g_Profile.specialOrderStockValues[index] = std::max(g_Profile.specialOrderStockValues[index], 0);
@@ -81,11 +73,9 @@ namespace Tutones::UI
             if (ImGui::Button("Apply cooldowns", ImVec2(-1.0f, 0.0f)))
                 static_cast<void>(runtime.QueueApplyCooldowns(g_Profile.cooldowns));
             ImGui::EndDisabled();
-            DescribeLastV11Item("Apply the Management, Sell, and Special Order Sell mission cooldown globals together.");
 
             if (ImGui::Button("Set cooldowns to 0", ImVec2(-1.0f, 0.0f)))
                 g_Profile.cooldowns = {0, 0, 0};
-            DescribeLastV11Item("Stage zero-millisecond Nightclub mission cooldowns. Use Apply cooldowns to write them.");
         }
 
         inline void RenderProductionEditor() noexcept
@@ -96,7 +86,6 @@ namespace Tutones::UI
             const auto snapshot = runtime.Snapshot();
 
             ImGui::SeparatorText("Instant Production");
-            ImGui::TextWrapped("Accelerate all seven mapped Enhanced Nightclub warehouse production timers to one second. Turning it off restores the values captured before enabling it.");
             ImGui::BeginDisabled(snapshot.actionPending);
             if (ImGui::Button(
                     snapshot.instantProductionEnabled ? "Disable Instant Production" : "Enable Instant Production",
@@ -105,11 +94,7 @@ namespace Tutones::UI
                 static_cast<void>(runtime.QueueSetInstantProduction(!snapshot.instantProductionEnabled));
             }
             ImGui::EndDisabled();
-            DescribeLastV11Item("Use only the seven Enhanced 1.73 Nightclub production timer tunables. No Legacy offsets or stock/capacity rewrites are used.");
-            ImGui::TextDisabled(
-                "Instant production: %s | restore snapshot: %s",
-                snapshot.instantProductionEnabled ? "ON" : "OFF",
-                snapshot.instantProductionRestoreAvailable ? "READY" : "NONE");
+            ImGui::Text("Status: %s", snapshot.instantProductionEnabled ? "ON" : "OFF");
 
             ImGui::SeparatorText("Production Upgrade");
             ImGui::InputFloat("Equipment multiplier", &g_Profile.equipmentUpgradeMultiplier, 0.05f, 0.10f, "%.2f");
@@ -119,7 +104,6 @@ namespace Tutones::UI
             if (ImGui::Button("Apply equipment multiplier", ImVec2(-1.0f, 0.0f)))
                 static_cast<void>(runtime.QueueApplyUpgradeMultiplier(g_Profile.equipmentUpgradeMultiplier));
             ImGui::EndDisabled();
-            DescribeLastV11Item("Apply Global_262145.f_24047, the Nightclub equipment-upgrade production-time multiplier.");
         }
 
         inline void RenderPopularityEditor() noexcept
@@ -134,11 +118,7 @@ namespace Tutones::UI
                 NightclubData::MaximumPopularity,
                 "%d");
             g_Popularity = std::clamp(g_Popularity, 0, NightclubData::MaximumPopularity);
-            ImGui::TextDisabled(
-                "%d / %d (%d%%)",
-                g_Popularity,
-                NightclubData::MaximumPopularity,
-                g_Popularity / 10);
+            ImGui::Text("%d / %d (%d%%)", g_Popularity, NightclubData::MaximumPopularity, g_Popularity / 10);
 
             auto& runtime = NightclubRuntime::Get();
             const auto snapshot = runtime.Snapshot();
@@ -146,9 +126,8 @@ namespace Tutones::UI
             if (ImGui::Button("Apply club popularity", ImVec2(-1.0f, 0.0f)))
                 static_cast<void>(runtime.QueueSetPopularity(g_Popularity));
             ImGui::EndDisabled();
-            DescribeLastV11Item("Write MPX_CLUB_POPULARITY for the active Online character. Rockstar stores 100% popularity as 1000.");
 
-            ImGui::SeparatorText("Popularity Income Tunables");
+            ImGui::SeparatorText("Popularity Income");
             g_SelectedPopularityTier = std::clamp(
                 g_SelectedPopularityTier,
                 0,
@@ -168,7 +147,6 @@ namespace Tutones::UI
             if (ImGui::Button("Apply popularity income", ImVec2(-1.0f, 0.0f)))
                 static_cast<void>(runtime.QueueApplyPopularityIncome(index, g_Profile.popularityIncome[index]));
             ImGui::EndDisabled();
-            DescribeLastV11Item("Apply the Nightclub safe-income global for the selected 5-point popularity band.");
         }
     }
 
@@ -188,9 +166,7 @@ namespace Tutones::UI
 
         if (ImGui::BeginChild("##nightclub_panel", ImVec2(490.0f, 394.0f), true))
         {
-            ImGui::TextColored(V11Theme::Accent, "Nightclub Globals");
-            ImGui::SameLine();
-            ImGui::TextDisabled("Enhanced 1.73 / b1158.13");
+            ImGui::TextColored(V11Theme::Accent, "Nightclub");
             ImGui::Separator();
 
             if (ImGui::BeginTabBar("##nightclub_tabs"))
@@ -227,18 +203,12 @@ namespace Tutones::UI
             if (ImGui::Button("Apply full Nightclub profile", ImVec2(-1.0f, 0.0f)))
                 static_cast<void>(runtime.QueueApplyProfile(g_Profile));
             ImGui::EndDisabled();
-            DescribeLastV11Item("Write all supplied Enhanced 1.73 Nightclub stock, special-order, cooldown, capacity, production, equipment and popularity-income globals in one pass.");
 
-            if (ImGui::Button("Reset editor to supplied defaults", ImVec2(-1.0f, 0.0f)))
+            if (ImGui::Button("Reset editor", ImVec2(-1.0f, 0.0f)))
                 ResetDefaults();
-            DescribeLastV11Item("Reset only the editor values to the supplied b1158.13 defaults. This does not write globals until Apply is used.");
 
-            if (snapshot.actionPending)
+            if (snapshot.actionPending || snapshot.haveResult)
                 ImGui::TextDisabled("%s", snapshot.message.c_str());
-            else if (snapshot.haveResult)
-                ImGui::TextDisabled("%s: %s", snapshot.lastSucceeded ? "Success" : "Failed", snapshot.message.c_str());
-            else
-                ImGui::TextDisabled("Ready - values are written only while an Online session and script globals are available.");
         }
 
         ImGui::EndChild();
