@@ -16,8 +16,12 @@ namespace Tutones::UI
         auto& runtime = KortzCenterHeistRuntime::Get();
         const auto state = runtime.Snapshot();
         static int selectedTarget = 0;
-        if (state.setupReady && state.target >= 0 && state.target < TargetCount)
+        static bool targetInitialized = false;
+        if (!targetInitialized && state.setupReady && state.target >= 0 && state.target < TargetCount)
+        {
             selectedTarget = state.target;
+            targetInitialized = true;
+        }
         selectedTarget = std::clamp(selectedTarget, 0, TargetCount - 1);
 
         ImGui::SeparatorText("Kortz Center Heist");
@@ -40,7 +44,10 @@ namespace Tutones::UI
         if (ImGui::Button("Complete Kortz Setup", ImVec2(-1.0f, 0.0f)))
             static_cast<void>(runtime.QueueSetup(selectedTarget));
         if (ImGui::Button("Refresh Kortz State", ImVec2(-1.0f, 0.0f)))
+        {
+            targetInitialized = false;
             static_cast<void>(runtime.QueueRefresh());
+        }
         ImGui::EndDisabled();
 
         ImGui::SeparatorText("In-Heist Controls");
