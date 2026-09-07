@@ -2,8 +2,10 @@
 
 #include "V11Description.hpp"
 #include "V11Theme.hpp"
+#include "ApartmentHeistPanel.hpp"
 #include "CasinoHeistPanel.hpp"
 #include "DoomsdayHeistPanel.hpp"
+#include "KortzCenterHeistPanel.hpp"
 #include "SalvageYardPanel.hpp"
 #include "../features/heist/AutoShopContractRuntime.hpp"
 #include "../features/heist/CayoLootRuntime.hpp"
@@ -19,42 +21,9 @@ namespace Tutones::UI
 {
     namespace HeistHubDetail
     {
-        inline void RenderDecompileReference(
-            const char* title,
-            const char* planningScript,
-            const char* missionController,
-            const char* note) noexcept
-        {
-            ImGui::SeparatorText(title);
-            ImGui::TextDisabled("Enhanced decompile-backed");
-            ImGui::Spacing();
-
-            ImGui::Text("Planning script:");
-            ImGui::SameLine();
-            ImGui::TextColored(V11Theme::Accent, "%s", planningScript);
-
-            if (missionController && missionController[0] != '\0')
-            {
-                ImGui::Text("Mission controller:");
-                ImGui::SameLine();
-                ImGui::TextColored(V11Theme::Accent, "%s", missionController);
-            }
-
-            ImGui::Spacing();
-            ImGui::TextWrapped("%s", note);
-            ImGui::Spacing();
-            ImGui::SeparatorText("Runtime status");
-            ImGui::TextDisabled("Reference-only until the Enhanced 1.73 write state is verified.");
-            ImGui::TextDisabled("No guessed globals, locals or finale-launch writes are exposed here.");
-        }
-
         inline void RenderApartmentHeists() noexcept
         {
-            RenderDecompileReference(
-                "Apartment Heists",
-                "fm_mission_controller.c",
-                "fm_mission_controller.c",
-                "The original Online heists share the classic mission-controller path. This tab is reserved for verified setup, finale and payout state once the current Enhanced offsets are mapped safely.");
+            RenderApartmentHeistPanel();
         }
 
         inline void RenderDoomsdayHeist() noexcept
@@ -65,6 +34,11 @@ namespace Tutones::UI
         inline void RenderCasinoHeist() noexcept
         {
             RenderCasinoHeistPanel();
+        }
+
+        inline void RenderKortzCenterHeist() noexcept
+        {
+            RenderKortzCenterHeistPanel();
         }
 
         inline void RenderCayoPericoHeist() noexcept
@@ -114,9 +88,6 @@ namespace Tutones::UI
             }
 
             ImGui::SeparatorText("Cayo Perico Heist");
-            ImGui::TextDisabled("Enhanced 1.73 source: heist_island_planning.c");
-            ImGui::TextDisabled("Setup, loot and cuts verify writes and roll back on read-back failure.");
-
             ImGui::SeparatorText("Setup");
             ImGui::SetNextItemWidth(-1.0f);
             if (ImGui::BeginCombo("##cayo_target", PrimaryTargetName(selectedTarget)))
@@ -225,7 +196,6 @@ namespace Tutones::UI
             if (ImGui::Button("Apply Secondary Loot", ImVec2(-1.0f, 0.0f)))
                 static_cast<void>(lootRuntime.QueueApplyLoot(lootConfig));
             ImGui::EndDisabled();
-            ImGui::TextDisabled("Values are per-loot values. Selected loot is also marked scoped on the planning board.");
 
             if (lootState.lootReady)
             {
@@ -259,8 +229,7 @@ namespace Tutones::UI
             if (ImGui::Button("100 Each", ImVec2(-1.0f, 0.0f)))
                 cuts = CutArray{{100, 100, 100, 100}};
 
-            const int cutTotal = cuts[0] + cuts[1] + cuts[2] + cuts[3];
-            ImGui::TextDisabled("Configured total: %d%%", cutTotal);
+            ImGui::Text("Configured total: %d%%", cuts[0] + cuts[1] + cuts[2] + cuts[3]);
             ImGui::BeginDisabled(busy);
             if (ImGui::Button("Apply Player Cuts", ImVec2(-1.0f, 0.0f)))
                 static_cast<void>(lootRuntime.QueueApplyCuts(cuts));
@@ -276,7 +245,7 @@ namespace Tutones::UI
                     lootState.cuts[3]);
             }
 
-            ImGui::SeparatorText("Live planning state");
+            ImGui::SeparatorText("Live Planning State");
             ImGui::Text("Session: %s", state.sessionStarted ? "Online" : "Offline");
             ImGui::Text("Script globals: %s", state.globalsReady ? "Ready" : "Unavailable");
             ImGui::Text("Planning board: %s", state.planningRunning ? "Running" : "Idle");
@@ -291,7 +260,7 @@ namespace Tutones::UI
                 ImGui::Text("Progress flags: 0x%08X", state.progressionFlags);
                 ImGui::Text("Intel flags: 0x%08X", state.intelFlags);
 
-                ImGui::SeparatorText("Scoped intel");
+                ImGui::SeparatorText("Scoped Intel");
                 ImGui::Text("Power Station: %s", state.powerStationScoped ? "Scoped" : "Not scoped");
                 ImGui::Text("Control Tower: %s", state.controlTowerScoped ? "Scoped" : "Not scoped");
                 ImGui::Text("Bolt Cutters: %s", state.boltCuttersScoped ? "Scoped" : "Not scoped");
@@ -300,49 +269,15 @@ namespace Tutones::UI
                 ImGui::Text("Supply Truck: %s", state.supplyTruckScoped ? "Scoped" : "Not scoped");
             }
 
-            if (state.pending)
+            if (state.pending || state.haveResult)
                 ImGui::TextDisabled("Setup: %s", state.message.c_str());
-            else if (state.haveResult)
-                ImGui::TextDisabled("Setup: %s", state.message.c_str());
-
-            if (lootState.pending)
-                ImGui::TextDisabled("Loot/Cuts: %s", lootState.message.c_str());
-            else if (lootState.haveResult)
+            if (lootState.pending || lootState.haveResult)
                 ImGui::TextDisabled("Loot/Cuts: %s", lootState.message.c_str());
         }
 
         inline void RenderSalvageYard() noexcept
         {
             RenderSalvageYardPanel();
-        }
-
-        inline void RenderMoneyFronts() noexcept
-        {
-            ImGui::SeparatorText("Money Fronts");
-            ImGui::TextDisabled("Enhanced internal family: TYCOON25 / BUSINESS_TYCOON");
-            ImGui::Spacing();
-
-            ImGui::SeparatorText("Verified decompile routing");
-            ImGui::Text("Root content slots:");
-            ImGui::TextColored(V11Theme::Accent, "TYCOON25_MISSION_ROOT_CONTENT_ID_0 .. _5");
-            ImGui::TextWrapped("The Enhanced scripts expose six Rockstar root-content mission slots for the TYCOON25 business family. The surrounding flow also exposes Car Wash customer-car work and Money Fronts odd-job controls.");
-
-            ImGui::Spacing();
-            ImGui::Text("Related work:");
-            ImGui::BulletText("Car Wash customer vehicles / work flow");
-            ImGui::BulletText("Security Transporter odd job");
-            ImGui::BulletText("Medical Courier odd job");
-            ImGui::BulletText("Money-laundering, heat and cooldown state");
-
-            ImGui::Spacing();
-            ImGui::Text("Known routing:");
-            ImGui::TextDisabled("Laptop business type 10 -> BUSINESS_TYCOON");
-            ImGui::TextDisabled("Money Fronts contact/photo flow -> Raf");
-
-            ImGui::SeparatorText("Runtime status");
-            ImGui::TextDisabled("Reference-only for this build.");
-            ImGui::TextWrapped("Mission launch controls stay disabled until the freemode selector/launcher write chain that consumes the TYCOON25 root-content IDs is verified end-to-end.");
-            ImGui::TextDisabled("No M25 telemetry field is used as a fake mission launcher.");
         }
 
         inline void RenderAutoShop() noexcept
@@ -357,7 +292,6 @@ namespace Tutones::UI
             selectedContract = std::clamp(selectedContract, 0, ContractCount - 1);
 
             ImGui::SeparatorText("Auto Shop Contracts");
-            ImGui::TextDisabled("Enhanced source: tuner_planning.c");
             ImGui::SetNextItemWidth(-1.0f);
             if (ImGui::BeginCombo("##autoshop_contract", AutoShopContractName(selectedContract)))
             {
@@ -390,9 +324,7 @@ namespace Tutones::UI
             ImGui::Text("Prep Mask: %d", state.prepMask);
             ImGui::Text("Planning Board: %s", state.planningRunning ? "Running" : "Idle");
 
-            if (state.pending)
-                ImGui::TextDisabled("%s", state.message.c_str());
-            else if (state.haveResult)
+            if (state.pending || state.haveResult)
                 ImGui::TextDisabled("%s", state.message.c_str());
         }
 
@@ -405,7 +337,6 @@ namespace Tutones::UI
             const auto state = runtime.Snapshot();
 
             ImGui::SeparatorText("Exotic Exports");
-            ImGui::TextDisabled("Existing decompile-backed utility retained outside the heist families.");
             ImGui::BeginDisabled(state.pending);
             if (ImGui::Button("Refresh Active Export", ImVec2(-1.0f, 0.0f)))
                 static_cast<void>(runtime.QueueRefresh());
@@ -424,9 +355,7 @@ namespace Tutones::UI
             else
                 ImGui::Text("Location: --");
 
-            if (state.pending)
-                ImGui::TextDisabled("%s", state.message.c_str());
-            else if (state.haveResult)
+            if (state.pending || state.haveResult)
                 ImGui::TextDisabled("%s", state.message.c_str());
         }
     }
@@ -443,9 +372,7 @@ namespace Tutones::UI
 
         if (ImGui::BeginChild("##heist_panel", ImVec2(490.0f, 394.0f), true))
         {
-            ImGui::TextColored(V11Theme::Accent, "Enhanced Heist Hub");
-            ImGui::SameLine();
-            ImGui::TextDisabled("decompiled script routing");
+            ImGui::TextColored(V11Theme::Accent, "Heist Hub");
             ImGui::Separator();
 
             if (ImGui::BeginTabBar("##enhanced_heist_tabs", ImGuiTabBarFlags_FittingPolicyScroll))
@@ -474,6 +401,12 @@ namespace Tutones::UI
                     ImGui::EndTabItem();
                 }
 
+                if (ImGui::BeginTabItem("Kortz Center"))
+                {
+                    HeistHubDetail::RenderKortzCenterHeist();
+                    ImGui::EndTabItem();
+                }
+
                 if (ImGui::BeginTabItem("Auto Shop"))
                 {
                     HeistHubDetail::RenderAutoShop();
@@ -483,12 +416,6 @@ namespace Tutones::UI
                 if (ImGui::BeginTabItem("Salvage Yard"))
                 {
                     HeistHubDetail::RenderSalvageYard();
-                    ImGui::EndTabItem();
-                }
-
-                if (ImGui::BeginTabItem("Money Fronts"))
-                {
-                    HeistHubDetail::RenderMoneyFronts();
                     ImGui::EndTabItem();
                 }
 
