@@ -2,9 +2,11 @@
 
 #include "../../game/GamePointers.hpp"
 #include "../../game/PlayerNatives.hpp"
+#include "../../game/Stats.hpp"
 #include "../../game/native/NativeRegistry.hpp"
 #include "../../game/script/ScriptGlobal.hpp"
 #include "../../game/script/ScriptRuntime.hpp"
+#include "../../game/tunables/TunableRegistry.hpp"
 #include "../../runtime/GameRuntime.hpp"
 
 #include <array>
@@ -58,11 +60,27 @@ namespace Tutones::Game::Business
         inline constexpr int ContractTypes = 6;
         inline constexpr int ContractDifficulties = 3;
 
-        // appfixersecurity::func_30 uses bit 31 of Global_1984422.f_1 to
-        // disable accepting another Security Contract for the current short delay.
         inline constexpr std::size_t SecuritySessionGlobal = 1984422;
         inline constexpr std::size_t SecuritySessionFlagsOffset = 1;
         inline constexpr std::uint32_t SecurityContractDelayMask = 0x80000000u;
+
+        inline constexpr const char* StoryBitsStat = "MPX_FIXER_STORY_BS";
+        inline constexpr const char* StoryStrandStat = "MPX_FIXER_STORY_STRAND";
+        inline constexpr const char* GeneralBitsStat = "MPX_FIXER_GENERAL_BS";
+        inline constexpr const char* CompletedBitsStat = "MPX_FIXER_COMPLETED_BS";
+        inline constexpr const char* StoryCooldownStat = "MPX_FIXER_STORY_COOLDOWN";
+        inline constexpr const char* SafeCashStat = "MPX_FIXER_SAFE_CASH_VALUE";
+        inline constexpr std::size_t SafeCollectGlobal = 2708850;
+
+        inline constexpr const char* FinalePayoutTunable = "FIXER_FINALE_LEADER_CASH_REWARD";
+        inline constexpr const char* StoryCooldownPosixTunable = "FIXER_STORY_COOLDOWN_POSIX";
+        inline constexpr const char* SecurityContractCooldownTunable = "FIXER_SECURITY_CONTRACT_COOLDOWN_TIME";
+        inline constexpr const char* PayphoneCooldownTunable = "REQUEST_FRANKLIN_PAYPHONE_HIT_COOLDOWN";
+        inline constexpr int MaximumFinalePayout = 2500000;
+
+        inline constexpr std::array<int, 12> StoryContractValues{
+            3, 4, 12, 28, 60, 123, 254, 508, 1020, 2044, 2045, 4095,
+        };
 
         [[nodiscard]] inline const char* SecurityContractName(int type) noexcept
         {
@@ -87,6 +105,37 @@ namespace Tutones::Game::Business
             case 2: return "Specialist+";
             default: return "Unknown";
             }
+        }
+
+        [[nodiscard]] inline const char* StoryContractName(int value) noexcept
+        {
+            switch (value)
+            {
+            case 3: return "Reset / None";
+            case 4: return "Nightclub Setup";
+            case 12: return "Marina Setup";
+            case 28: return "Nightlife Leak";
+            case 60: return "Country Club Setup";
+            case 123: return "Guest List Setup";
+            case 254: return "High Society Leak";
+            case 508: return "Davis Setup";
+            case 1020: return "Ballas Setup";
+            case 2044: return "South Central Leak";
+            case 2045: return "Studio Time";
+            case 4095: return "Don't Fuck With Dre";
+            default: return "Unknown Dre Contract State";
+            }
+        }
+
+        [[nodiscard]] inline int StoryStrandFromContract(int value) noexcept
+        {
+            if (value < 18)
+                return 0;
+            if (value < 128)
+                return 1;
+            if (value < 2044)
+                return 2;
+            return -1;
         }
     }
 
@@ -119,6 +168,14 @@ namespace Tutones::Game::Business
         std::uint32_t shortTrips{};
         int contractCount{};
         int earnings{};
+        int persistentStoryBits{};
+        int persistentStoryStrand{};
+        int persistentGeneralBits{};
+        int persistentCompletedBits{};
+        int persistentStoryCooldown{};
+        int safeCash{};
+        int finalePayout{};
+        bool finalePayoutReadable{};
         std::array<AgencyContractSlot, AgencyEnhanced173::ContractSlots> contracts{};
         std::string message{"Press Refresh Agency"};
     };
@@ -134,27 +191,18 @@ namespace Tutones::Game::Business
 
         [[nodiscard]] bool QueueRefresh()
         {
-            return Queue("Reading Enhanced Agency contract-board state", [this] {
+            return Queue("Reading Enhanced Agency state", [this] {
                 AgencySnapshot state;
                 const bool success = CaptureState(state);
-                Finish(
-                    success,
-                    std::move(state),
-                    success
-                        ? "Agency contract-board state refreshed"
-                        : "Unable to read Enhanced Agency state");
+                Finish(success, std::move(state), success ? "Agency state refreshed" : "Unable to read Enhanced Agency state");
             });
         }
 
         [[nodiscard]] bool QueueSetContractSlot(int slot, int type, int difficulty)
         {
             using namespace AgencyEnhanced173;
-            if (slot < 0 || slot >= ContractSlots
-                || type < 0 || type >= ContractTypes
-                || difficulty < 0 || difficulty >= ContractDifficulties)
-            {
+            if (slot < 0 || slot >= ContractSlots || type < 0 || type >= ContractTypes || difficulty < 0 || difficulty >= ContractDifficulties)
                 return false;
-            }
 
             return Queue("Updating Security Contract board slot", [this, slot, type, difficulty] {
                 AgencySnapshot before;
@@ -164,8 +212,7 @@ namespace Tutones::Game::Business
                     return;
                 }
 
-                auto& scripts = Script::ScriptRuntime::Get();
-                auto** globals = scripts.Globals();
+                auto** globals = Script::ScriptRuntime::Get().Globals();
                 if (!globals || before.playerId < 0)
                 {
                     Finish(false, std::move(before), "Agency globals are unavailable");
@@ -175,8 +222,7 @@ namespace Tutones::Game::Business
                 const auto flow = Script::ScriptGlobal(FlowGlobal)
                     .At(static_cast<std::size_t>(before.playerId), PlayerEntrySize)
                     .At(FixerFlowOffset);
-                const auto contract = flow.At(ContractsArrayOffset)
-                    .At(static_cast<std::size_t>(slot), ContractSize);
+                const auto contract = flow.At(ContractsArrayOffset).At(static_cast<std::size_t>(slot), ContractSize);
 
                 auto* typeSlot = contract.At(0).As<std::int32_t>(globals);
                 auto* difficultySlot = contract.At(1).As<std::int32_t>(globals);
@@ -215,10 +261,206 @@ namespace Tutones::Game::Business
                     return;
                 }
 
-                Finish(
-                    true,
-                    std::move(after),
-                    "Security Contract board slot updated; reopen or refresh The Contract app if it was already open");
+                Finish(true, std::move(after), "Security Contract board slot updated; reopen The Contract app if it was already open");
+            });
+        }
+
+        [[nodiscard]] bool QueueApplyStoryContract(int contract)
+        {
+            using namespace AgencyEnhanced173;
+            bool valid = false;
+            for (const int value : StoryContractValues)
+                valid = valid || value == contract;
+            if (!valid)
+                return false;
+
+            return Queue("Applying Dr. Dre contract progression", [this, contract] {
+                const auto oldStory = Stats::GetInt(StoryBitsStat);
+                const auto oldStrand = Stats::GetInt(StoryStrandStat);
+                const auto oldGeneral = Stats::GetInt(GeneralBitsStat);
+                const auto oldCompleted = Stats::GetInt(CompletedBitsStat);
+                if (!oldStory || !oldStrand || !oldGeneral || !oldCompleted)
+                {
+                    AgencySnapshot state;
+                    static_cast<void>(CaptureState(state));
+                    Finish(false, std::move(state), "Unable to capture current Agency story stats");
+                    return;
+                }
+
+                const int strand = StoryStrandFromContract(contract);
+                bool success = Stats::SetInt(StoryBitsStat, contract);
+                success = Stats::SetInt(StoryStrandStat, strand) && success;
+                success = Stats::SetInt(GeneralBitsStat, -1) && success;
+                success = Stats::SetInt(CompletedBitsStat, -1) && success;
+
+                const auto story = Stats::GetInt(StoryBitsStat);
+                const auto verifyStrand = Stats::GetInt(StoryStrandStat);
+                const auto general = Stats::GetInt(GeneralBitsStat);
+                const auto completed = Stats::GetInt(CompletedBitsStat);
+                success = success && story && *story == contract
+                    && verifyStrand && *verifyStrand == strand
+                    && general && *general == -1
+                    && completed && *completed == -1;
+
+                if (!success)
+                {
+                    static_cast<void>(Stats::SetInt(StoryBitsStat, *oldStory));
+                    static_cast<void>(Stats::SetInt(StoryStrandStat, *oldStrand));
+                    static_cast<void>(Stats::SetInt(GeneralBitsStat, *oldGeneral));
+                    static_cast<void>(Stats::SetInt(CompletedBitsStat, *oldCompleted));
+                    AgencySnapshot rolledBack;
+                    static_cast<void>(CaptureState(rolledBack));
+                    Finish(false, std::move(rolledBack), "Agency story progression verification failed and was rolled back");
+                    return;
+                }
+
+                AgencySnapshot after;
+                const bool captured = CaptureState(after);
+                Finish(captured, std::move(after), captured
+                    ? std::string("Dre contract/preps set to ") + StoryContractName(contract) + "; reopen the Agency computer if needed"
+                    : "Agency story stats changed but state refresh failed");
+            });
+        }
+
+        [[nodiscard]] bool QueueSetFinalePayout(int payout)
+        {
+            using namespace AgencyEnhanced173;
+            if (payout < 0 || payout > MaximumFinalePayout)
+                return false;
+
+            return Queue("Updating Agency finale payout", [this, payout] {
+                auto** globals = Script::ScriptRuntime::Get().Globals();
+                const auto resolved = Tunables::TunableRegistry::Get().Resolve(FinalePayoutTunable);
+                auto* target = globals && resolved ? resolved->As<std::int32_t>(globals) : nullptr;
+                if (!target)
+                {
+                    AgencySnapshot state;
+                    static_cast<void>(CaptureState(state));
+                    Finish(false, std::move(state), "Agency finale payout tunable is unavailable");
+                    return;
+                }
+
+                const std::int32_t original = *target;
+                *target = payout;
+                if (*target != payout)
+                {
+                    *target = original;
+                    AgencySnapshot state;
+                    static_cast<void>(CaptureState(state));
+                    Finish(false, std::move(state), "Agency payout verification failed and was rolled back");
+                    return;
+                }
+
+                AgencySnapshot after;
+                const bool captured = CaptureState(after);
+                Finish(captured, std::move(after), captured ? "Agency finale payout updated" : "Payout changed but state refresh failed");
+            });
+        }
+
+        [[nodiscard]] bool QueueKillCooldowns()
+        {
+            using namespace AgencyEnhanced173;
+            return Queue("Clearing Agency cooldowns", [this] {
+                auto** globals = Script::ScriptRuntime::Get().Globals();
+                if (!globals)
+                {
+                    AgencySnapshot state;
+                    static_cast<void>(CaptureState(state));
+                    Finish(false, std::move(state), "Script globals are unavailable");
+                    return;
+                }
+
+                const std::array<const char*, 3> names{
+                    StoryCooldownPosixTunable,
+                    SecurityContractCooldownTunable,
+                    PayphoneCooldownTunable,
+                };
+                std::array<std::int32_t*, 3> targets{};
+                std::array<std::int32_t, 3> originals{};
+                for (std::size_t index = 0; index < names.size(); ++index)
+                {
+                    const auto resolved = Tunables::TunableRegistry::Get().Resolve(names[index]);
+                    targets[index] = globals && resolved ? resolved->As<std::int32_t>(globals) : nullptr;
+                    if (!targets[index])
+                    {
+                        AgencySnapshot state;
+                        static_cast<void>(CaptureState(state));
+                        Finish(false, std::move(state), std::string("Agency tunable unavailable: ") + names[index]);
+                        return;
+                    }
+                    originals[index] = *targets[index];
+                }
+
+                const auto oldCooldown = Stats::GetInt(StoryCooldownStat);
+                if (!oldCooldown)
+                {
+                    AgencySnapshot state;
+                    static_cast<void>(CaptureState(state));
+                    Finish(false, std::move(state), "FIXER_STORY_COOLDOWN stat is unavailable");
+                    return;
+                }
+
+                for (auto* target : targets)
+                    *target = 0;
+                bool success = Stats::SetInt(StoryCooldownStat, -1);
+                for (const auto* target : targets)
+                    success = success && target && *target == 0;
+                const auto verifiedCooldown = Stats::GetInt(StoryCooldownStat);
+                success = success && verifiedCooldown && *verifiedCooldown == -1;
+
+                if (!success)
+                {
+                    for (std::size_t index = 0; index < targets.size(); ++index)
+                        *targets[index] = originals[index];
+                    static_cast<void>(Stats::SetInt(StoryCooldownStat, *oldCooldown));
+                    AgencySnapshot rolledBack;
+                    static_cast<void>(CaptureState(rolledBack));
+                    Finish(false, std::move(rolledBack), "Agency cooldown verification failed and was rolled back");
+                    return;
+                }
+
+                AgencySnapshot after;
+                const bool captured = CaptureState(after);
+                Finish(captured, std::move(after), captured ? "Dre, Security Contract and Payphone cooldowns cleared" : "Cooldowns changed but state refresh failed");
+            });
+        }
+
+        [[nodiscard]] bool QueueCollectSafe()
+        {
+            using namespace AgencyEnhanced173;
+            return Queue("Requesting Agency safe collection", [this] {
+                AgencySnapshot before;
+                if (!CaptureState(before))
+                {
+                    Finish(false, std::move(before), "Agency state is unavailable");
+                    return;
+                }
+                if (before.safeCash <= 0)
+                {
+                    Finish(false, std::move(before), "Agency safe is empty");
+                    return;
+                }
+
+                auto** globals = Script::ScriptRuntime::Get().Globals();
+                auto* collect = globals ? Script::ScriptGlobal(SafeCollectGlobal).As<std::int32_t>(globals) : nullptr;
+                if (!collect)
+                {
+                    Finish(false, std::move(before), "Agency safe-collect global is unavailable");
+                    return;
+                }
+
+                const std::int32_t original = *collect;
+                *collect = 1;
+                if (*collect != 1)
+                {
+                    *collect = original;
+                    Finish(false, std::move(before), "Agency safe-collect request failed");
+                    return;
+                }
+
+                AgencySnapshot after;
+                static_cast<void>(CaptureState(after));
+                Finish(true, std::move(after), "Agency safe collection requested");
             });
         }
 
@@ -293,9 +535,7 @@ namespace Tutones::Game::Business
                     return;
                 }
 
-                auto* flags = Script::ScriptGlobal(SecuritySessionGlobal)
-                    .At(SecuritySessionFlagsOffset)
-                    .As<std::int32_t>(globals);
+                auto* flags = Script::ScriptGlobal(SecuritySessionGlobal).At(SecuritySessionFlagsOffset).As<std::int32_t>(globals);
                 if (!flags)
                 {
                     Finish(false, std::move(before), "Security Contract delay state is unavailable");
@@ -407,9 +647,7 @@ namespace Tutones::Game::Business
             const auto* earnings = flow.At(EarningsOffset).As<std::int32_t>(globals);
             if (!generalFlags || !completedFlags || !payphoneBonus || !storyFlags || !storyStrand
                 || !storyCooldown || !fixerFlags || !shortTrips || !contractCount || !earnings)
-            {
                 return false;
-            }
 
             state.generalFlags = static_cast<std::uint32_t>(*generalFlags);
             state.completedFlags = static_cast<std::uint32_t>(*completedFlags);
@@ -422,16 +660,12 @@ namespace Tutones::Game::Business
             state.contractCount = *contractCount;
             state.earnings = *earnings;
 
-            if (const auto* sessionFlags = Script::ScriptGlobal(SecuritySessionGlobal)
-                    .At(SecuritySessionFlagsOffset)
-                    .As<std::int32_t>(globals))
+            if (const auto* sessionFlags = Script::ScriptGlobal(SecuritySessionGlobal).At(SecuritySessionFlagsOffset).As<std::int32_t>(globals))
             {
-                state.securityContractDelayActive =
-                    (static_cast<std::uint32_t>(*sessionFlags) & SecurityContractDelayMask) != 0;
+                state.securityContractDelayActive = (static_cast<std::uint32_t>(*sessionFlags) & SecurityContractDelayMask) != 0;
             }
 
             const auto contracts = flow.At(ContractsArrayOffset);
-            bool anyContract = false;
             for (std::size_t index = 0; index < state.contracts.size(); ++index)
             {
                 const auto contract = contracts.At(index, ContractSize);
@@ -446,10 +680,31 @@ namespace Tutones::Game::Business
                 destination.difficulty = *difficulty;
                 destination.reward = *reward;
                 destination.readable = true;
-                anyContract = true;
             }
 
-            return anyContract || state.contractCount >= 0;
+            if (const auto value = Stats::GetInt(StoryBitsStat))
+                state.persistentStoryBits = *value;
+            if (const auto value = Stats::GetInt(StoryStrandStat))
+                state.persistentStoryStrand = *value;
+            if (const auto value = Stats::GetInt(GeneralBitsStat))
+                state.persistentGeneralBits = *value;
+            if (const auto value = Stats::GetInt(CompletedBitsStat))
+                state.persistentCompletedBits = *value;
+            if (const auto value = Stats::GetInt(StoryCooldownStat))
+                state.persistentStoryCooldown = *value;
+            if (const auto value = Stats::GetInt(SafeCashStat))
+                state.safeCash = *value;
+
+            if (const auto payout = Tunables::TunableRegistry::Get().Resolve(FinalePayoutTunable))
+            {
+                if (const auto* value = payout->As<std::int32_t>(globals))
+                {
+                    state.finalePayout = *value;
+                    state.finalePayoutReadable = true;
+                }
+            }
+
+            return true;
         }
 
         void Finish(bool success, AgencySnapshot state, std::string message) noexcept
