@@ -2,6 +2,7 @@
 
 #include "../../game/GamePointers.hpp"
 #include "../../game/PlayerNatives.hpp"
+#include "../../game/Stats.hpp"
 #include "../../game/native/NativeRegistry.hpp"
 #include "../../game/script/ScriptGlobal.hpp"
 #include "../../game/script/ScriptRuntime.hpp"
@@ -50,6 +51,27 @@ namespace Tutones::Game::Business
         inline constexpr std::size_t PackedBool51273Offset = 14;
         inline constexpr std::size_t PackedBool51274Offset = 15;
         inline constexpr std::size_t PackedBool51275Offset = 16;
+
+        inline constexpr const char* ActiveRobberyStat = "MPX_HACKER24_ACTIVE_ROB";
+        inline constexpr const char* GeneralBitsStat = "MPX_HACKER24_GEN_BS";
+        inline constexpr const char* SafeCashStat = "MPX_HDEN24_SAFE_CASH_VALUE";
+        inline constexpr std::size_t SafeCollectGlobal = 2708883;
+        inline constexpr std::uint32_t PrepMask = (1u << 2) | (1u << 3) | (1u << 4);
+        inline constexpr int FileCount = 4;
+        inline constexpr int UnbrickGeneralBits = -24607;
+
+        [[nodiscard]] inline const char* FibFileName(int file) noexcept
+        {
+            switch (file)
+            {
+            case -1: return "None";
+            case 0: return "The Black Box File";
+            case 1: return "The Brute Force File";
+            case 2: return "The Fine Art File";
+            case 3: return "The Project Breakaway File";
+            default: return "Unknown FIB File";
+            }
+        }
     }
 
     struct GarmentFactorySnapshot final
@@ -71,6 +93,10 @@ namespace Tutones::Game::Business
         bool packedBool51273{};
         bool packedBool51274{};
         bool packedBool51275{};
+        int activeRobberyStat{-1};
+        int generalBitsStat{};
+        bool prepsComplete{};
+        int safeCash{};
         std::string message{"Press Refresh Garment Factory"};
     };
 
@@ -92,8 +118,192 @@ namespace Tutones::Game::Business
                     success,
                     std::move(state),
                     success
-                        ? "Garment Factory player-flow state refreshed"
-                        : "Unable to read Garment Factory Hacker24 flow");
+                        ? "Garment Factory state refreshed"
+                        : "Unable to read Garment Factory Hacker24 state");
+            });
+        }
+
+        [[nodiscard]] bool QueueSetActiveFile(int file)
+        {
+            using namespace GarmentFactoryEnhanced173;
+            if (file < -1 || file >= FileCount)
+                return false;
+
+            return Queue("Updating active FIB File", [this, file] {
+                const auto original = Stats::GetInt(ActiveRobberyStat);
+                if (!original)
+                {
+                    GarmentFactorySnapshot state;
+                    static_cast<void>(CaptureState(state));
+                    Finish(false, std::move(state), "Unable to read HACKER24_ACTIVE_ROB");
+                    return;
+                }
+
+                if (!Stats::SetInt(ActiveRobberyStat, file))
+                {
+                    GarmentFactorySnapshot state;
+                    static_cast<void>(CaptureState(state));
+                    Finish(false, std::move(state), "Active FIB File write was rejected");
+                    return;
+                }
+
+                const auto verified = Stats::GetInt(ActiveRobberyStat);
+                if (!verified || *verified != file)
+                {
+                    static_cast<void>(Stats::SetInt(ActiveRobberyStat, *original));
+                    GarmentFactorySnapshot rolledBack;
+                    static_cast<void>(CaptureState(rolledBack));
+                    Finish(false, std::move(rolledBack), "Active FIB File verification failed and was rolled back");
+                    return;
+                }
+
+                GarmentFactorySnapshot after;
+                const bool captured = CaptureState(after);
+                Finish(
+                    captured,
+                    std::move(after),
+                    captured
+                        ? std::string("Active FIB File set to ") + FibFileName(file) + "; reopen the Garment Factory computer if it was already open"
+                        : "FIB File changed but state refresh failed");
+            });
+        }
+
+        [[nodiscard]] bool QueueSetPrepsComplete(bool complete)
+        {
+            using namespace GarmentFactoryEnhanced173;
+            return Queue(complete ? "Completing FIB File preps" : "Resetting FIB File preps", [this, complete] {
+                const auto original = Stats::GetInt(GeneralBitsStat);
+                if (!original)
+                {
+                    GarmentFactorySnapshot state;
+                    static_cast<void>(CaptureState(state));
+                    Finish(false, std::move(state), "Unable to read HACKER24_GEN_BS");
+                    return;
+                }
+
+                const auto originalBits = static_cast<std::uint32_t>(*original);
+                const auto updatedBits = complete
+                    ? (originalBits | PrepMask)
+                    : (originalBits & ~PrepMask);
+                const int updated = static_cast<std::int32_t>(updatedBits);
+
+                if (!Stats::SetInt(GeneralBitsStat, updated))
+                {
+                    GarmentFactorySnapshot state;
+                    static_cast<void>(CaptureState(state));
+                    Finish(false, std::move(state), "FIB File prep write was rejected");
+                    return;
+                }
+
+                const auto verified = Stats::GetInt(GeneralBitsStat);
+                const bool verifiedState = verified &&
+                    (complete
+                        ? ((static_cast<std::uint32_t>(*verified) & PrepMask) == PrepMask)
+                        : ((static_cast<std::uint32_t>(*verified) & PrepMask) == 0));
+                if (!verifiedState)
+                {
+                    static_cast<void>(Stats::SetInt(GeneralBitsStat, *original));
+                    GarmentFactorySnapshot rolledBack;
+                    static_cast<void>(CaptureState(rolledBack));
+                    Finish(false, std::move(rolledBack), "FIB File prep verification failed and was rolled back");
+                    return;
+                }
+
+                GarmentFactorySnapshot after;
+                const bool captured = CaptureState(after);
+                Finish(
+                    captured,
+                    std::move(after),
+                    captured
+                        ? (complete ? "All three FIB File preps marked complete" : "FIB File prep completion reset")
+                        : "FIB File preps changed but state refresh failed");
+            });
+        }
+
+        [[nodiscard]] bool QueueUnbrickComputer()
+        {
+            using namespace GarmentFactoryEnhanced173;
+            return Queue("Unbricking Garment Factory computer", [this] {
+                const auto original = Stats::GetInt(GeneralBitsStat);
+                if (!original)
+                {
+                    GarmentFactorySnapshot state;
+                    static_cast<void>(CaptureState(state));
+                    Finish(false, std::move(state), "Unable to read HACKER24_GEN_BS");
+                    return;
+                }
+
+                if (!Stats::SetInt(GeneralBitsStat, UnbrickGeneralBits))
+                {
+                    GarmentFactorySnapshot state;
+                    static_cast<void>(CaptureState(state));
+                    Finish(false, std::move(state), "Garment Factory unbrick write was rejected");
+                    return;
+                }
+
+                const auto verified = Stats::GetInt(GeneralBitsStat);
+                if (!verified || *verified != UnbrickGeneralBits)
+                {
+                    static_cast<void>(Stats::SetInt(GeneralBitsStat, *original));
+                    GarmentFactorySnapshot rolledBack;
+                    static_cast<void>(CaptureState(rolledBack));
+                    Finish(false, std::move(rolledBack), "Garment Factory unbrick verification failed and was rolled back");
+                    return;
+                }
+
+                GarmentFactorySnapshot after;
+                const bool captured = CaptureState(after);
+                Finish(
+                    captured,
+                    std::move(after),
+                    captured
+                        ? "Garment Factory computer state reset; reopen the computer"
+                        : "Computer state reset but refresh failed");
+            });
+        }
+
+        [[nodiscard]] bool QueueCollectSafe()
+        {
+            using namespace GarmentFactoryEnhanced173;
+            return Queue("Requesting Garment Factory safe collection", [this] {
+                GarmentFactorySnapshot before;
+                if (!CaptureState(before))
+                {
+                    Finish(false, std::move(before), "Garment Factory state is unavailable");
+                    return;
+                }
+                if (before.safeCash <= 0)
+                {
+                    Finish(false, std::move(before), "Garment Factory safe is empty");
+                    return;
+                }
+
+                auto** globals = Script::ScriptRuntime::Get().Globals();
+                if (!globals)
+                {
+                    Finish(false, std::move(before), "Script globals are unavailable");
+                    return;
+                }
+
+                auto* collect = Script::ScriptGlobal(SafeCollectGlobal).As<std::int32_t>(globals);
+                if (!collect)
+                {
+                    Finish(false, std::move(before), "Garment Factory safe-collect global is unavailable");
+                    return;
+                }
+
+                const std::int32_t original = *collect;
+                *collect = 1;
+                if (*collect != 1)
+                {
+                    *collect = original;
+                    Finish(false, std::move(before), "Garment Factory safe-collect request failed");
+                    return;
+                }
+
+                GarmentFactorySnapshot after;
+                static_cast<void>(CaptureState(after));
+                Finish(true, std::move(after), "Garment Factory safe collection requested");
             });
         }
 
@@ -188,6 +398,18 @@ namespace Tutones::Game::Business
             state.packedBool51273 = *packed51273 != 0;
             state.packedBool51274 = *packed51274 != 0;
             state.packedBool51275 = *packed51275 != 0;
+
+            if (const auto active = Stats::GetInt(ActiveRobberyStat))
+                state.activeRobberyStat = *active;
+            if (const auto general = Stats::GetInt(GeneralBitsStat))
+            {
+                state.generalBitsStat = *general;
+                state.prepsComplete =
+                    (static_cast<std::uint32_t>(*general) & PrepMask) == PrepMask;
+            }
+            if (const auto safe = Stats::GetInt(SafeCashStat))
+                state.safeCash = *safe;
+
             return true;
         }
 
