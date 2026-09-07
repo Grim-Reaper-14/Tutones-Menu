@@ -3,6 +3,7 @@
 #include "V11Description.hpp"
 #include "V11Theme.hpp"
 #include "CasinoHeistPanel.hpp"
+#include "SalvageYardPanel.hpp"
 #include "../features/heist/AutoShopContractRuntime.hpp"
 #include "../features/heist/CayoLootRuntime.hpp"
 #include "../features/heist/CayoPericoRuntime.hpp"
@@ -315,11 +316,7 @@ namespace Tutones::UI
 
         inline void RenderSalvageYard() noexcept
         {
-            RenderDecompileReference(
-                "Salvage Yard Robberies",
-                "vehrob_planning.c",
-                "",
-                "Salvage Yard robbery planning is present in the Enhanced decompile set. Contract selection, planning and completion writes will remain disabled until the current script state is mapped and tested.");
+            RenderSalvageYardPanel();
         }
 
         inline void RenderAutoShop() noexcept
