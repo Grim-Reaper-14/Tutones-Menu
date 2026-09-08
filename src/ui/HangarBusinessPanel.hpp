@@ -30,14 +30,23 @@ namespace Tutones::UI
             ImGui::Separator();
 
             ImGui::TextWrapped(
-                "Live Enhanced Hangar runtime telemetry from the scripts that actually drive Air-Freight Cargo. Unknown cargo/payout locals are not guessed.");
+                "Verified GPBD stock, packed-stat sourcing, current gb_smuggler sale locals and dynamically resolved Rockstar payout tunables.");
             ImGui::Spacing();
 
             ImGui::BeginDisabled(state.pending);
             if (ImGui::Button(state.pending ? "Refreshing Hangar Runtime..." : "Refresh Hangar Runtime", ImVec2(-1.0f, 0.0f)))
                 static_cast<void>(runtime.QueueRefresh());
+            if (ImGui::Button("Request Source Cargo", ImVec2(-1.0f, 0.0f)))
+                static_cast<void>(runtime.QueueSourceCargo());
             ImGui::EndDisabled();
-            DescribeLastV11Item("Resolve the live Enhanced Hangar, Terrorbyte source-app and Business Hub script threads on the GTA script thread.");
+            DescribeLastV11Item("Use Rockstar's verified packed-stat source request instead of directly forcing the mirrored stock counter.");
+
+            ImGui::SeparatorText("Hangar Stock");
+            ImGui::Text("Property ID: %d", state.propertyId);
+            ImGui::Text("Setup done: %s", state.setupDone > 0 ? "Yes" : "No");
+            ImGui::Text("Total cargo: %d / %d", state.totalCargo, HangarCapacity);
+            ImGui::Text("Remaining capacity: %d", state.remainingCapacity);
+            ImGui::Text("Source request 36828: %s", !state.sourceRequestReadable ? "UNKNOWN" : (state.sourceRequestSet ? "SET" : "CLEAR"));
 
             ImGui::SeparatorText("Air-Freight Runtime");
             ImGui::Text("GTA Online: %s", state.sessionStarted ? "Ready" : "Offline");
@@ -46,15 +55,38 @@ namespace Tutones::UI
             ImGui::Text("apphackertruck source app: %s", state.haveResult ? (state.hackerTruckRunning ? "RUNNING" : "IDLE") : "UNKNOWN");
             ImGui::Text("Business Hub: %s", state.haveResult ? (state.businessHubRunning ? "RUNNING" : "IDLE") : "UNKNOWN");
 
-            ImGui::SeparatorText("Verified Decompile Contracts");
+            ImGui::SeparatorText("Active Sale");
+            if (state.saleLocalsReadable)
+            {
+                ImGui::Text("To deliver: %d", state.saleToDeliver);
+                ImGui::Text("Delivered: %d", state.saleDelivered);
+            }
+            else
+            {
+                ImGui::TextDisabled("Start a gb_smuggler sale to expose the current 1998-based delivery locals.");
+            }
+
+            ImGui::SeparatorText("Payout / Bonus Tunables");
+            ImGui::Text("Tunable registry: %s", state.tunableRegistryReady ? "Ready" : "Not cached");
+            if (state.payoutTunablesReadable)
+            {
+                for (std::size_t index = 0; index < CargoNames.size(); ++index)
+                    ImGui::Text("%s: $%d / crate", CargoNames[index], state.cratePrices[index]);
+                ImGui::Text("Bonus thresholds L/M/H: %d / %d / %d", state.bonusThresholdLow, state.bonusThresholdMedium, state.bonusThresholdHigh);
+                ImGui::Text("Bonus pct L/M/H: %.3f / %.3f / %.3f", state.bonusPercentLow, state.bonusPercentMedium, state.bonusPercentHigh);
+                ImGui::Text("Ron's cut: %.3f", state.ronsCut);
+                ImGui::Text("High-demand bonus: %.3f", state.highDemandBonus);
+                ImGui::Text("Sell cooldown: %d ms", state.sellCooldown);
+            }
+            else
+            {
+                ImGui::TextDisabled("Payout values remain read-only until Rockstar tunables finish caching.");
+            }
+
+            ImGui::SeparatorText("Verified Contracts");
             ImGui::Text("Source mission tx: 0x%08X", SourceMissionTransactionHash);
             ImGui::Text("Mission stat hash: 0x%08X", SourceMissionStatHash);
-            ImGui::TextDisabled("HANGAR_CONTRABAND_MISSION_0_t0_v0");
-            ImGui::TextDisabled("MP_STAT_HANGAR_CONTRABAND_MISSION_v0");
-
-            ImGui::SeparatorText("Write Guard");
-            ImGui::TextWrapped(
-                "Cargo stock, source-complete, sale-complete and payout writes remain locked until their exact Enhanced 1.73 state layout is verified. Runtime detection and transaction discovery are active now.");
+            ImGui::TextDisabled("Direct writes to GPBD Hangar total cargo remain intentionally disabled; it is a replicated mirror, not the authoritative inventory writer.");
 
             if (state.pending || state.haveResult)
                 ImGui::TextDisabled("%s", state.message.c_str());
@@ -63,6 +95,6 @@ namespace Tutones::UI
         ImGui::EndChild();
         ImGui::PopStyleColor(2);
         ImGui::PopStyleVar(2);
-        SetV11Description("Hangar / Air-Freight: live gb_smuggler, apphackertruck and Business Hub state with decompile-proven transaction diagnostics.");
+        SetV11Description("Hangar / Air-Freight: verified b1158.13 stock, sourcing, sale-state and dynamic payout diagnostics.");
     }
 }

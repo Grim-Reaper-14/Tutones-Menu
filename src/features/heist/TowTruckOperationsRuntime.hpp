@@ -2,6 +2,7 @@
 
 #include "../../core/logging/Logger.hpp"
 #include "../../game/GamePointers.hpp"
+#include "../../game/script/ScriptLocal.hpp"
 #include "../../game/script/ScriptRuntime.hpp"
 #include "../../runtime/GameRuntime.hpp"
 
@@ -33,13 +34,20 @@ namespace Tutones::Game::Heist
             return hash;
         }
 
-        inline constexpr std::uint32_t ControllerTowingHash = Joaat("controller_towing");
+        inline constexpr std::uint32_t TowTruckWorkScriptHash = Joaat("fm_content_tow_truck_work");
         inline constexpr std::uint32_t TowTruckWorkRewardHash =
             Joaat("SERVICE_EARN_AMBIENT_JOB_TOW_TRUCK_WORK");
         inline constexpr std::uint32_t SalvageVehicleRewardHash =
             Joaat("SERVICE_EARN_SALVAGE_VEHICLE");
         inline constexpr std::uint32_t SalvageYardSellRewardHash =
             Joaat("SERVICE_EARN_SALVAGE_YARD_SELL_VEH");
+
+        inline constexpr std::size_t GenericBitsetBaseLocal = 1828;
+        inline constexpr std::ptrdiff_t GenericBitsetOffset = 1;
+        inline constexpr std::size_t EndReasonBaseLocal = 1885;
+        inline constexpr std::ptrdiff_t EndReasonOffset = 93;
+        inline constexpr std::uint32_t CompletionBit = 11;
+        inline constexpr std::int32_t CompletedEndReason = 3;
     }
 
     struct TowTruckOperationsSnapshot final
@@ -49,7 +57,10 @@ namespace Tutones::Game::Heist
         bool lastSucceeded{};
         bool sessionStarted{};
         bool scriptRuntimeReady{};
-        bool towingControllerRunning{};
+        bool towWorkRunning{};
+        bool finishLocalsReadable{};
+        std::uint32_t genericBitset{};
+        int endReason{-1};
         std::string message{"Press Refresh Tow Truck Runtime"};
     };
 
@@ -64,42 +75,69 @@ namespace Tutones::Game::Heist
 
         [[nodiscard]] bool QueueRefresh()
         {
-            bool expected = false;
-            if (!m_Pending.compare_exchange_strong(expected, true, std::memory_order_acq_rel))
-                return false;
-
-            SetPending("Reading Enhanced Tow Truck runtime");
-            if (Runtime::GameRuntime::Get().Enqueue([this] {
+            return Queue("Reading Enhanced Tow Truck runtime", [this] {
                 TowTruckOperationsSnapshot state;
-                const bool* sessionStarted = GamePointers::Get().IsSessionStarted();
-                state.sessionStarted = sessionStarted && *sessionStarted;
-                if (!state.sessionStarted)
-                    return Finish(false, std::move(state), "Join GTA Online before reading Tow Truck runtime state");
+                const bool success = CaptureState(state);
+                Finish(
+                    success,
+                    std::move(state),
+                    success ? "Enhanced Tow Truck runtime refreshed" : "Unable to read Enhanced Tow Truck runtime");
+            });
+        }
 
-                auto& scripts = Script::ScriptRuntime::Get();
-                state.scriptRuntimeReady = scripts.IsReady();
-                if (!state.scriptRuntimeReady)
-                    return Finish(false, std::move(state), "Shared Enhanced script runtime is unavailable");
-
-                if (const auto* thread = scripts.FindThread(TowTruckEnhanced173::ControllerTowingHash))
+        [[nodiscard]] bool QueueFinishCurrentTowJob()
+        {
+            using namespace TowTruckEnhanced173;
+            return Queue("Finishing active Tow Truck job through guarded mission locals", [this] {
+                TowTruckOperationsSnapshot state;
+                if (!CaptureState(state) || !state.towWorkRunning || !state.finishLocalsReadable)
                 {
-                    state.towingControllerRunning = thread->stack
-                        && thread->context.threadId != 0
-                        && thread->context.state != Types::ScriptThreadState::Killed;
+                    Finish(false, std::move(state), "Start a Tow Truck Work mission before using instant finish");
+                    return;
                 }
 
-                TUTONES_LOG_DEBUG(
-                    "heist.towtruck",
-                    std::string("Tow Truck controller_towing=")
-                        + (state.towingControllerRunning ? "running" : "idle"));
-                Finish(true, std::move(state), "Enhanced Tow Truck runtime refreshed");
-            }))
-            {
-                return true;
-            }
+                auto& scripts = Script::ScriptRuntime::Get();
+                auto* thread = scripts.FindThread(TowTruckWorkScriptHash);
+                if (!thread)
+                {
+                    Finish(false, std::move(state), "Tow Truck script thread disappeared before the write");
+                    return;
+                }
 
-            Finish(false, {}, "Game-thread queue unavailable");
-            return false;
+                auto* bitset = Script::ScriptLocal(thread, GenericBitsetBaseLocal)
+                    .At(GenericBitsetOffset)
+                    .As<std::int32_t>();
+                auto* endReason = Script::ScriptLocal(thread, EndReasonBaseLocal)
+                    .At(EndReasonOffset)
+                    .As<std::int32_t>();
+                if (!bitset || !endReason)
+                {
+                    Finish(false, std::move(state), "Current Tow Truck finish locals failed bounds validation");
+                    return;
+                }
+
+                const auto originalBits = static_cast<std::uint32_t>(*bitset);
+                const auto originalEndReason = *endReason;
+                const auto wantedBits = originalBits | (1u << CompletionBit);
+
+                *bitset = static_cast<std::int32_t>(wantedBits);
+                *endReason = CompletedEndReason;
+
+                const bool verified = static_cast<std::uint32_t>(*bitset) == wantedBits
+                    && *endReason == CompletedEndReason;
+                if (!verified)
+                {
+                    *bitset = static_cast<std::int32_t>(originalBits);
+                    *endReason = originalEndReason;
+                    CaptureState(state);
+                    Finish(false, std::move(state), "Tow Truck finish write failed verification and was rolled back");
+                    return;
+                }
+
+                CaptureState(state);
+                TUTONES_LOG_INFO("heist.towtruck", "Set Tow Truck completion bit 11 and end reason 3 without clobbering unrelated mission flags");
+                Finish(true, std::move(state), "Tow Truck completion state applied; Rockstar's mission flow now owns the payout/cleanup");
+            });
         }
 
         [[nodiscard]] TowTruckOperationsSnapshot Snapshot() const
@@ -112,6 +150,52 @@ namespace Tutones::Game::Heist
 
     private:
         TowTruckOperationsRuntime() = default;
+
+        template<typename Callback>
+        [[nodiscard]] bool Queue(std::string pendingMessage, Callback&& callback)
+        {
+            bool expected = false;
+            if (!m_Pending.compare_exchange_strong(expected, true, std::memory_order_acq_rel))
+                return false;
+            SetPending(std::move(pendingMessage));
+            if (Runtime::GameRuntime::Get().Enqueue(std::forward<Callback>(callback)))
+                return true;
+            Finish(false, {}, "Game-thread queue unavailable");
+            return false;
+        }
+
+        [[nodiscard]] bool CaptureState(TowTruckOperationsSnapshot& state) const noexcept
+        {
+            using namespace TowTruckEnhanced173;
+            const bool* sessionStarted = GamePointers::Get().IsSessionStarted();
+            state.sessionStarted = sessionStarted && *sessionStarted;
+
+            auto& scripts = Script::ScriptRuntime::Get();
+            state.scriptRuntimeReady = scripts.IsReady();
+            if (!state.sessionStarted || !state.scriptRuntimeReady)
+                return false;
+
+            auto* thread = scripts.FindThread(TowTruckWorkScriptHash);
+            state.towWorkRunning = thread && thread->stack
+                && thread->context.threadId != 0
+                && thread->context.state != Types::ScriptThreadState::Killed;
+            if (!state.towWorkRunning)
+                return true;
+
+            const auto* bitset = Script::ScriptLocal(thread, GenericBitsetBaseLocal)
+                .At(GenericBitsetOffset)
+                .As<std::int32_t>();
+            const auto* endReason = Script::ScriptLocal(thread, EndReasonBaseLocal)
+                .At(EndReasonOffset)
+                .As<std::int32_t>();
+            if (!bitset || !endReason)
+                return true;
+
+            state.finishLocalsReadable = true;
+            state.genericBitset = static_cast<std::uint32_t>(*bitset);
+            state.endReason = *endReason;
+            return true;
+        }
 
         void SetPending(std::string message)
         {
