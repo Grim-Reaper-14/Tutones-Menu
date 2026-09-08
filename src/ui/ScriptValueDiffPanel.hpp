@@ -8,8 +8,10 @@
 #include <imgui.h>
 
 #include <algorithm>
+#include <array>
 #include <cstdint>
 #include <cstring>
+#include <optional>
 
 namespace Tutones::UI
 {
@@ -24,6 +26,15 @@ namespace Tutones::UI
         inline std::uint32_t g_LocalBaselineScriptHash{};
         inline int g_LocalBaselineIndex{-1};
         inline std::int64_t g_LocalBaselineRaw{};
+
+        inline constexpr int MaxGlobalRangeWatch = 32;
+        inline int g_GlobalRangeBase{1985024};
+        inline int g_GlobalRangeCount{8};
+        inline bool g_GlobalRangeBaselineValid{};
+        inline int g_GlobalRangeBaselineBase{-1};
+        inline int g_GlobalRangeBaselineCount{};
+        inline std::array<std::int64_t, MaxGlobalRangeWatch> g_GlobalRangeBaseline{};
+        inline std::array<bool, MaxGlobalRangeWatch> g_GlobalRangeBaselineReadable{};
 
         inline void RenderRawValue(const char* prefix, std::int64_t raw) noexcept
         {
@@ -65,12 +76,119 @@ namespace Tutones::UI
                 currentFloat - baselineFloat);
         }
 
+        inline void RenderGlobalRangeWatch(std::int64_t** globals) noexcept
+        {
+            ImGui::SeparatorText("Global Range Watch");
+            ImGui::TextWrapped(
+                "Watch up to 32 adjacent globals at once. Capture a baseline, perform one GTA action, then changed slots light up without writing anything.");
+            ImGui::InputInt("Range base", &g_GlobalRangeBase, 1, 100);
+            ImGui::InputInt("Range count", &g_GlobalRangeCount, 1, 4);
+            g_GlobalRangeCount = std::clamp(g_GlobalRangeCount, 1, MaxGlobalRangeWatch);
+            g_GlobalRangeBase = std::clamp(g_GlobalRangeBase, 0, 0xFFFFFF - g_GlobalRangeCount + 1);
+
+            if (ImGui::Button("Capture Global Range Baseline", ImVec2(-1.0f, 0.0f)))
+            {
+                g_GlobalRangeBaselineValid = true;
+                g_GlobalRangeBaselineBase = g_GlobalRangeBase;
+                g_GlobalRangeBaselineCount = g_GlobalRangeCount;
+                g_GlobalRangeBaselineReadable.fill(false);
+
+                if (globals)
+                {
+                    for (int offset = 0; offset < g_GlobalRangeCount; ++offset)
+                    {
+                        const auto* slot = Game::Script::ScriptGlobal(
+                            static_cast<std::size_t>(g_GlobalRangeBase + offset)).As<std::int64_t>(globals);
+                        if (!slot)
+                            continue;
+                        g_GlobalRangeBaseline[static_cast<std::size_t>(offset)] = *slot;
+                        g_GlobalRangeBaselineReadable[static_cast<std::size_t>(offset)] = true;
+                    }
+                }
+            }
+
+            const bool matchingBaseline = g_GlobalRangeBaselineValid
+                && g_GlobalRangeBaselineBase == g_GlobalRangeBase
+                && g_GlobalRangeBaselineCount == g_GlobalRangeCount;
+
+            if (g_GlobalRangeBaselineValid && !matchingBaseline)
+            {
+                ImGui::TextDisabled(
+                    "Range baseline belongs to Global_%d .. Global_%d.",
+                    g_GlobalRangeBaselineBase,
+                    g_GlobalRangeBaselineBase + g_GlobalRangeBaselineCount - 1);
+            }
+
+            if (ImGui::BeginTable(
+                    "##global_range_watch",
+                    4,
+                    ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH | ImGuiTableFlags_SizingStretchProp))
+            {
+                ImGui::TableSetupColumn("Global", ImGuiTableColumnFlags_WidthStretch, 1.3f);
+                ImGui::TableSetupColumn("INT", ImGuiTableColumnFlags_WidthStretch, 1.0f);
+                ImGui::TableSetupColumn("Delta", ImGuiTableColumnFlags_WidthStretch, 1.0f);
+                ImGui::TableSetupColumn("State", ImGuiTableColumnFlags_WidthStretch, 1.0f);
+                ImGui::TableHeadersRow();
+
+                for (int offset = 0; offset < g_GlobalRangeCount; ++offset)
+                {
+                    ImGui::TableNextRow();
+                    ImGui::TableSetColumnIndex(0);
+                    const int index = g_GlobalRangeBase + offset;
+                    ImGui::Text("Global_%d", index);
+
+                    const auto* slot = globals
+                        ? Game::Script::ScriptGlobal(static_cast<std::size_t>(index)).As<std::int64_t>(globals)
+                        : nullptr;
+                    if (!slot)
+                    {
+                        ImGui::TableSetColumnIndex(1);
+                        ImGui::TextDisabled("N/A");
+                        ImGui::TableSetColumnIndex(2);
+                        ImGui::TextDisabled("--");
+                        ImGui::TableSetColumnIndex(3);
+                        ImGui::TextDisabled("UNREADABLE");
+                        continue;
+                    }
+
+                    std::int32_t currentInt{};
+                    std::memcpy(&currentInt, slot, sizeof(currentInt));
+                    ImGui::TableSetColumnIndex(1);
+                    ImGui::Text("%d", currentInt);
+
+                    const bool baselineReadable = matchingBaseline
+                        && g_GlobalRangeBaselineReadable[static_cast<std::size_t>(offset)];
+                    if (!baselineReadable)
+                    {
+                        ImGui::TableSetColumnIndex(2);
+                        ImGui::TextDisabled("--");
+                        ImGui::TableSetColumnIndex(3);
+                        ImGui::TextDisabled("NO BASELINE");
+                        continue;
+                    }
+
+                    const auto baseline = g_GlobalRangeBaseline[static_cast<std::size_t>(offset)];
+                    std::int32_t baselineInt{};
+                    std::memcpy(&baselineInt, &baseline, sizeof(baselineInt));
+                    ImGui::TableSetColumnIndex(2);
+                    ImGui::Text("%+d", currentInt - baselineInt);
+                    ImGui::TableSetColumnIndex(3);
+                    if (*slot != baseline)
+                        ImGui::TextColored(ImVec4(1.0f, 0.72f, 0.20f, 1.0f), "CHANGED");
+                    else
+                        ImGui::TextColored(ImVec4(0.30f, 0.90f, 0.45f, 1.0f), "SAME");
+                }
+
+                ImGui::EndTable();
+            }
+        }
+
         inline void RenderScriptValueDiffWindow() noexcept
         {
             if (!g_ValueDiffOpen)
                 return;
 
-            ImGui::SetNextWindowSize(ImVec2(470.0f, 430.0f), ImGuiCond_FirstUseEver);
+            ImGui::SetNextWindowSize(ImVec2(560.0f, 650.0f), ImGuiCond_FirstUseEver);
             if (!ImGui::Begin("Tutones Script Value Diff", &g_ValueDiffOpen))
             {
                 ImGui::End();
@@ -81,9 +199,9 @@ namespace Tutones::UI
             auto** globals = runtime.Globals();
 
             ImGui::TextColored(V11Theme::Accent, "Baseline -> Action -> Compare");
-            ImGui::TextWrapped("Capture a value, perform one action in GTA, then watch exactly what changed. Reads only; this tool never writes globals or locals.");
+            ImGui::TextWrapped("Capture values, perform one action in GTA, then watch exactly what changed. Reads only; this tool never writes globals or locals.");
 
-            ImGui::SeparatorText("Global Watch");
+            ImGui::SeparatorText("Single Global Watch");
             ImGui::InputInt("Global index", &g_ValueDiffGlobalIndex, 1, 100);
             g_ValueDiffGlobalIndex = std::clamp(g_ValueDiffGlobalIndex, 0, 0xFFFFFF);
 
@@ -114,6 +232,8 @@ namespace Tutones::UI
                 else if (g_GlobalBaselineValid)
                     ImGui::TextDisabled("Baseline belongs to Global_%d.", g_GlobalBaselineIndex);
             }
+
+            RenderGlobalRangeWatch(globals);
 
             ImGui::SeparatorText("Selected Script Local Watch");
             ImGui::Text(
@@ -160,6 +280,8 @@ namespace Tutones::UI
             {
                 g_GlobalBaselineValid = false;
                 g_LocalBaselineValid = false;
+                g_GlobalRangeBaselineValid = false;
+                g_GlobalRangeBaselineReadable.fill(false);
             }
 
             ImGui::End();

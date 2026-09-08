@@ -16,14 +16,14 @@ namespace Tutones::UI
         const auto snapshot = runtime.GetSnapshot();
 
         ImGui::TextWrapped(
-            "Today's verified Enhanced activity state. Only decompile-proven completion/reset data is shown here; unverified daily offsets stay out of the menu.");
+            "Today's verified Enhanced activity state. Street Dealer completion and the decompile-backed Gun Van map record are read directly; unverified daily writes stay disabled.");
         ImGui::Spacing();
 
         ImGui::BeginDisabled(snapshot.pending);
         if (ImGui::Button(snapshot.pending ? "Refreshing Today..." : "Refresh Today", ImVec2(-1.0f, 28.0f)))
             static_cast<void>(runtime.QueueRefresh());
         ImGui::EndDisabled();
-        DescribeLastV11Item("Read current Enhanced daily state and Street Dealer completion packed stats.");
+        DescribeLastV11Item("Read current Enhanced Street Dealer state plus the Gun Van record used by blip_controller.");
 
         if (!snapshot.haveResult)
         {
@@ -39,7 +39,20 @@ namespace Tutones::UI
             return;
         }
 
-        ImGui::TextColored(V11Theme::Accent, "Street Dealers");
+        ImGui::SeparatorText("Gun Van");
+        if (snapshot.gunVanRecordReadable)
+        {
+            ImGui::Text("Location: %.2f, %.2f, %.2f", snapshot.gunVanX, snapshot.gunVanY, snapshot.gunVanZ);
+            ImGui::Text("Record state: 0x%08X", static_cast<unsigned int>(snapshot.gunVanState));
+            ImGui::Text("Blip handle: %d", snapshot.gunVanBlipHandle);
+            ImGui::TextDisabled("Enhanced location record 58 (S_G_19 / Gun Van), read only.");
+        }
+        else
+        {
+            ImGui::TextDisabled("Gun Van record is not readable in the current session.");
+        }
+
+        ImGui::SeparatorText("Street Dealers");
         ImGui::Text("Active location: %d", snapshot.activeStreetDealerLocation);
         ImGui::SameLine();
         ImGui::TextDisabled("| Active record: %d", snapshot.activeStreetDealerRecord);
@@ -75,7 +88,7 @@ namespace Tutones::UI
         }
 
         ImGui::Spacing();
-        ImGui::TextDisabled("More activities will only be added as their Enhanced reset/completion state is verified.");
-        SetV11Description("Daily Activity Center - Street Dealer active state and verified daily completion flags.");
+        ImGui::TextDisabled("Additional daily locations will be added only as their Enhanced records are verified.");
+        SetV11Description("Daily Activity Center - Gun Van location telemetry and verified Street Dealer daily state.");
     }
 }

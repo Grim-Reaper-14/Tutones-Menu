@@ -9,6 +9,7 @@
 
 #include <array>
 #include <atomic>
+#include <cmath>
 #include <cstddef>
 #include <mutex>
 #include <string>
@@ -16,6 +17,17 @@
 
 namespace Tutones::Game::DailyActivity
 {
+    namespace Enhanced173
+    {
+        // blip_controller Global_34212 is an array of 23-slot location records.
+        // Record 58 is labelled "Gun Van" by the Enhanced decompile.
+        inline constexpr std::size_t LocationBlipGlobal = 34212;
+        inline constexpr std::size_t LocationRecordSize = 23;
+        inline constexpr std::size_t GunVanRecord = 58;
+        inline constexpr std::size_t StateOffset = 11;
+        inline constexpr std::size_t BlipHandleOffset = 19;
+    }
+
     struct Snapshot final
     {
         bool pending{};
@@ -27,6 +39,12 @@ namespace Tutones::Game::DailyActivity
         int activeStreetDealerRecord{-1};
         std::array<bool, StreetDealer::Enhanced173::DealerCount> streetDealerCompleted{};
         std::array<bool, StreetDealer::Enhanced173::DealerCount> streetDealerCompletionReadable{};
+        bool gunVanRecordReadable{};
+        float gunVanX{};
+        float gunVanY{};
+        float gunVanZ{};
+        int gunVanState{};
+        int gunVanBlipHandle{};
         std::string message{"Ready"};
     };
 
@@ -86,7 +104,31 @@ namespace Tutones::Game::DailyActivity
                     state.streetDealerCompleted[index] = *value;
                 }
 
-                TUTONES_LOG_DEBUG("daily.activity", "Enhanced daily activity state refreshed");
+                const auto gunVan = Script::ScriptGlobal(Enhanced173::LocationBlipGlobal)
+                    .At(Enhanced173::GunVanRecord, Enhanced173::LocationRecordSize);
+                const float* gunVanX = gunVan.As<float>(pages);
+                const float* gunVanY = gunVan.At(1).As<float>(pages);
+                const float* gunVanZ = gunVan.At(2).As<float>(pages);
+                const int* gunVanState = gunVan.At(Enhanced173::StateOffset).As<int>(pages);
+                const int* gunVanBlip = gunVan.At(Enhanced173::BlipHandleOffset).As<int>(pages);
+
+                if (gunVanX && gunVanY && gunVanZ && gunVanState && gunVanBlip
+                    && std::isfinite(*gunVanX) && std::isfinite(*gunVanY) && std::isfinite(*gunVanZ)
+                    && std::abs(*gunVanX) < 10000.0f && std::abs(*gunVanY) < 10000.0f
+                    && std::abs(*gunVanZ) < 3000.0f)
+                {
+                    state.gunVanRecordReadable = true;
+                    state.gunVanX = *gunVanX;
+                    state.gunVanY = *gunVanY;
+                    state.gunVanZ = *gunVanZ;
+                    state.gunVanState = *gunVanState;
+                    state.gunVanBlipHandle = *gunVanBlip;
+                }
+
+                TUTONES_LOG_DEBUG(
+                    "daily.activity",
+                    std::string("Enhanced daily activity refreshed; gun_van=")
+                        + (state.gunVanRecordReadable ? "readable" : "unavailable"));
                 Finish(true, std::move(state), "Enhanced daily activity state refreshed");
             }))
             {
@@ -110,6 +152,12 @@ namespace Tutones::Game::DailyActivity
             snapshot.activeStreetDealerRecord = m_State.activeStreetDealerRecord;
             snapshot.streetDealerCompleted = m_State.streetDealerCompleted;
             snapshot.streetDealerCompletionReadable = m_State.streetDealerCompletionReadable;
+            snapshot.gunVanRecordReadable = m_State.gunVanRecordReadable;
+            snapshot.gunVanX = m_State.gunVanX;
+            snapshot.gunVanY = m_State.gunVanY;
+            snapshot.gunVanZ = m_State.gunVanZ;
+            snapshot.gunVanState = m_State.gunVanState;
+            snapshot.gunVanBlipHandle = m_State.gunVanBlipHandle;
             snapshot.message = m_State.message;
             return snapshot;
         }

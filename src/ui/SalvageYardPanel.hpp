@@ -2,6 +2,7 @@
 
 #include "V11Theme.hpp"
 #include "../features/heist/SalvageYardRuntime.hpp"
+#include "../features/heist/TowTruckOperationsRuntime.hpp"
 
 #include <imgui.h>
 
@@ -53,6 +54,21 @@ namespace Tutones::UI
         ImGui::Text("Scope flags: 0x%08X", state.scopeFlags);
         ImGui::Text("Salvage flags: 0x%08X", state.salvageFlags);
         ImGui::Text("Packed vehicle state: %d", state.packedVehicleState);
+
+        ImGui::SeparatorText("Tow Truck Operations");
+        auto& towRuntime = Game::Heist::TowTruckOperationsRuntime::Get();
+        const auto tow = towRuntime.Snapshot();
+        ImGui::BeginDisabled(tow.pending);
+        if (ImGui::Button(tow.pending ? "Refreshing Tow Truck Runtime..." : "Refresh Tow Truck Runtime", ImVec2(-1.0f, 0.0f)))
+            static_cast<void>(towRuntime.QueueRefresh());
+        ImGui::EndDisabled();
+        ImGui::Text("controller_towing: %s", tow.haveResult ? (tow.towingControllerRunning ? "RUNNING" : "IDLE") : "UNKNOWN");
+        ImGui::Text("Tow work reward: 0x%08X", Game::Heist::TowTruckEnhanced173::TowTruckWorkRewardHash);
+        ImGui::Text("Salvage vehicle: 0x%08X", Game::Heist::TowTruckEnhanced173::SalvageVehicleRewardHash);
+        ImGui::Text("Yard vehicle sale: 0x%08X", Game::Heist::TowTruckEnhanced173::SalvageYardSellRewardHash);
+        ImGui::TextDisabled("Reward contracts are decompile-proven; job-state and processing writes remain locked until their exact Enhanced flow is verified.");
+        if (tow.pending || tow.haveResult)
+            ImGui::TextDisabled("%s", tow.message.c_str());
 
         ImGui::SeparatorText("Runtime");
         ImGui::Text("Session: %s", state.sessionStarted ? "Online" : "Offline");
