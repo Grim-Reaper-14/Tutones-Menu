@@ -22,10 +22,10 @@
 #include "../render/Renderer.hpp"
 #include "../runtime/GameRuntime.hpp"
 #include "../ui/Input.hpp"
+#include "../ui/PersistentMenuState.hpp"
 
 #include <atomic>
 #include <chrono>
-#include <cstddef>
 #include <memory>
 #include <string>
 #include <thread>
@@ -76,84 +76,22 @@ namespace Tutones::App
 
             TUTONES_LOG_INFO(
                 "config",
-                "Staged persisted V11 state before GTA runtime startup; no one-shot commands were executed");
+                "Staged early persisted settings before GTA runtime startup; extended feature settings apply after runtime initialization");
         }
 
         void SavePersistedMenuSettings() noexcept
         {
+            // Use the same complete live-state capture used by the Settings page so
+            // shutdown persistence cannot silently omit newer feature runtimes.
+            UI::PersistentMenuStateDetail::CaptureLiveSettings();
+
             auto& service = Core::Config::MenuSettingsService::Get();
-            auto& settings = service.Current();
-
-            const auto player = Game::PlayerFeatures::PlayerRuntime::Get().Snapshot();
-            settings.player.invincible = player.invincible;
-            settings.player.bulletproof = player.bulletproof;
-            settings.player.aquaLungs = player.aquaLungs;
-            settings.player.infiniteOxygen = player.infiniteOxygen;
-            settings.player.invisible = player.invisible;
-            settings.player.noRagdoll = player.noRagdoll;
-            settings.player.superJump = player.superJump;
-            settings.player.infiniteStamina = player.infiniteStamina;
-            settings.player.keepPlayerClean = player.keepPlayerClean;
-            settings.player.disableCriticalHits = player.disableCriticalHits;
-            settings.player.standOnVehicles = player.standOnVehicles;
-            settings.player.disableActionMode = player.disableActionMode;
-            settings.player.infiniteParachutes = player.infiniteParachutes;
-            settings.player.mobileRadio = player.mobileRadio;
-            settings.player.neverWanted = player.neverWanted;
-            settings.player.policeIgnore = player.policeIgnore;
-            settings.player.everyoneIgnore = player.everyoneIgnore;
-            settings.player.runMultiplier = player.runMultiplier;
-            settings.player.swimMultiplier = player.swimMultiplier;
-
-            settings.offRadar = Game::PlayerFeatures::OffRadarRuntime::Get().Snapshot().enabled;
-            settings.vehicle.removeLscRestrictions = Game::Mods::LscBypassRuntime::Get().Enabled();
-
-            const auto weapons = Game::WeaponFeatures::WeaponRuntime::Get().Snapshot().settings;
-            settings.weapons.infiniteAmmo = weapons.infiniteAmmo;
-            settings.weapons.infiniteClip = weapons.infiniteClip;
-            settings.weapons.aimbot = weapons.aimbot;
-            settings.weapons.aimForHead = weapons.aimForHead;
-            settings.weapons.targetDrivers = weapons.targetDrivers;
-            settings.weapons.releaseDeadPed = weapons.releaseDeadPed;
-            settings.weapons.explosiveAmmo = weapons.explosiveAmmo;
-            settings.weapons.explosionType = weapons.explosionType;
-            settings.weapons.explosionDamage = weapons.explosionDamage;
-            settings.weapons.explosionCameraShake = weapons.explosionCameraShake;
-
-            const auto network = Game::NetworkFeatures::NetworkRuntime::Get().Snapshot();
-            settings.network.silencePhoneCalls = network.silencePhoneCalls;
-            settings.network.disableDeathBarriers = network.disableDeathBarriers;
-
-            const auto recovery = Game::Recovery::RecoveryRuntime::Get().Snapshot();
-            settings.recovery.rpMultiplierEnabled = recovery.rpMultiplierEnabled;
-            settings.recovery.rpMultiplier = recovery.requestedRpMultiplier;
-
-            const auto world = Game::World::WorldRuntime::Get().Snapshot();
-            settings.world.pedDensity = world.pedDensity;
-            settings.world.scenarioPedDensity = world.scenarioPedDensity;
-            settings.world.vehicleDensity = world.vehicleDensity;
-            settings.world.randomVehicleDensity = world.randomVehicleDensity;
-            settings.world.parkedVehicleDensity = world.parkedVehicleDensity;
-            settings.world.freezeClock = world.freezeClock;
-            settings.world.forceWeather = world.weatherOverrideActive;
-            settings.world.blackout = world.blackout;
-            settings.world.setHour = world.selectedHour;
-            settings.world.setMinute = world.selectedMinute;
-            for (std::size_t index = 0; index < Game::World::WeatherCodes.size(); ++index)
-            {
-                if (world.weatherCode == Game::World::WeatherCodes[index])
-                {
-                    settings.world.weatherIndex = static_cast<int>(index);
-                    break;
-                }
-            }
-            settings.world.autoWaypoint = Game::World::TeleportRuntime::Get().Snapshot().autoWaypointEnabled;
-
-            const auto path = Core::FileSystem::Service::Get().UserRoot() / "menu_settings.json";
+            const auto path = Core::FileSystem::Service::Get().UserRoot()
+                / "settings" / "menu_settings.json";
             if (service.Save(path))
-                TUTONES_LOG_INFO("config", "Saved V11 stateful settings to menu_settings.json");
+                TUTONES_LOG_INFO("config", "Saved all stateful menu settings to settings\\menu_settings.json");
             else
-                TUTONES_LOG_WARN("config", "Failed to save menu_settings.json");
+                TUTONES_LOG_WARN("config", "Failed to save settings\\menu_settings.json");
         }
 
         void ReleaseWorldStateBeforeRuntimeShutdown() noexcept

@@ -29,9 +29,23 @@ namespace Tutones::Core
             return false;
 
         const auto configPath = fileSystem.RootPath(FileSystem::Root::Config) / "tutones.cfg";
-        const auto menuSettingsPath = fileSystem.UserRoot() / "menu_settings.json";
+        const auto menuSettingsPath = fileSystem.UserRoot() / "settings" / "menu_settings.json";
+        const auto legacyMenuSettingsPath = fileSystem.UserRoot() / "menu_settings.json";
+
         const bool loadedConfig = Config::Service::Get().Load(configPath);
-        const bool loadedMenuSettings = Config::MenuSettingsService::Get().Load(menuSettingsPath);
+
+        auto& menuSettingsService = Config::MenuSettingsService::Get();
+        bool loadedMenuSettings = menuSettingsService.Load(menuSettingsPath);
+        bool loadedLegacyMenuSettings = false;
+        bool migratedLegacyMenuSettings = false;
+        if (!loadedMenuSettings && fileSystem.IsFile(legacyMenuSettingsPath))
+        {
+            loadedMenuSettings = menuSettingsService.Load(legacyMenuSettingsPath);
+            loadedLegacyMenuSettings = loadedMenuSettings;
+            if (loadedMenuSettings)
+                migratedLegacyMenuSettings = menuSettingsService.Save(menuSettingsPath);
+        }
+
         const auto& settings = Config::Service::Get().Current();
 
         Logging::LoggerConfig loggerConfig;
@@ -53,7 +67,16 @@ namespace Tutones::Core
         TUTONES_LOG_INFO("core", "Tutones Menu core services starting");
         TUTONES_LOG_INFO("filesystem", "Persistent user data root ready under LOCALAPPDATA\\Tutones Menu");
         TUTONES_LOG_INFO("config", loadedConfig ? "Core configuration loaded" : "Using default core configuration");
-        TUTONES_LOG_INFO("config", loadedMenuSettings ? "V11 menu settings loaded" : "Using default V11 menu settings");
+        TUTONES_LOG_INFO("config", loadedMenuSettings ? "Menu settings loaded" : "Using default menu settings");
+
+        if (loadedLegacyMenuSettings)
+        {
+            TUTONES_LOG_INFO(
+                "config",
+                migratedLegacyMenuSettings
+                    ? "Migrated legacy menu_settings.json into the settings folder"
+                    : "Loaded legacy menu_settings.json; settings-folder migration will be retried on save");
+        }
 
         if (!loadedConfig)
         {
@@ -66,9 +89,9 @@ namespace Tutones::Core
         if (!loadedMenuSettings)
         {
             if (Config::MenuSettingsService::Get().Save(menuSettingsPath))
-                TUTONES_LOG_INFO("config", "Default menu_settings.json created");
+                TUTONES_LOG_INFO("config", "Default settings\\menu_settings.json created");
             else
-                TUTONES_LOG_WARN("config", "Failed to create default menu_settings.json");
+                TUTONES_LOG_WARN("config", "Failed to create settings\\menu_settings.json");
         }
 
         m_Initialized = true;

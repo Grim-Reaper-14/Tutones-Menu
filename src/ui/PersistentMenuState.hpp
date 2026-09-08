@@ -2,11 +2,25 @@
 
 #include "MiscPanel.hpp"
 #include "../core/config/MenuSettings.hpp"
+#include "../features/business/VehicleCargoAutoSourceRuntime.hpp"
+#include "../features/business/VehicleCargoInstantGarageRuntime.hpp"
+#include "../features/business/VehicleCargoInstantSellRuntime.hpp"
+#include "../features/game/NoIdleRuntime.hpp"
+#include "../features/network/NetworkPlayerDefenseRuntime.hpp"
 #include "../features/network/NetworkRuntime.hpp"
+#include "../features/network/ProtectionRuntime.hpp"
+#include "../features/player/GhostOrganizationRuntime.hpp"
 #include "../features/player/OffRadarRuntime.hpp"
 #include "../features/player/PlayerRuntime.hpp"
+#include "../features/recovery/CasinoSlotMachineRuntime.hpp"
 #include "../features/recovery/RecoveryRuntime.hpp"
+#include "../features/vehicle/DlcVehicleRuntime.hpp"
+#include "../features/vehicle/HornBoostRuntime.hpp"
 #include "../features/vehicle/LscBypassRuntime.hpp"
+#include "../features/vehicle/NitrousRuntime.hpp"
+#include "../features/vehicle/VehicleAmmoRuntime.hpp"
+#include "../features/vehicle/VehicleLoopFeatures.hpp"
+#include "../features/vehicle/VehicleSuspensionRuntime.hpp"
 #include "../features/weapon/WeaponRuntime.hpp"
 #include "../features/world/TeleportRuntime.hpp"
 #include "../features/world/WorldRuntime.hpp"
@@ -50,7 +64,28 @@ namespace Tutones::UI
             player.SetSwimMultiplier(settings.player.swimMultiplier);
 
             Game::PlayerFeatures::OffRadarRuntime::Get().SetEnabled(settings.offRadar);
+            Game::PlayerFeatures::GhostOrganizationRuntime::Get().SetEnabled(settings.player.ghostOrganization);
+
             Game::Mods::LscBypassRuntime::Get().SetEnabled(settings.vehicle.removeLscRestrictions);
+            Game::VehicleFeatures::DlcVehicleRuntime::Get().SetEnabled(settings.vehicle.enableDlcVehicles);
+
+            auto& vehicleLoop = Game::Mods::VehicleLoopFeatures::Get();
+            vehicleLoop.SetVehicleGodMode(settings.vehicle.vehicleGodMode);
+            vehicleLoop.SetKeepVehicleClean(settings.vehicle.keepVehicleClean);
+            vehicleLoop.SetLoweredStance(settings.vehicle.loweredStance);
+
+            Game::Mods::HornBoostRuntime::Get().SetEnabled(settings.vehicle.hornBoost);
+            Game::Mods::VehicleAmmoRuntime::Get().SetEnabled(settings.vehicle.infiniteVehicleAmmo);
+
+            auto& nitrous = Game::Mods::NitrousRuntime::Get();
+            nitrous.SetUnlimited(settings.vehicle.nitrousUnlimited);
+            nitrous.SetLevel(settings.vehicle.nitrousLevel);
+            nitrous.SetPower(settings.vehicle.nitrousPower);
+            nitrous.SetEnabled(settings.vehicle.nitrousEnabled);
+
+            auto& suspension = Game::Mods::VehicleSuspensionRuntime::Get();
+            suspension.SetLoweringAmount(settings.vehicle.suspensionLoweringAmount);
+            suspension.SetEnabled(settings.vehicle.suspensionLoweringEnabled);
 
             auto& weapons = Game::WeaponFeatures::WeaponRuntime::Get();
             weapons.SetInfiniteAmmo(settings.weapons.infiniteAmmo);
@@ -68,9 +103,38 @@ namespace Tutones::UI
             network.SetSilencePhoneCalls(settings.network.silencePhoneCalls);
             network.SetDisableDeathBarriers(settings.network.disableDeathBarriers);
 
+            auto& defense = Game::NetworkFeatures::NetworkPlayerDefenseRuntime::Get();
+            defense.SetProximityWarningsEnabled(settings.network.proximityWarningsEnabled);
+            defense.SetRestrictWatchlistedActions(settings.network.restrictWatchlistedActions);
+            defense.SetAutoWatchHighRisk(settings.network.autoWatchHighRisk);
+            defense.SetProximityRadius(settings.network.proximityRadius);
+
+            auto& protections = Game::Protections::ProtectionRuntime::Get();
+            protections.SetBlockMalformed(settings.protections.blockMalformed);
+            protections.SetBlockForcedLeave(settings.protections.blockForcedLeave);
+            protections.SetBlockKnownCrashes(settings.protections.blockKnownCrashes);
+            protections.SetBlockSounds(settings.protections.blockSounds);
+            protections.SetBlockExplosions(settings.protections.blockExplosions);
+            protections.SetBlockFire(settings.protections.blockFire);
+            protections.SetBlockWeaponDamage(settings.protections.blockWeaponDamage);
+            protections.SetBlockRagdoll(settings.protections.blockRagdoll);
+            protections.SetBlockClearTasks(settings.protections.blockClearTasks);
+            protections.SetBlockPtfx(settings.protections.blockPtfx);
+            protections.SetBlockScriptEvents(settings.protections.blockScriptEvents);
+            protections.SetBlockMalformedScriptEvents(settings.protections.blockMalformedScriptEvents);
+
+            Game::SessionFeatures::NoIdleRuntime::Get().SetEnabled(settings.session.noIdle);
+
             auto& recovery = Game::Recovery::RecoveryRuntime::Get();
             recovery.SetRpMultiplier(settings.recovery.rpMultiplier);
             recovery.SetRpMultiplierEnabled(settings.recovery.rpMultiplierEnabled);
+            Game::Recovery::CasinoSlotMachineRuntime::Get().SetEnabled(settings.recovery.casinoSlotRig);
+
+            // Auto Source and the full pipeline are mutually exclusive. Apply Auto Source
+            // first so the full pipeline remains authoritative if a hand-edited file enables both.
+            Game::Business::VehicleCargoAutoSourceRuntime::Get().SetEnabled(settings.business.vehicleCargoAutoSource);
+            Game::Business::VehicleCargoInstantGarageRuntime::Get().SetEnabled(settings.business.vehicleCargoInstantGarage);
+            Game::Business::VehicleCargoInstantSellRuntime::Get().SetEnabled(settings.business.vehicleCargoInstantSell);
 
             auto& world = Game::World::WorldRuntime::Get();
             world.SetPedDensity(settings.world.pedDensity);
@@ -122,9 +186,26 @@ namespace Tutones::UI
             settings.player.everyoneIgnore = player.everyoneIgnore;
             settings.player.runMultiplier = player.runMultiplier;
             settings.player.swimMultiplier = player.swimMultiplier;
+            settings.player.ghostOrganization = Game::PlayerFeatures::GhostOrganizationRuntime::Get().Snapshot().enabled;
 
             settings.offRadar = Game::PlayerFeatures::OffRadarRuntime::Get().Snapshot().enabled;
+
             settings.vehicle.removeLscRestrictions = Game::Mods::LscBypassRuntime::Get().Enabled();
+            settings.vehicle.enableDlcVehicles = Game::VehicleFeatures::DlcVehicleRuntime::Get().Enabled();
+            auto& vehicleLoop = Game::Mods::VehicleLoopFeatures::Get();
+            settings.vehicle.vehicleGodMode = vehicleLoop.VehicleGodMode();
+            settings.vehicle.keepVehicleClean = vehicleLoop.KeepVehicleClean();
+            settings.vehicle.loweredStance = vehicleLoop.LoweredStance();
+            settings.vehicle.hornBoost = Game::Mods::HornBoostRuntime::Get().Enabled();
+            settings.vehicle.infiniteVehicleAmmo = Game::Mods::VehicleAmmoRuntime::Get().Enabled();
+            auto& nitrous = Game::Mods::NitrousRuntime::Get();
+            settings.vehicle.nitrousEnabled = nitrous.Enabled();
+            settings.vehicle.nitrousUnlimited = nitrous.Unlimited();
+            settings.vehicle.nitrousLevel = nitrous.Level();
+            settings.vehicle.nitrousPower = nitrous.Power();
+            auto& suspension = Game::Mods::VehicleSuspensionRuntime::Get();
+            settings.vehicle.suspensionLoweringEnabled = suspension.Enabled();
+            settings.vehicle.suspensionLoweringAmount = suspension.LoweringAmount();
 
             const auto weapon = Game::WeaponFeatures::WeaponRuntime::Get().Snapshot().settings;
             settings.weapons.infiniteAmmo = weapon.infiniteAmmo;
@@ -142,9 +223,36 @@ namespace Tutones::UI
             settings.network.silencePhoneCalls = network.silencePhoneCalls;
             settings.network.disableDeathBarriers = network.disableDeathBarriers;
 
+            const auto defense = Game::NetworkFeatures::NetworkPlayerDefenseRuntime::Get().Snapshot();
+            settings.network.proximityWarningsEnabled = defense.proximityWarningsEnabled;
+            settings.network.restrictWatchlistedActions = defense.restrictWatchlistedActions;
+            settings.network.autoWatchHighRisk = defense.autoWatchHighRisk;
+            settings.network.proximityRadius = defense.proximityRadius;
+
+            const auto protections = Game::Protections::ProtectionRuntime::Get().Snapshot();
+            settings.protections.blockMalformed = protections.blockMalformed;
+            settings.protections.blockForcedLeave = protections.blockForcedLeave;
+            settings.protections.blockKnownCrashes = protections.blockKnownCrashes;
+            settings.protections.blockSounds = protections.blockSounds;
+            settings.protections.blockExplosions = protections.blockExplosions;
+            settings.protections.blockFire = protections.blockFire;
+            settings.protections.blockWeaponDamage = protections.blockWeaponDamage;
+            settings.protections.blockRagdoll = protections.blockRagdoll;
+            settings.protections.blockClearTasks = protections.blockClearTasks;
+            settings.protections.blockPtfx = protections.blockPtfx;
+            settings.protections.blockScriptEvents = protections.blockScriptEvents;
+            settings.protections.blockMalformedScriptEvents = protections.blockMalformedScriptEvents;
+
+            settings.session.noIdle = Game::SessionFeatures::NoIdleRuntime::Get().Snapshot().enabled;
+
+            settings.business.vehicleCargoAutoSource = Game::Business::VehicleCargoAutoSourceRuntime::Get().Enabled();
+            settings.business.vehicleCargoInstantGarage = Game::Business::VehicleCargoInstantGarageRuntime::Get().Enabled();
+            settings.business.vehicleCargoInstantSell = Game::Business::VehicleCargoInstantSellRuntime::Get().Enabled();
+
             const auto recovery = Game::Recovery::RecoveryRuntime::Get().Snapshot();
             settings.recovery.rpMultiplierEnabled = recovery.rpMultiplierEnabled;
             settings.recovery.rpMultiplier = recovery.requestedRpMultiplier;
+            settings.recovery.casinoSlotRig = Game::Recovery::CasinoSlotMachineRuntime::Get().Enabled();
 
             const auto world = Game::World::WorldRuntime::Get().Snapshot();
             settings.world.pedDensity = world.pedDensity;
@@ -180,8 +288,7 @@ namespace Tutones::UI
         using namespace PersistentMenuStateDetail;
 
         // Persistent settings belong to the menu core, not to any one feature.
-        // Optional runtimes such as Recovery or Network are allowed to be offline;
-        // their failure must not block every other setting from being staged/captured.
+        // One-shot commands and live diagnostic results are intentionally excluded.
         if (!Runtime::GameRuntime::Get().IsInitialized())
         {
             g_Staged = false;

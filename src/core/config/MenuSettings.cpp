@@ -31,13 +31,16 @@ namespace Tutones::Core::Config
             const auto vehicle = document.value("vehicle", nlohmann::json::object());
             const auto weapons = document.value("weapons", nlohmann::json::object());
             const auto network = document.value("network", nlohmann::json::object());
+            const auto protections = document.value("protections", nlohmann::json::object());
+            const auto session = document.value("session", nlohmann::json::object());
+            const auto business = document.value("business", nlohmann::json::object());
             const auto recovery = document.value("recovery", nlohmann::json::object());
             const auto world = document.value("world", nlohmann::json::object());
             const auto misc = document.value("misc", nlohmann::json::object());
             const auto ui = document.value("ui", nlohmann::json::object());
 
-            // Older files remain valid. The next save upgrades them to schema v5.
-            m_Settings.version = 5;
+            // Older files remain valid. The next save upgrades them to schema v6.
+            m_Settings.version = 6;
             m_Settings.offRadar = document.value("off_radar", m_Settings.offRadar);
 
             m_Settings.player.invincible = player.value("invincible", m_Settings.player.invincible);
@@ -57,10 +60,23 @@ namespace Tutones::Core::Config
             m_Settings.player.neverWanted = player.value("never_wanted", m_Settings.player.neverWanted);
             m_Settings.player.policeIgnore = player.value("police_ignore", m_Settings.player.policeIgnore);
             m_Settings.player.everyoneIgnore = player.value("everyone_ignore", m_Settings.player.everyoneIgnore);
+            m_Settings.player.ghostOrganization = player.value("ghost_organization", m_Settings.player.ghostOrganization);
             m_Settings.player.runMultiplier = player.value("run_multiplier", m_Settings.player.runMultiplier);
             m_Settings.player.swimMultiplier = player.value("swim_multiplier", m_Settings.player.swimMultiplier);
 
             m_Settings.vehicle.removeLscRestrictions = vehicle.value("remove_lsc_restrictions", m_Settings.vehicle.removeLscRestrictions);
+            m_Settings.vehicle.enableDlcVehicles = vehicle.value("enable_dlc_vehicles", m_Settings.vehicle.enableDlcVehicles);
+            m_Settings.vehicle.vehicleGodMode = vehicle.value("god_mode", m_Settings.vehicle.vehicleGodMode);
+            m_Settings.vehicle.keepVehicleClean = vehicle.value("keep_clean", m_Settings.vehicle.keepVehicleClean);
+            m_Settings.vehicle.loweredStance = vehicle.value("lowered_stance", m_Settings.vehicle.loweredStance);
+            m_Settings.vehicle.hornBoost = vehicle.value("horn_boost", m_Settings.vehicle.hornBoost);
+            m_Settings.vehicle.infiniteVehicleAmmo = vehicle.value("infinite_vehicle_ammo", m_Settings.vehicle.infiniteVehicleAmmo);
+            m_Settings.vehicle.nitrousEnabled = vehicle.value("nitrous_enabled", m_Settings.vehicle.nitrousEnabled);
+            m_Settings.vehicle.nitrousUnlimited = vehicle.value("nitrous_unlimited", m_Settings.vehicle.nitrousUnlimited);
+            m_Settings.vehicle.nitrousLevel = vehicle.value("nitrous_level", m_Settings.vehicle.nitrousLevel);
+            m_Settings.vehicle.nitrousPower = vehicle.value("nitrous_power", m_Settings.vehicle.nitrousPower);
+            m_Settings.vehicle.suspensionLoweringEnabled = vehicle.value("suspension_lowering_enabled", m_Settings.vehicle.suspensionLoweringEnabled);
+            m_Settings.vehicle.suspensionLoweringAmount = vehicle.value("suspension_lowering_amount", m_Settings.vehicle.suspensionLoweringAmount);
 
             m_Settings.weapons.infiniteAmmo = weapons.value("infinite_ammo", m_Settings.weapons.infiniteAmmo);
             m_Settings.weapons.infiniteClip = weapons.value("infinite_clip", m_Settings.weapons.infiniteClip);
@@ -75,9 +91,33 @@ namespace Tutones::Core::Config
 
             m_Settings.network.silencePhoneCalls = network.value("silence_phone_calls", m_Settings.network.silencePhoneCalls);
             m_Settings.network.disableDeathBarriers = network.value("disable_death_barriers", m_Settings.network.disableDeathBarriers);
+            m_Settings.network.proximityWarningsEnabled = network.value("proximity_warnings", m_Settings.network.proximityWarningsEnabled);
+            m_Settings.network.restrictWatchlistedActions = network.value("restrict_watchlisted_actions", m_Settings.network.restrictWatchlistedActions);
+            m_Settings.network.autoWatchHighRisk = network.value("auto_watch_high_risk", m_Settings.network.autoWatchHighRisk);
+            m_Settings.network.proximityRadius = network.value("proximity_radius", m_Settings.network.proximityRadius);
+
+            m_Settings.protections.blockMalformed = protections.value("block_malformed", m_Settings.protections.blockMalformed);
+            m_Settings.protections.blockForcedLeave = protections.value("block_forced_leave", m_Settings.protections.blockForcedLeave);
+            m_Settings.protections.blockKnownCrashes = protections.value("block_known_crashes", m_Settings.protections.blockKnownCrashes);
+            m_Settings.protections.blockSounds = protections.value("block_sounds", m_Settings.protections.blockSounds);
+            m_Settings.protections.blockExplosions = protections.value("block_explosions", m_Settings.protections.blockExplosions);
+            m_Settings.protections.blockFire = protections.value("block_fire", m_Settings.protections.blockFire);
+            m_Settings.protections.blockWeaponDamage = protections.value("block_weapon_damage", m_Settings.protections.blockWeaponDamage);
+            m_Settings.protections.blockRagdoll = protections.value("block_ragdoll", m_Settings.protections.blockRagdoll);
+            m_Settings.protections.blockClearTasks = protections.value("block_clear_tasks", m_Settings.protections.blockClearTasks);
+            m_Settings.protections.blockPtfx = protections.value("block_ptfx", m_Settings.protections.blockPtfx);
+            m_Settings.protections.blockScriptEvents = protections.value("block_script_events", m_Settings.protections.blockScriptEvents);
+            m_Settings.protections.blockMalformedScriptEvents = protections.value("block_malformed_script_events", m_Settings.protections.blockMalformedScriptEvents);
+
+            m_Settings.session.noIdle = session.value("no_idle", m_Settings.session.noIdle);
+
+            m_Settings.business.vehicleCargoAutoSource = business.value("vehicle_cargo_auto_source", m_Settings.business.vehicleCargoAutoSource);
+            m_Settings.business.vehicleCargoInstantGarage = business.value("vehicle_cargo_instant_garage", m_Settings.business.vehicleCargoInstantGarage);
+            m_Settings.business.vehicleCargoInstantSell = business.value("vehicle_cargo_instant_sell", m_Settings.business.vehicleCargoInstantSell);
 
             m_Settings.recovery.rpMultiplierEnabled = recovery.value("rp_multiplier_enabled", m_Settings.recovery.rpMultiplierEnabled);
             m_Settings.recovery.rpMultiplier = recovery.value("rp_multiplier", m_Settings.recovery.rpMultiplier);
+            m_Settings.recovery.casinoSlotRig = recovery.value("casino_slot_rig", m_Settings.recovery.casinoSlotRig);
 
             m_Settings.world.pedDensity = world.value("ped_density", m_Settings.world.pedDensity);
             m_Settings.world.scenarioPedDensity = world.value("scenario_ped_density", m_Settings.world.scenarioPedDensity);
@@ -106,9 +146,6 @@ namespace Tutones::Core::Config
             m_Settings.ui.menuWidth = ui.value("menu_width", m_Settings.ui.menuWidth);
             m_Settings.ui.menuHeight = ui.value("menu_height", m_Settings.ui.menuHeight);
 
-            // V12 depends on the dashboard rails, center workspace and right status
-            // column all being present. Upgrade older V11 window sizes on load so a
-            // saved 1120/1280 configuration cannot collapse the new layout.
             if (m_Settings.ui.menuWidth < 1460.0f)
                 m_Settings.ui.menuWidth = 1460.0f;
             if (m_Settings.ui.menuHeight < 820.0f)
@@ -155,11 +192,24 @@ namespace Tutones::Core::Config
                     {"never_wanted", m_Settings.player.neverWanted},
                     {"police_ignore", m_Settings.player.policeIgnore},
                     {"everyone_ignore", m_Settings.player.everyoneIgnore},
+                    {"ghost_organization", m_Settings.player.ghostOrganization},
                     {"run_multiplier", m_Settings.player.runMultiplier},
                     {"swim_multiplier", m_Settings.player.swimMultiplier},
                 }},
                 {"vehicle", {
                     {"remove_lsc_restrictions", m_Settings.vehicle.removeLscRestrictions},
+                    {"enable_dlc_vehicles", m_Settings.vehicle.enableDlcVehicles},
+                    {"god_mode", m_Settings.vehicle.vehicleGodMode},
+                    {"keep_clean", m_Settings.vehicle.keepVehicleClean},
+                    {"lowered_stance", m_Settings.vehicle.loweredStance},
+                    {"horn_boost", m_Settings.vehicle.hornBoost},
+                    {"infinite_vehicle_ammo", m_Settings.vehicle.infiniteVehicleAmmo},
+                    {"nitrous_enabled", m_Settings.vehicle.nitrousEnabled},
+                    {"nitrous_unlimited", m_Settings.vehicle.nitrousUnlimited},
+                    {"nitrous_level", m_Settings.vehicle.nitrousLevel},
+                    {"nitrous_power", m_Settings.vehicle.nitrousPower},
+                    {"suspension_lowering_enabled", m_Settings.vehicle.suspensionLoweringEnabled},
+                    {"suspension_lowering_amount", m_Settings.vehicle.suspensionLoweringAmount},
                 }},
                 {"weapons", {
                     {"infinite_ammo", m_Settings.weapons.infiniteAmmo},
@@ -176,10 +226,37 @@ namespace Tutones::Core::Config
                 {"network", {
                     {"silence_phone_calls", m_Settings.network.silencePhoneCalls},
                     {"disable_death_barriers", m_Settings.network.disableDeathBarriers},
+                    {"proximity_warnings", m_Settings.network.proximityWarningsEnabled},
+                    {"restrict_watchlisted_actions", m_Settings.network.restrictWatchlistedActions},
+                    {"auto_watch_high_risk", m_Settings.network.autoWatchHighRisk},
+                    {"proximity_radius", m_Settings.network.proximityRadius},
+                }},
+                {"protections", {
+                    {"block_malformed", m_Settings.protections.blockMalformed},
+                    {"block_forced_leave", m_Settings.protections.blockForcedLeave},
+                    {"block_known_crashes", m_Settings.protections.blockKnownCrashes},
+                    {"block_sounds", m_Settings.protections.blockSounds},
+                    {"block_explosions", m_Settings.protections.blockExplosions},
+                    {"block_fire", m_Settings.protections.blockFire},
+                    {"block_weapon_damage", m_Settings.protections.blockWeaponDamage},
+                    {"block_ragdoll", m_Settings.protections.blockRagdoll},
+                    {"block_clear_tasks", m_Settings.protections.blockClearTasks},
+                    {"block_ptfx", m_Settings.protections.blockPtfx},
+                    {"block_script_events", m_Settings.protections.blockScriptEvents},
+                    {"block_malformed_script_events", m_Settings.protections.blockMalformedScriptEvents},
+                }},
+                {"session", {
+                    {"no_idle", m_Settings.session.noIdle},
+                }},
+                {"business", {
+                    {"vehicle_cargo_auto_source", m_Settings.business.vehicleCargoAutoSource},
+                    {"vehicle_cargo_instant_garage", m_Settings.business.vehicleCargoInstantGarage},
+                    {"vehicle_cargo_instant_sell", m_Settings.business.vehicleCargoInstantSell},
                 }},
                 {"recovery", {
                     {"rp_multiplier_enabled", m_Settings.recovery.rpMultiplierEnabled},
                     {"rp_multiplier", m_Settings.recovery.rpMultiplier},
+                    {"casino_slot_rig", m_Settings.recovery.casinoSlotRig},
                 }},
                 {"world", {
                     {"ped_density", m_Settings.world.pedDensity},

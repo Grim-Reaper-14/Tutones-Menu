@@ -9,8 +9,8 @@ namespace Tutones::UI::SettingsPersistence
 {
     inline std::filesystem::path Path()
     {
-        // Keep the same canonical file used by CoreServices startup and Application shutdown.
-        return Core::FileSystem::Service::Get().UserRoot() / "menu_settings.json";
+        // All menu-state persistence lives under LOCALAPPDATA\Tutones Menu\settings.
+        return Core::FileSystem::Service::Get().UserRoot() / "settings" / "menu_settings.json";
     }
 
     inline void Capture() noexcept

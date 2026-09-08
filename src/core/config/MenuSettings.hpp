@@ -25,6 +25,7 @@ namespace Tutones::Core::Config
         bool neverWanted{};
         bool policeIgnore{};
         bool everyoneIgnore{};
+        bool ghostOrganization{};
         float runMultiplier{1.0f};
         float swimMultiplier{1.0f};
     };
@@ -32,6 +33,18 @@ namespace Tutones::Core::Config
     struct VehicleMenuSettings final
     {
         bool removeLscRestrictions{};
+        bool enableDlcVehicles{};
+        bool vehicleGodMode{};
+        bool keepVehicleClean{};
+        bool loweredStance{};
+        bool hornBoost{};
+        bool infiniteVehicleAmmo{};
+        bool nitrousEnabled{};
+        bool nitrousUnlimited{true};
+        float nitrousLevel{2.5f};
+        float nitrousPower{2.0f};
+        bool suspensionLoweringEnabled{};
+        float suspensionLoweringAmount{0.08f};
     };
 
     struct WeaponMenuSettings final
@@ -52,12 +65,45 @@ namespace Tutones::Core::Config
     {
         bool silencePhoneCalls{};
         bool disableDeathBarriers{};
+        bool proximityWarningsEnabled{true};
+        bool restrictWatchlistedActions{true};
+        bool autoWatchHighRisk{};
+        float proximityRadius{150.0f};
+    };
+
+    struct ProtectionMenuSettings final
+    {
+        bool blockMalformed{true};
+        bool blockForcedLeave{};
+        bool blockKnownCrashes{true};
+        bool blockSounds{};
+        bool blockExplosions{};
+        bool blockFire{};
+        bool blockWeaponDamage{};
+        bool blockRagdoll{};
+        bool blockClearTasks{};
+        bool blockPtfx{};
+        bool blockScriptEvents{};
+        bool blockMalformedScriptEvents{true};
+    };
+
+    struct SessionMenuSettings final
+    {
+        bool noIdle{};
+    };
+
+    struct BusinessMenuSettings final
+    {
+        bool vehicleCargoAutoSource{};
+        bool vehicleCargoInstantGarage{};
+        bool vehicleCargoInstantSell{};
     };
 
     struct RecoveryMenuSettings final
     {
         bool rpMultiplierEnabled{};
         float rpMultiplier{1.0f};
+        bool casinoSlotRig{};
     };
 
     struct WorldMenuSettings final
@@ -100,12 +146,15 @@ namespace Tutones::Core::Config
 
     struct MenuSettingsData final
     {
-        std::uint32_t version{5};
+        std::uint32_t version{6};
         PlayerMenuSettings player{};
         bool offRadar{};
         VehicleMenuSettings vehicle{};
         WeaponMenuSettings weapons{};
         NetworkMenuSettings network{};
+        ProtectionMenuSettings protections{};
+        SessionMenuSettings session{};
+        BusinessMenuSettings business{};
         RecoveryMenuSettings recovery{};
         WorldMenuSettings world{};
         MiscMenuSettings misc{};
