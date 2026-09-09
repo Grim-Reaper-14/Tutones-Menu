@@ -15,7 +15,7 @@ namespace Tutones::UI
         using Game::Protections::ProtectionRuntime;
         auto& runtime = ProtectionRuntime::Get();
         static_cast<void>(runtime.Start());
-        auto snapshot = runtime.Snapshot();
+        const auto snapshot = runtime.Snapshot();
 
         ImGui::SetCursorPos(ImVec2(226.0f, 16.0f));
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(14.0f, 12.0f));
@@ -28,8 +28,8 @@ namespace Tutones::UI
         {
             ImGui::TextColored(V11Theme::Accent, "PROTECTIONS");
             ImGui::SameLine();
-            ImGui::TextDisabled(subtab == 0 ? "OVERVIEW" : subtab == 1 ? "NETWORK EVENTS" : "SCRIPT EVENTS");
-            ImGui::TextDisabled("Live Enhanced crash protection with session-safe network handling.");
+            ImGui::TextDisabled(subtab == 0 ? "SESSION SAFETY" : subtab == 1 ? "NETWORK POLICY" : "SCRIPT POLICY");
+            ImGui::TextDisabled("Passive Enhanced receive monitor. Tutones does not drop session packets in this build.");
             ImGui::Separator();
 
             if (subtab == 0)
@@ -39,30 +39,31 @@ namespace Tutones::UI
                     ImGui::TableNextColumn();
                     if (ImGui::BeginChild("##protection_runtime_card", ImVec2(0.0f, 352.0f), true))
                     {
-                        ImGui::TextColored(V11Theme::Accent, "RUNTIME");
+                        ImGui::TextColored(V11Theme::Accent, "SESSION SAFE MODE");
                         ImGui::Separator();
-                        ImGui::Text("Backend");
+                        ImGui::Text("Receive hook");
                         ImGui::SameLine(180.0f);
                         ImGui::TextColored(snapshot.installed ? ImVec4(0.20f, 0.88f, 0.42f, 1.0f) : V11Theme::MutedText,
-                            "%s", snapshot.installed ? "ACTIVE" : "UNAVAILABLE");
+                            "%s", snapshot.installed ? "PASS-THROUGH" : "UNAVAILABLE");
                         ImGui::Spacing();
                         ImGui::TextWrapped("%s", snapshot.status.c_str());
-                        ImGui::Spacing();
-                        ImGui::SeparatorText("Core Protection");
-
-                        bool forcedLeave = snapshot.blockForcedLeave;
-                        if (ImGui::Checkbox("Aggressive Direct Kick Blocking", &forcedLeave))
-                            runtime.SetBlockForcedLeave(forcedLeave);
-                        DescribeLastV11Item("Optional. Blocks the direct host KickPlayer message. Off by default because suppressing legitimate host/session removal can desynchronize or isolate your client from the lobby.");
-
-                        bool knownCrashes = snapshot.blockKnownCrashes;
-                        if (ImGui::Checkbox("Known Crash Protection", &knownCrashes))
-                            runtime.SetBlockKnownCrashes(knownCrashes);
-                        DescribeLastV11Item("Blocks known malformed or crash-prone network event payloads while allowing normal events through.");
 
                         ImGui::Spacing();
-                        ImGui::SeparatorText("Default Policy");
-                        ImGui::TextWrapped("Malformed packets, malformed scripted events and known crash payloads are blocked by default. Host/session kick requests and kick-vote traffic are allowed through to preserve lobby synchronization. Aggressive direct kick blocking is optional.");
+                        ImGui::SeparatorText("Why this changed");
+                        ImGui::TextWrapped(
+                            "The previous PackedEvents parser could reject traffic before GTA processed it. "
+                            "That can make the local client lose session synchronization and make every other player appear to leave at once.");
+
+                        ImGui::Spacing();
+                        ImGui::TextWrapped(
+                            "This build always calls GTA's original ReceiveNetMessage handler. Host migration, session synchronization, "
+                            "Rockstar networking and anti-cheat-related transport are not suppressed by Tutones.");
+
+                        ImGui::Spacing();
+                        ImGui::SeparatorText("Protection policy");
+                        ImGui::TextWrapped(
+                            "Saved protection preferences are retained in Settings, but active packet/event blocking is suspended while "
+                            "the Enhanced parser is being validated against live traffic.");
                     }
                     ImGui::EndChild();
 
@@ -71,43 +72,28 @@ namespace Tutones::UI
                     {
                         ImGui::TextColored(V11Theme::Accent, "TELEMETRY");
                         ImGui::Separator();
-                        ImGui::Text("Packets inspected");
+                        ImGui::Text("Frames observed");
                         ImGui::SameLine(190.0f);
                         ImGui::Text("%llu", static_cast<unsigned long long>(snapshot.packetsInspected));
-                        ImGui::Text("Packets blocked");
+                        ImGui::Text("Frames blocked");
                         ImGui::SameLine(190.0f);
-                        ImGui::Text("%llu", static_cast<unsigned long long>(snapshot.packetsBlocked));
-                        ImGui::Text("Events inspected");
-                        ImGui::SameLine(190.0f);
-                        ImGui::Text("%llu", static_cast<unsigned long long>(snapshot.eventsInspected));
+                        ImGui::Text("0");
                         ImGui::Text("Events blocked");
                         ImGui::SameLine(190.0f);
-                        ImGui::Text("%llu", static_cast<unsigned long long>(snapshot.eventsBlocked));
+                        ImGui::Text("0");
                         ImGui::Text("Direct kicks blocked");
                         ImGui::SameLine(190.0f);
-                        ImGui::Text("%llu", static_cast<unsigned long long>(snapshot.forcedLeaveAttemptsBlocked));
-                        ImGui::Text("Crash attempts blocked");
-                        ImGui::SameLine(190.0f);
-                        ImGui::Text("%llu", static_cast<unsigned long long>(snapshot.knownCrashAttemptsBlocked));
+                        ImGui::Text("0");
 
                         ImGui::Spacing();
-                        ImGui::SeparatorText("Last Block");
-                        if (snapshot.lastBlockedMessageType >= 0)
-                            ImGui::Text("Message type: 0x%X", snapshot.lastBlockedMessageType);
-                        else if (snapshot.lastBlockedEvent >= 0)
-                            ImGui::Text("Event ID: %d", snapshot.lastBlockedEvent);
-                        else if (snapshot.lastBlockedEvent == -2)
-                            ImGui::Text("Malformed packet");
-                        else
-                            ImGui::TextDisabled("Nothing blocked this session.");
-
-                        if (snapshot.lastBlockedPeerId != 0)
-                            ImGui::Text("Peer ID: %u", snapshot.lastBlockedPeerId);
+                        ImGui::SeparatorText("Session invariant");
+                        ImGui::TextWrapped(
+                            "Tutones must never be the component that removes a legitimate inbound network frame while pass-through mode is active.");
 
                         ImGui::Spacing();
                         if (ImGui::Button("RESET COUNTERS", ImVec2(-1.0f, 36.0f)))
                             runtime.ResetCounters();
-                        DescribeLastV11Item("Clear Tutones protection telemetry without changing any filter setting.");
+                        DescribeLastV11Item("Reset passive receive telemetry. This does not alter the session or any protection preference.");
                     }
                     ImGui::EndChild();
 
@@ -116,88 +102,60 @@ namespace Tutones::UI
             }
             else if (subtab == 1)
             {
-                if (ImGui::BeginTable("##network_protection_columns", 2, ImGuiTableFlags_SizingStretchSame))
+                if (ImGui::BeginChild("##network_policy_passive", ImVec2(0.0f, 352.0f), true))
                 {
-                    ImGui::TableNextColumn();
-                    if (ImGui::BeginChild("##network_core_filters", ImVec2(0.0f, 352.0f), true))
-                    {
-                        ImGui::TextColored(V11Theme::Accent, "CORE FILTERS");
-                        ImGui::Separator();
+                    ImGui::TextColored(V11Theme::Accent, "NETWORK FILTER PREFERENCES");
+                    ImGui::TextDisabled("Stored for later validation; not enforced in session-safe pass-through mode.");
+                    ImGui::Separator();
 
-                        bool forcedLeave = snapshot.blockForcedLeave;
-                        if (ImGui::Checkbox("Aggressive Direct Kick Blocking", &forcedLeave))
-                            runtime.SetBlockForcedLeave(forcedLeave);
-                        DescribeLastV11Item("Optional and disabled by default. Blocks only the direct KickPlayer message; RequestKickFromHost and kick-vote/session traffic are left intact to prevent lobby desync.");
+                    ImGui::BeginDisabled(true);
+                    bool forcedLeave = snapshot.blockForcedLeave;
+                    ImGui::Checkbox("Aggressive Direct Kick Blocking", &forcedLeave);
+                    bool knownCrashes = snapshot.blockKnownCrashes;
+                    ImGui::Checkbox("Known Crash Protection", &knownCrashes);
+                    bool malformed = snapshot.blockMalformed;
+                    ImGui::Checkbox("Malformed Packets", &malformed);
+                    bool sounds = snapshot.blockSounds;
+                    ImGui::Checkbox("Block All Network Sound Events", &sounds);
+                    bool explosions = snapshot.blockExplosions;
+                    ImGui::Checkbox("Block All Explosion Events", &explosions);
+                    bool fire = snapshot.blockFire;
+                    ImGui::Checkbox("Block All Fire Events", &fire);
+                    bool weapon = snapshot.blockWeaponDamage;
+                    ImGui::Checkbox("Weapon Damage Events", &weapon);
+                    bool ragdoll = snapshot.blockRagdoll;
+                    ImGui::Checkbox("Ragdoll Requests", &ragdoll);
+                    bool clearTasks = snapshot.blockClearTasks;
+                    ImGui::Checkbox("Clear Ped Tasks", &clearTasks);
+                    bool ptfx = snapshot.blockPtfx;
+                    ImGui::Checkbox("Network PTFX", &ptfx);
+                    ImGui::EndDisabled();
 
-                        bool knownCrashes = snapshot.blockKnownCrashes;
-                        if (ImGui::Checkbox("Known Crash Protection", &knownCrashes))
-                            runtime.SetBlockKnownCrashes(knownCrashes);
-                        DescribeLastV11Item("Reject known crash-prone network event payloads before GTA processes them.");
-
-                        bool malformed = snapshot.blockMalformed;
-                        if (ImGui::Checkbox("Malformed Packets", &malformed)) runtime.SetBlockMalformed(malformed);
-                        DescribeLastV11Item("Reject invalid message headers, impossible packet lengths and out-of-bounds PackedEvents data without requiring the advisory event count to match exactly.");
-
-                        bool sounds = snapshot.blockSounds;
-                        if (ImGui::Checkbox("Block All Network Sound Events", &sounds)) runtime.SetBlockSounds(sounds);
-                        DescribeLastV11Item("Aggressive mode. Blocks all NETWORK_PLAY_SOUND_EVENT traffic and can interfere with legitimate activity audio.");
-
-                        bool explosions = snapshot.blockExplosions;
-                        if (ImGui::Checkbox("Block All Explosion Events", &explosions)) runtime.SetBlockExplosions(explosions);
-
-                        bool fire = snapshot.blockFire;
-                        if (ImGui::Checkbox("Block All Fire Events", &fire)) runtime.SetBlockFire(fire);
-                    }
-                    ImGui::EndChild();
-
-                    ImGui::TableNextColumn();
-                    if (ImGui::BeginChild("##network_gameplay_filters", ImVec2(0.0f, 352.0f), true))
-                    {
-                        ImGui::TextColored(V11Theme::Accent, "GAMEPLAY FILTERS");
-                        ImGui::Separator();
-
-                        bool weapon = snapshot.blockWeaponDamage;
-                        if (ImGui::Checkbox("Weapon Damage Events", &weapon)) runtime.SetBlockWeaponDamage(weapon);
-
-                        bool ragdoll = snapshot.blockRagdoll;
-                        if (ImGui::Checkbox("Ragdoll Requests", &ragdoll)) runtime.SetBlockRagdoll(ragdoll);
-
-                        bool clearTasks = snapshot.blockClearTasks;
-                        if (ImGui::Checkbox("Clear Ped Tasks", &clearTasks)) runtime.SetBlockClearTasks(clearTasks);
-
-                        bool ptfx = snapshot.blockPtfx;
-                        if (ImGui::Checkbox("Network PTFX", &ptfx)) runtime.SetBlockPtfx(ptfx);
-
-                        ImGui::Spacing();
-                        ImGui::SeparatorText("Behavior");
-                        ImGui::TextWrapped("Crash protection is selective and enabled by default. Normal host migration, kick requests, vote traffic and session synchronization are preserved. Broad gameplay-event filters remain optional.");
-                    }
-                    ImGui::EndChild();
-
-                    ImGui::EndTable();
+                    ImGui::Spacing();
+                    ImGui::TextWrapped(
+                        "No receive-side packet is discarded by these options in this build. This is intentional so we can verify whether lobby-emptying stops with Tutones fully fail-open.");
                 }
+                ImGui::EndChild();
             }
             else
             {
                 if (ImGui::BeginChild("##script_event_protections_v12", ImVec2(0.0f, 352.0f), true))
                 {
                     ImGui::TextColored(V11Theme::Accent, "SCRIPT EVENT POLICY");
-                    ImGui::TextDisabled("Validation first; aggressive blocking is optional.");
+                    ImGui::TextDisabled("Stored preferences only while session-safe pass-through mode is active.");
                     ImGui::Separator();
 
+                    ImGui::BeginDisabled(true);
                     bool malformedScript = snapshot.blockMalformedScriptEvents;
-                    if (ImGui::Checkbox("Block Malformed Script Events", &malformedScript))
-                        runtime.SetBlockMalformedScriptEvents(malformedScript);
-                    DescribeLastV11Item("Validate CScriptedGameEvent argument byte size against the supported argument capacity before GTA sees it.");
-
+                    ImGui::Checkbox("Block Malformed Script Events", &malformedScript);
                     bool scriptEvents = snapshot.blockScriptEvents;
-                    if (ImGui::Checkbox("Block All Scripted Game Events", &scriptEvents))
-                        runtime.SetBlockScriptEvents(scriptEvents);
-                    DescribeLastV11Item("Aggressive mode. Reject any PackedEvents packet containing SCRIPTED_GAME_EVENT. Leave off for normal missions and freemode activity.");
+                    ImGui::Checkbox("Block All Scripted Game Events", &scriptEvents);
+                    ImGui::EndDisabled();
 
                     ImGui::Spacing();
                     ImGui::SeparatorText("Important");
-                    ImGui::TextWrapped("Malformed scripted-event validation is enabled by default. Full script-event blocking can interfere with legitimate GTA Online activities, so it stays opt-in.");
+                    ImGui::TextWrapped(
+                        "GTA receives scripted game events unchanged in this build. If the lobby still empties with this policy, the cause is outside Tutones' receive filter and we can move the investigation to connection/session or BattlEye behavior.");
                 }
                 ImGui::EndChild();
             }
