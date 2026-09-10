@@ -124,7 +124,9 @@ namespace Tutones::Game::Recovery
                 const auto index = PlayerLocalArrayBase
                     + PlayerLocalArrayHeader
                     + static_cast<std::size_t>(*player) * PlayerLocalStride;
-                const auto stackSlots = static_cast<std::size_t>(thread->context.stackSize) / sizeof(std::uint64_t);
+                // Enhanced ScriptThreadContext::stackSize is already a count of
+                // 64-bit script slots, matching ScriptLocal::CanAccess().
+                const auto stackSlots = static_cast<std::size_t>(thread->context.stackSize);
                 if (index >= stackSlots)
                     return Finish(false, "Lucky Wheel prize local is outside the active script stack");
 
@@ -194,7 +196,9 @@ namespace Tutones::Game::Recovery
                 const auto index = PlayerLocalArrayBase
                     + PlayerLocalArrayHeader
                     + static_cast<std::size_t>(*player) * PlayerLocalStride;
-                const auto stackSlots = static_cast<std::size_t>(thread->context.stackSize) / sizeof(std::uint64_t);
+                // Enhanced ScriptThreadContext::stackSize is already a count of
+                // 64-bit script slots, matching ScriptLocal::CanAccess().
+                const auto stackSlots = static_cast<std::size_t>(thread->context.stackSize);
                 if (index >= stackSlots)
                     return Finish(false, "Lucky Wheel prize local is outside the active script stack");
 
