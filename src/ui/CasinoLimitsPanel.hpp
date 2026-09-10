@@ -15,8 +15,8 @@ namespace Tutones::UI
 
         ImGui::TextColored(V11Theme::Accent, "CASINO LIMITS");
         ImGui::SameLine();
-        ImGui::TextDisabled("READ-ONLY DIAGNOSTICS");
-        ImGui::TextDisabled("Reads the current casino win counter, timestamp and named Rockstar tunables without changing them.");
+        ImGui::TextDisabled("LIVE DIAGNOSTICS + VERIFIED RESET");
+        ImGui::TextDisabled("Reads Rockstar's current casino restriction state and can reset only the verified MPPLY counter/timestamp pair.");
         ImGui::Separator();
 
         if (ImGui::BeginTable("##casino_limits_columns", 2, ImGuiTableFlags_SizingStretchSame))
@@ -31,7 +31,18 @@ namespace Tutones::UI
                 if (ImGui::Button("REFRESH CASINO LIMITS", ImVec2(-1.0f, 38.0f)))
                     static_cast<void>(runtime.QueueRefresh());
                 ImGui::EndDisabled();
-                DescribeLastV11Item("Read MPPLY_CASINO_CHIPS_WON_GD, MPPLY_CASINO_CHIPS_WONTIM, Rockstar cloud time and resolve the named daily-win/cooldown tunables through the central tunable registry. This page does not write casino values.");
+                DescribeLastV11Item("Read MPPLY_CASINO_CHIPS_WON_GD, MPPLY_CASINO_CHIPS_WONTIM, Rockstar cloud time and resolve the named daily-win/cooldown tunables through the central tunable registry.");
+
+                ImGui::Spacing();
+                ImGui::SeparatorText("Verified Reset");
+                ImGui::TextWrapped("Writes only MPPLY_CASINO_CHIPS_WON_GD and MPPLY_CASINO_CHIPS_WONTIM. Named tunables are never modified by this control.");
+                ImGui::Spacing();
+
+                ImGui::BeginDisabled(state.pending);
+                if (ImGui::Button("RESET DAILY CASINO RESTRICTION", ImVec2(-1.0f, 38.0f)))
+                    static_cast<void>(runtime.QueueResetDailyRestriction());
+                ImGui::EndDisabled();
+                DescribeLastV11Item("Set the verified account-level casino chips-won counter and win timestamp to zero, read both back immediately, and attempt to restore the original pair if either write fails verification.");
 
                 ImGui::Spacing();
                 ImGui::SeparatorText("Runtime");
@@ -151,6 +162,6 @@ namespace Tutones::UI
             ImGui::EndTable();
         }
 
-        SetV11Description("Casino Limits is a read-only Enhanced diagnostic page. It reads the daily casino win stat/timestamp, uses Rockstar cloud time for the cooldown calculation, and resolves the named maximum-win and win/loss-cooldown tunables at runtime without stale Global_262145 offsets.");
+        SetV11Description("Casino Limits reads the current Enhanced daily-win restriction using the verified MPPLY stats, Rockstar cloud time and runtime-resolved tunables. Reset Daily Casino Restriction changes only the two verified MPPLY values and validates both writes with rollback on failure.");
     }
 }
