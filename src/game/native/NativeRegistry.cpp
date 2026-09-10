@@ -133,6 +133,8 @@ namespace Tutones::Game::Native
             {0x03CFFD51CE515454ull, "GET_PACKED_STAT_INT_CODE"},
             {0xA595AA1819B05EA0ull, "SET_PACKED_STAT_BOOL_CODE"},
             {0x0F575D68F532124Cull, "SET_PACKED_STAT_INT_CODE"},
+            // Enhanced 1.73 target from YimMenuV2 crossmap; legacy 9A73240B49945C76 maps here.
+            {0x39D1D336459711BEull, "GET_CLOUD_TIME_AS_INT"},
 
             {0x0ACCC8916441860Aull, "SET_PED_MAX_TIME_UNDERWATER"},
             {0x932BEE6E64F0144Eull, "_SET_PLAYER_UNDERWATER_TIME_REMAINING"},
