@@ -61,27 +61,16 @@ namespace Tutones::Game::Recovery
 
         bool QueueRefresh()
         {
-            bool expected = false;
-            if (!m_Pending.compare_exchange_strong(expected, true, std::memory_order_acq_rel))
-                return false;
+            return Queue("Reading casino daily-limit diagnostics", [this] {
+                RefreshOnGameThread();
+            });
+        }
 
-            {
-                std::scoped_lock lock(m_Mutex);
-                m_State.haveResult = false;
-                m_State.lastSucceeded = false;
-                m_State.message = "Reading casino daily-limit diagnostics";
-            }
-
-            if (Runtime::GameRuntime::Get().Enqueue([this] {
-                    RefreshOnGameThread();
-                }))
-            {
-                return true;
-            }
-
-            CasinoLimitsSnapshot state;
-            Finish(std::move(state), false, "Game-thread queue unavailable");
-            return false;
+        bool QueueResetDailyRestriction()
+        {
+            return Queue("Resetting casino daily restriction", [this] {
+                ResetDailyRestrictionOnGameThread();
+            });
         }
 
         [[nodiscard]] CasinoLimitsSnapshot Snapshot() const
@@ -94,6 +83,28 @@ namespace Tutones::Game::Recovery
 
     private:
         CasinoLimitsRuntime() = default;
+
+        template<typename Callback>
+        bool Queue(std::string pendingMessage, Callback&& callback)
+        {
+            bool expected = false;
+            if (!m_Pending.compare_exchange_strong(expected, true, std::memory_order_acq_rel))
+                return false;
+
+            {
+                std::scoped_lock lock(m_Mutex);
+                m_State.haveResult = false;
+                m_State.lastSucceeded = false;
+                m_State.message = std::move(pendingMessage);
+            }
+
+            if (Runtime::GameRuntime::Get().Enqueue(std::forward<Callback>(callback)))
+                return true;
+
+            CasinoLimitsSnapshot state;
+            Finish(std::move(state), false, "Game-thread queue unavailable");
+            return false;
+        }
 
         [[nodiscard]] static std::optional<int> FindTunableInt(
             const std::vector<Tunables::TunableEntrySnapshot>& entries,
@@ -116,17 +127,12 @@ namespace Tutones::Game::Recovery
             return std::nullopt;
         }
 
-        void RefreshOnGameThread()
+        [[nodiscard]] bool PopulateState(CasinoLimitsSnapshot& state)
         {
-            CasinoLimitsSnapshot state;
-
             bool* sessionStarted = GamePointers::Get().IsSessionStarted();
             state.sessionStarted = sessionStarted && *sessionStarted;
             if (!state.sessionStarted)
-            {
-                Finish(std::move(state), false, "Join GTA Online before reading casino limits");
-                return;
-            }
+                return false;
 
             const auto chipsWon = Stats::GetInt(std::string{ChipsWonStat});
             const auto winTimestamp = Stats::GetInt(std::string{WinTimestampStat});
@@ -174,11 +180,23 @@ namespace Tutones::Game::Recovery
 
             state.cooldownActive = state.winLimitReached && state.remainingSeconds > 0;
 
-            const bool complete = state.chipsWonReadable
+            return state.chipsWonReadable
                 && state.winTimestampReadable
                 && state.maxDailyWinReadable
                 && state.cooldownReadable
                 && state.cloudTimeReadable;
+        }
+
+        void RefreshOnGameThread()
+        {
+            CasinoLimitsSnapshot state;
+            const bool complete = PopulateState(state);
+
+            if (!state.sessionStarted)
+            {
+                Finish(std::move(state), false, "Join GTA Online before reading casino limits");
+                return;
+            }
 
             if (complete)
             {
@@ -198,6 +216,93 @@ namespace Tutones::Game::Recovery
                 complete
                     ? "Casino daily-limit stats, named tunables and Rockstar cloud time read successfully"
                     : "Partial casino-limit read; wait for the native/tunable runtime and refresh again");
+        }
+
+        void ResetDailyRestrictionOnGameThread()
+        {
+            bool* sessionStarted = GamePointers::Get().IsSessionStarted();
+            if (!sessionStarted || !*sessionStarted)
+            {
+                CasinoLimitsSnapshot state;
+                Finish(std::move(state), false, "Join GTA Online before resetting casino limits");
+                return;
+            }
+
+            const auto originalChipsWon = Stats::GetInt(std::string{ChipsWonStat});
+            const auto originalWinTimestamp = Stats::GetInt(std::string{WinTimestampStat});
+            if (!originalChipsWon || !originalWinTimestamp)
+            {
+                CasinoLimitsSnapshot state;
+                static_cast<void>(PopulateState(state));
+                Finish(std::move(state), false, "Casino restriction stats could not be read before reset; nothing was changed");
+                return;
+            }
+
+            const bool chipsWonWritten = Stats::SetInt(std::string{ChipsWonStat}, 0);
+            const bool timestampWritten = Stats::SetInt(std::string{WinTimestampStat}, 0);
+
+            const auto verifiedChipsWon = Stats::GetInt(std::string{ChipsWonStat});
+            const auto verifiedWinTimestamp = Stats::GetInt(std::string{WinTimestampStat});
+            const bool verified = chipsWonWritten
+                && timestampWritten
+                && verifiedChipsWon
+                && verifiedWinTimestamp
+                && *verifiedChipsWon == 0
+                && *verifiedWinTimestamp == 0;
+
+            bool rollbackAttempted = false;
+            bool rollbackSucceeded = false;
+            if (!verified)
+            {
+                rollbackAttempted = true;
+                const bool chipsRollback = Stats::SetInt(std::string{ChipsWonStat}, *originalChipsWon);
+                const bool timestampRollback = Stats::SetInt(std::string{WinTimestampStat}, *originalWinTimestamp);
+                const auto chipsAfterRollback = Stats::GetInt(std::string{ChipsWonStat});
+                const auto timestampAfterRollback = Stats::GetInt(std::string{WinTimestampStat});
+                rollbackSucceeded = chipsRollback
+                    && timestampRollback
+                    && chipsAfterRollback
+                    && timestampAfterRollback
+                    && *chipsAfterRollback == *originalChipsWon
+                    && *timestampAfterRollback == *originalWinTimestamp;
+            }
+
+            CasinoLimitsSnapshot state;
+            static_cast<void>(PopulateState(state));
+
+            if (verified)
+            {
+                TUTONES_LOG_INFO(
+                    "recovery.casino",
+                    std::string("Casino daily restriction reset and verified: won ")
+                        + std::to_string(*originalChipsWon)
+                        + " -> 0, wonTime "
+                        + std::to_string(*originalWinTimestamp)
+                        + " -> 0");
+            }
+            else
+            {
+                TUTONES_LOG_WARN(
+                    "recovery.casino",
+                    std::string("Casino daily restriction reset verification failed; rollback ")
+                        + (rollbackSucceeded ? "verified" : "could not be fully verified"));
+            }
+
+            std::string message;
+            if (verified)
+            {
+                message = "Casino daily restriction stats reset to zero and verified by read-back";
+            }
+            else if (rollbackAttempted && rollbackSucceeded)
+            {
+                message = "Casino reset did not verify; original stat values were restored successfully";
+            }
+            else
+            {
+                message = "Casino reset did not verify and the original stat pair could not be fully restored";
+            }
+
+            Finish(std::move(state), verified, std::move(message));
         }
 
         void Finish(CasinoLimitsSnapshot state, bool success, std::string message)
