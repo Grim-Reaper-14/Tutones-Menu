@@ -31,7 +31,7 @@ namespace Tutones::UI
                 if (ImGui::Button("REFRESH CASINO LIMITS", ImVec2(-1.0f, 38.0f)))
                     static_cast<void>(runtime.QueueRefresh());
                 ImGui::EndDisabled();
-                DescribeLastV11Item("Read MPPLY_CASINO_CHIPS_WON_GD, MPPLY_CASINO_CHIPS_WONTIM and resolve the named daily-win/cooldown tunables through the central tunable registry. This page does not write casino values.");
+                DescribeLastV11Item("Read MPPLY_CASINO_CHIPS_WON_GD, MPPLY_CASINO_CHIPS_WONTIM, Rockstar cloud time and resolve the named daily-win/cooldown tunables through the central tunable registry. This page does not write casino values.");
 
                 ImGui::Spacing();
                 ImGui::SeparatorText("Runtime");
@@ -49,7 +49,7 @@ namespace Tutones::UI
                     "%s",
                     state.tunableRegistryReady ? "READY" : "WAITING");
 
-                ImGui::SeparatorText("Rockstar Stats");
+                ImGui::SeparatorText("Rockstar Stats / Time");
                 ImGui::Text("CHIPS_WON_GD");
                 ImGui::SameLine(190.0f);
                 if (state.chipsWonReadable)
@@ -61,6 +61,13 @@ namespace Tutones::UI
                 ImGui::SameLine(190.0f);
                 if (state.winTimestampReadable)
                     ImGui::Text("%d", state.winTimestamp);
+                else
+                    ImGui::TextDisabled("unresolved");
+
+                ImGui::Text("Cloud time");
+                ImGui::SameLine(190.0f);
+                if (state.cloudTimeReadable)
+                    ImGui::Text("%d", state.cloudTime);
                 else
                     ImGui::TextDisabled("unresolved");
 
@@ -83,7 +90,7 @@ namespace Tutones::UI
             if (ImGui::BeginChild("##casino_limits_state", ImVec2(0.0f, 382.0f), true))
             {
                 ImGui::TextColored(V11Theme::Accent, "CALCULATED STATE");
-                ImGui::TextDisabled("Cooldown timing is estimated against the local POSIX clock for this diagnostic pass.");
+                ImGui::TextDisabled("Cooldown timing uses Rockstar GET_CLOUD_TIME_AS_INT against MPPLY_CASINO_CHIPS_WONTIM.");
                 ImGui::Spacing();
 
                 if (state.chipsWonReadable && state.maxDailyWinReadable)
@@ -108,8 +115,8 @@ namespace Tutones::UI
                     ImGui::TextDisabled("Daily win state unavailable until the stat and tunable both resolve.");
                 }
 
-                ImGui::SeparatorText("Cooldown Estimate");
-                if (state.winTimestampReadable && state.cooldownReadable)
+                ImGui::SeparatorText("Cooldown");
+                if (state.winTimestampReadable && state.cooldownReadable && state.cloudTimeReadable)
                 {
                     ImGui::Text("Elapsed");
                     ImGui::SameLine(185.0f);
@@ -128,7 +135,7 @@ namespace Tutones::UI
                 }
                 else
                 {
-                    ImGui::TextDisabled("Cooldown estimate unavailable until timestamp and cooldown resolve.");
+                    ImGui::TextDisabled("Cooldown state unavailable until timestamp, cooldown tunable and Rockstar cloud time resolve.");
                 }
 
                 ImGui::SeparatorText("Status");
@@ -144,6 +151,6 @@ namespace Tutones::UI
             ImGui::EndTable();
         }
 
-        SetV11Description("Casino Limits is a read-only Enhanced diagnostic page. It reads the daily casino win stat/timestamp and resolves Rockstar's named maximum-win and win/loss-cooldown tunables at runtime, avoiding stale hard-coded Global_262145 offsets.");
+        SetV11Description("Casino Limits is a read-only Enhanced diagnostic page. It reads the daily casino win stat/timestamp, uses Rockstar cloud time for the cooldown calculation, and resolves the named maximum-win and win/loss-cooldown tunables at runtime without stale Global_262145 offsets.");
     }
 }
