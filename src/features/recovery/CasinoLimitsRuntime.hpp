@@ -1,0 +1,215 @@
+#pragma once
+
+#include "../../core/logging/Logger.hpp"
+#include "../../game/GamePointers.hpp"
+#include "../../game/Stats.hpp"
+#include "../../game/tunables/TunableRegistry.hpp"
+#include "../../runtime/GameRuntime.hpp"
+
+#include <algorithm>
+#include <atomic>
+#include <cstdint>
+#include <ctime>
+#include <limits>
+#include <mutex>
+#include <optional>
+#include <string>
+#include <string_view>
+#include <utility>
+#include <vector>
+
+namespace Tutones::Game::Recovery
+{
+    struct CasinoLimitsSnapshot final
+    {
+        bool pending{};
+        bool haveResult{};
+        bool lastSucceeded{};
+        bool sessionStarted{};
+        bool tunableRegistryReady{};
+        bool chipsWonReadable{};
+        bool winTimestampReadable{};
+        bool maxDailyWinReadable{};
+        bool cooldownReadable{};
+        bool winLimitReached{};
+        bool cooldownActive{};
+        int chipsWon{};
+        int winTimestamp{};
+        int maxDailyWin{};
+        int cooldownSeconds{};
+        std::int64_t systemUnixTime{};
+        std::int64_t elapsedSeconds{};
+        std::int64_t remainingSeconds{};
+        std::int64_t winRemaining{};
+        std::string message{"Ready"};
+    };
+
+    class CasinoLimitsRuntime final
+    {
+    public:
+        static constexpr std::string_view ChipsWonStat = "MPPLY_CASINO_CHIPS_WON_GD";
+        static constexpr std::string_view WinTimestampStat = "MPPLY_CASINO_CHIPS_WONTIM";
+        static constexpr std::string_view MaxDailyWinTunable = "VC_CASINO_CHIP_MAX_WIN_DAILY";
+        static constexpr std::string_view WinLossCooldownTunable = "VC_CASINO_CHIP_MAX_WIN_LOSS_COOLDOWN";
+
+        static CasinoLimitsRuntime& Get() noexcept
+        {
+            static CasinoLimitsRuntime instance;
+            return instance;
+        }
+
+        bool QueueRefresh()
+        {
+            bool expected = false;
+            if (!m_Pending.compare_exchange_strong(expected, true, std::memory_order_acq_rel))
+                return false;
+
+            {
+                std::scoped_lock lock(m_Mutex);
+                m_State.haveResult = false;
+                m_State.lastSucceeded = false;
+                m_State.message = "Reading casino daily-limit diagnostics";
+            }
+
+            if (Runtime::GameRuntime::Get().Enqueue([this] {
+                    RefreshOnGameThread();
+                }))
+            {
+                return true;
+            }
+
+            CasinoLimitsSnapshot state;
+            Finish(std::move(state), false, "Game-thread queue unavailable");
+            return false;
+        }
+
+        [[nodiscard]] CasinoLimitsSnapshot Snapshot() const
+        {
+            std::scoped_lock lock(m_Mutex);
+            auto snapshot = m_State;
+            snapshot.pending = m_Pending.load(std::memory_order_acquire);
+            return snapshot;
+        }
+
+    private:
+        CasinoLimitsRuntime() = default;
+
+        [[nodiscard]] static std::optional<int> FindTunableInt(
+            const std::vector<Tunables::TunableEntrySnapshot>& entries,
+            std::string_view name) noexcept
+        {
+            const std::uint32_t hash = Tunables::Joaat(name);
+            for (const auto& entry : entries)
+            {
+                if (entry.hash != hash || !entry.readable)
+                    continue;
+
+                if (entry.currentRawValue < static_cast<std::int64_t>(std::numeric_limits<int>::min())
+                    || entry.currentRawValue > static_cast<std::int64_t>(std::numeric_limits<int>::max()))
+                {
+                    return std::nullopt;
+                }
+
+                return static_cast<int>(entry.currentRawValue);
+            }
+            return std::nullopt;
+        }
+
+        void RefreshOnGameThread()
+        {
+            CasinoLimitsSnapshot state;
+
+            bool* sessionStarted = GamePointers::Get().IsSessionStarted();
+            state.sessionStarted = sessionStarted && *sessionStarted;
+            if (!state.sessionStarted)
+            {
+                Finish(std::move(state), false, "Join GTA Online before reading casino limits");
+                return;
+            }
+
+            const auto chipsWon = Stats::GetInt(std::string{ChipsWonStat});
+            const auto winTimestamp = Stats::GetInt(std::string{WinTimestampStat});
+
+            state.chipsWonReadable = chipsWon.has_value();
+            state.winTimestampReadable = winTimestamp.has_value();
+            if (chipsWon)
+                state.chipsWon = *chipsWon;
+            if (winTimestamp)
+                state.winTimestamp = *winTimestamp;
+
+            auto& tunables = Tunables::TunableRegistry::Get();
+            state.tunableRegistryReady = tunables.Initialized();
+            const auto entries = tunables.EntriesSnapshot();
+            const auto maxDailyWin = FindTunableInt(entries, MaxDailyWinTunable);
+            const auto cooldown = FindTunableInt(entries, WinLossCooldownTunable);
+
+            state.maxDailyWinReadable = maxDailyWin.has_value();
+            state.cooldownReadable = cooldown.has_value();
+            if (maxDailyWin)
+                state.maxDailyWin = *maxDailyWin;
+            if (cooldown)
+                state.cooldownSeconds = *cooldown;
+
+            state.systemUnixTime = static_cast<std::int64_t>(std::time(nullptr));
+
+            if (chipsWon && maxDailyWin)
+            {
+                state.winRemaining = static_cast<std::int64_t>(*maxDailyWin) - static_cast<std::int64_t>(*chipsWon);
+                state.winLimitReached = *chipsWon >= *maxDailyWin;
+            }
+
+            if (winTimestamp && cooldown && *winTimestamp > 0 && *cooldown > 0)
+            {
+                state.elapsedSeconds = std::max<std::int64_t>(
+                    0,
+                    state.systemUnixTime - static_cast<std::int64_t>(*winTimestamp));
+                state.remainingSeconds = std::max<std::int64_t>(
+                    0,
+                    static_cast<std::int64_t>(*cooldown) - state.elapsedSeconds);
+            }
+
+            state.cooldownActive = state.winLimitReached && state.remainingSeconds > 0;
+
+            const bool complete = state.chipsWonReadable
+                && state.winTimestampReadable
+                && state.maxDailyWinReadable
+                && state.cooldownReadable;
+
+            if (complete)
+            {
+                TUTONES_LOG_INFO(
+                    "recovery.casino",
+                    std::string("Casino limit diagnostics: won=") + std::to_string(state.chipsWon)
+                        + " max=" + std::to_string(state.maxDailyWin)
+                        + " wonTime=" + std::to_string(state.winTimestamp)
+                        + " cooldown=" + std::to_string(state.cooldownSeconds)
+                        + " remaining=" + std::to_string(state.remainingSeconds));
+            }
+
+            Finish(
+                std::move(state),
+                complete,
+                complete
+                    ? "Casino daily-limit stats and named tunables read successfully"
+                    : "Partial casino-limit read; wait for the native/tunable runtime and refresh again");
+        }
+
+        void Finish(CasinoLimitsSnapshot state, bool success, std::string message)
+        {
+            state.pending = false;
+            state.haveResult = true;
+            state.lastSucceeded = success;
+            state.message = std::move(message);
+
+            {
+                std::scoped_lock lock(m_Mutex);
+                m_State = std::move(state);
+            }
+            m_Pending.store(false, std::memory_order_release);
+        }
+
+        std::atomic<bool> m_Pending{false};
+        mutable std::mutex m_Mutex;
+        CasinoLimitsSnapshot m_State{};
+    };
+}
