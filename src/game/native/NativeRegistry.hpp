@@ -128,6 +128,7 @@ namespace Tutones::Game::Native
         GetPackedStatIntCode,
         SetPackedStatBoolCode,
         SetPackedStatIntCode,
+        GetCloudTimeAsInt,
 
         SetPedMaxTimeUnderwater,
         SetPlayerUnderwaterTimeRemaining,
