@@ -1,0 +1,32 @@
+name: V2 Windows Build
+
+on:
+  push:
+    branches: [tutones-menu-v2-base]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build-v2:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure V2
+        run: cmake -S v2 -B build-v2 -A x64 -DBUILD_TESTING=ON
+
+      - name: Build V2
+        run: cmake --build build-v2 --config Release --parallel
+
+      - name: Test V2
+        run: ctest --test-dir build-v2 -C Release --output-on-failure
+
+      - name: Upload V2 DLL
+        uses: actions/upload-artifact@v4
+        with:
+          name: Tutones-MenuV2-windows-x64-${{ github.run_number }}
+          path: build-v2/Release/Tutones-MenuV2.dll
+          if-no-files-found: error
