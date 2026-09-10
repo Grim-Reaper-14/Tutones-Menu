@@ -3,13 +3,13 @@
 #include "../../core/logging/Logger.hpp"
 #include "../../game/GamePointers.hpp"
 #include "../../game/Stats.hpp"
+#include "../../game/native/NativeInvoker.hpp"
 #include "../../game/tunables/TunableRegistry.hpp"
 #include "../../runtime/GameRuntime.hpp"
 
 #include <algorithm>
 #include <atomic>
 #include <cstdint>
-#include <ctime>
 #include <limits>
 #include <mutex>
 #include <optional>
@@ -31,13 +31,14 @@ namespace Tutones::Game::Recovery
         bool winTimestampReadable{};
         bool maxDailyWinReadable{};
         bool cooldownReadable{};
+        bool cloudTimeReadable{};
         bool winLimitReached{};
         bool cooldownActive{};
         int chipsWon{};
         int winTimestamp{};
         int maxDailyWin{};
         int cooldownSeconds{};
-        std::int64_t systemUnixTime{};
+        int cloudTime{};
         std::int64_t elapsedSeconds{};
         std::int64_t remainingSeconds{};
         std::int64_t winRemaining{};
@@ -129,13 +130,18 @@ namespace Tutones::Game::Recovery
 
             const auto chipsWon = Stats::GetInt(std::string{ChipsWonStat});
             const auto winTimestamp = Stats::GetInt(std::string{WinTimestampStat});
+            const auto cloudTime = Native::NativeInvoker::Invoke<std::int32_t>(
+                Native::NativeId::GetCloudTimeAsInt);
 
             state.chipsWonReadable = chipsWon.has_value();
             state.winTimestampReadable = winTimestamp.has_value();
+            state.cloudTimeReadable = cloudTime.has_value();
             if (chipsWon)
                 state.chipsWon = *chipsWon;
             if (winTimestamp)
                 state.winTimestamp = *winTimestamp;
+            if (cloudTime)
+                state.cloudTime = *cloudTime;
 
             auto& tunables = Tunables::TunableRegistry::Get();
             state.tunableRegistryReady = tunables.Initialized();
@@ -150,19 +156,17 @@ namespace Tutones::Game::Recovery
             if (cooldown)
                 state.cooldownSeconds = *cooldown;
 
-            state.systemUnixTime = static_cast<std::int64_t>(std::time(nullptr));
-
             if (chipsWon && maxDailyWin)
             {
                 state.winRemaining = static_cast<std::int64_t>(*maxDailyWin) - static_cast<std::int64_t>(*chipsWon);
                 state.winLimitReached = *chipsWon >= *maxDailyWin;
             }
 
-            if (winTimestamp && cooldown && *winTimestamp > 0 && *cooldown > 0)
+            if (winTimestamp && cooldown && cloudTime && *winTimestamp > 0 && *cooldown > 0)
             {
                 state.elapsedSeconds = std::max<std::int64_t>(
                     0,
-                    state.systemUnixTime - static_cast<std::int64_t>(*winTimestamp));
+                    static_cast<std::int64_t>(*cloudTime) - static_cast<std::int64_t>(*winTimestamp));
                 state.remainingSeconds = std::max<std::int64_t>(
                     0,
                     static_cast<std::int64_t>(*cooldown) - state.elapsedSeconds);
@@ -173,7 +177,8 @@ namespace Tutones::Game::Recovery
             const bool complete = state.chipsWonReadable
                 && state.winTimestampReadable
                 && state.maxDailyWinReadable
-                && state.cooldownReadable;
+                && state.cooldownReadable
+                && state.cloudTimeReadable;
 
             if (complete)
             {
@@ -182,6 +187,7 @@ namespace Tutones::Game::Recovery
                     std::string("Casino limit diagnostics: won=") + std::to_string(state.chipsWon)
                         + " max=" + std::to_string(state.maxDailyWin)
                         + " wonTime=" + std::to_string(state.winTimestamp)
+                        + " cloudTime=" + std::to_string(state.cloudTime)
                         + " cooldown=" + std::to_string(state.cooldownSeconds)
                         + " remaining=" + std::to_string(state.remainingSeconds));
             }
@@ -190,7 +196,7 @@ namespace Tutones::Game::Recovery
                 std::move(state),
                 complete,
                 complete
-                    ? "Casino daily-limit stats and named tunables read successfully"
+                    ? "Casino daily-limit stats, named tunables and Rockstar cloud time read successfully"
                     : "Partial casino-limit read; wait for the native/tunable runtime and refresh again");
         }
 
