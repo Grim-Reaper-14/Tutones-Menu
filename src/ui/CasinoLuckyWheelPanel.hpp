@@ -1,5 +1,6 @@
 #pragma once
 
+#include "CasinoLimitsPanel.hpp"
 #include "V11Description.hpp"
 #include "V11Theme.hpp"
 #include "../features/recovery/CasinoLuckyWheelRuntime.hpp"
@@ -74,6 +75,8 @@ namespace Tutones::UI
         pageButton("Lucky Wheel", 0, 170.0f);
         ImGui::SameLine();
         pageButton("Rig Slot Machines", 1, 190.0f);
+        ImGui::SameLine();
+        pageButton("Casino Limits", 2, 170.0f);
         ImGui::PopStyleVar(2);
 
         ImGui::SetCursorPos(ImVec2(226.0f, 60.0f));
@@ -181,7 +184,7 @@ namespace Tutones::UI
 
                 SetV11Description("Lucky Wheel V2: choose any reward from the 0-19 list, write it to the active Enhanced wheel player local, refresh the live value and verify the operation before spinning.");
             }
-            else
+            else if (casinoPage == 1)
             {
                 const auto state = slotRuntime.Snapshot();
                 bool enabled = state.enabled;
@@ -282,6 +285,10 @@ namespace Tutones::UI
                 }
 
                 SetV11Description("Rig Slot Machines V2: YimMenuV2-style casino_slots lifecycle using locals 1357+[3..196], the five blacklist entries, spin-state 8/14 gating, read-back verification, and safe-state restoration.");
+            }
+            else
+            {
+                RenderCasinoLimitsPanel();
             }
         }
 
