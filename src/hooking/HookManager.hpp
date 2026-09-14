@@ -67,6 +67,10 @@ namespace Tutones::Hooking
         void* m_PresentTarget{};
         void* m_ResizeBuffersTarget{};
         void* m_ExecuteCommandListsTarget{};
+        void** m_PresentVTableSlot{};
+        void** m_ResizeBuffersVTableSlot{};
+        void** m_ExecuteCommandListsVTableSlot{};
+        bool m_UsingVTableFallback{};
         bool m_MinHookInitialized{};
     };
 }
