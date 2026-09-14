@@ -16,9 +16,7 @@
 #include "../features/recovery/RecoveryRuntime.hpp"
 #include "../features/vehicle/VehicleModificationRuntime.hpp"
 #include "../features/world/WorldRuntime.hpp"
-#include "../game/GamePointers.hpp"
 
-#include <chrono>
 #include <cstring>
 
 #define Categories BaseCategories
@@ -129,51 +127,16 @@ namespace Tutones::UI
                 {{"Enhanced decompile-backed tabs for Apartment, Doomsday, Diamond Casino, Cayo Perico, Auto Shop and Salvage Yard heist families, with Exotic Exports retained as a utility."}}, 1, true},
         }};
 
-        void SyncPersistentMenuStateThrottled() noexcept
-        {
-            using namespace std::chrono_literals;
-
-            static auto nextSync = std::chrono::steady_clock::time_point{};
-            const auto now = std::chrono::steady_clock::now();
-            if (now < nextSync)
-                return;
-
-            nextSync = now + 250ms;
-            SyncPersistentMenuState();
-        }
-
         void RenderTutonesRuntimeOverlays() noexcept
         {
-            using namespace std::chrono_literals;
-
             Input::Get().PollFallbackHotkeys();
-
-            // Protection startup can perform a full Enhanced executable pattern scan.
-            // Never repeat that scan from DX12 Present when a signature is unavailable.
-            static bool protectionStartAttempted{};
-            if (!protectionStartAttempted
-                && Runtime::GameRuntime::Get().IsInitialized()
-                && Game::GamePointers::Get().Module().IsValid())
-            {
-                protectionStartAttempted = true;
-                static_cast<void>(Game::Protections::ProtectionRuntime::Get().Start());
-            }
-
-            // These runtimes only need scheduler-level polling. Keep their lightweight
-            // queue checks off the per-frame hot path while retaining existing behavior.
-            static auto nextRuntimeMaintenance = std::chrono::steady_clock::time_point{};
-            const auto now = std::chrono::steady_clock::now();
-            if (now >= nextRuntimeMaintenance)
-            {
-                nextRuntimeMaintenance = now + 50ms;
-                Game::Business::VehicleCargoAutoSourceRuntime::Get().Tick();
-                Game::Business::VehicleCargoInstantSourceRuntime::Get().Tick();
-                Game::Business::VehicleCargoDeliveryRuntime::Get().Tick();
-                Game::Business::VehicleCargoInstantGarageRuntime::Get().Tick();
-                Game::Business::VehicleCargoInstantSellRuntime::Get().Tick();
-                Game::Recovery::CasinoSlotMachineRuntime::Get().Tick();
-            }
-
+            Game::Business::VehicleCargoAutoSourceRuntime::Get().Tick();
+            Game::Business::VehicleCargoInstantSourceRuntime::Get().Tick();
+            Game::Business::VehicleCargoDeliveryRuntime::Get().Tick();
+            Game::Business::VehicleCargoInstantGarageRuntime::Get().Tick();
+            Game::Business::VehicleCargoInstantSellRuntime::Get().Tick();
+            static_cast<void>(Game::Protections::ProtectionRuntime::Get().Start());
+            Game::Recovery::CasinoSlotMachineRuntime::Get().Tick();
             RenderMiscOverlay();
         }
     }
@@ -293,7 +256,6 @@ namespace Tutones::UI
 
 #define DrawPanel(...) RenderV12ProtectionPanel(m_Item)
 #define RenderMiscOverlay(...) RenderTutonesRuntimeOverlays()
-#define SyncPersistentMenuState() SyncPersistentMenuStateThrottled()
 #define RenderPlayerPanel(index) ((index) == 0 ? RenderSelfV2Panel() : RenderV12PlayerPanel(index))
 #define RenderPlayerOnlinePanel() RenderV12PlayerOnlinePanel()
 #define RenderWeaponPanel(index) RenderV12WeaponPanel(index)
@@ -339,6 +301,5 @@ namespace Tutones::UI
 #undef RenderWeaponPanel
 #undef RenderPlayerOnlinePanel
 #undef RenderPlayerPanel
-#undef SyncPersistentMenuState
 #undef RenderMiscOverlay
 #undef DrawPanel
