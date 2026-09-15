@@ -34,6 +34,88 @@ namespace Tutones::Hooking
             return message;
         }
 
+        bool ExchangeVTableSlot(void** slot, void* expectedCurrent, void* replacement, const char* name) noexcept
+        {
+            if (!slot || !expectedCurrent || !replacement)
+                return false;
+
+            if (*slot != expectedCurrent)
+            {
+                std::string message(name ? name : "D3D12 vtable");
+                message += " slot changed before patching; refusing to overwrite another hook";
+                TUTONES_LOG_WARN("hook.vtable", message);
+                return false;
+            }
+
+            DWORD oldProtection{};
+            if (!::VirtualProtect(slot, sizeof(void*), PAGE_READWRITE, &oldProtection))
+            {
+                std::string message("VirtualProtect failed while patching ");
+                message += name ? name : "D3D12 vtable";
+                message += "; GetLastError=";
+                message += std::to_string(::GetLastError());
+                TUTONES_LOG_ERROR("hook.vtable", message);
+                return false;
+            }
+
+            auto* previous = ::InterlockedExchangePointer(
+                reinterpret_cast<PVOID volatile*>(slot),
+                replacement);
+
+            DWORD ignored{};
+            if (!::VirtualProtect(slot, sizeof(void*), oldProtection, &ignored))
+            {
+                std::string message("Failed to restore page protection after patching ");
+                message += name ? name : "D3D12 vtable";
+                message += "; GetLastError=";
+                message += std::to_string(::GetLastError());
+                TUTONES_LOG_WARN("hook.vtable", message);
+            }
+
+            if (previous != expectedCurrent)
+            {
+                TUTONES_LOG_WARN("hook.vtable", "Vtable slot changed during patch; rolling back replacement");
+
+                DWORD rollbackProtection{};
+                if (::VirtualProtect(slot, sizeof(void*), PAGE_READWRITE, &rollbackProtection))
+                {
+                    ::InterlockedExchangePointer(
+                        reinterpret_cast<PVOID volatile*>(slot),
+                        previous);
+                    DWORD rollbackIgnored{};
+                    ::VirtualProtect(slot, sizeof(void*), rollbackProtection, &rollbackIgnored);
+                }
+                return false;
+            }
+
+            return true;
+        }
+
+        void RestoreVTableSlot(void** slot, void* detour, void* original, const char* name) noexcept
+        {
+            if (!slot || !detour || !original)
+                return;
+
+            if (*slot == original)
+                return;
+
+            if (*slot != detour)
+            {
+                std::string message(name ? name : "D3D12 vtable");
+                message += " slot is owned by another hook during shutdown; leaving it unchanged";
+                TUTONES_LOG_WARN("hook.vtable", message);
+                return;
+            }
+
+            if (!ExchangeVTableSlot(slot, detour, original, name))
+            {
+                std::string message("Failed to restore ");
+                message += name ? name : "D3D12 vtable";
+                message += " slot";
+                TUTONES_LOG_WARN("hook.vtable", message);
+            }
+        }
+
         struct CallbackGuard final
         {
             explicit CallbackGuard(HookManager& manager) noexcept
@@ -356,9 +438,12 @@ namespace Tutones::Hooking
             return false;
         }
 
-        m_PresentTarget = swapVTable[PresentVTableIndex];
-        m_ResizeBuffersTarget = swapVTable[ResizeBuffersVTableIndex];
-        m_ExecuteCommandListsTarget = queueVTable[ExecuteCommandListsVTableIndex];
+        m_PresentVTableSlot = &swapVTable[PresentVTableIndex];
+        m_ResizeBuffersVTableSlot = &swapVTable[ResizeBuffersVTableIndex];
+        m_ExecuteCommandListsVTableSlot = &queueVTable[ExecuteCommandListsVTableIndex];
+        m_PresentTarget = *m_PresentVTableSlot;
+        m_ResizeBuffersTarget = *m_ResizeBuffersVTableSlot;
+        m_ExecuteCommandListsTarget = *m_ExecuteCommandListsVTableSlot;
         if (!m_PresentTarget || !m_ResizeBuffersTarget || !m_ExecuteCommandListsTarget)
         {
             m_Status.store(HookStatus::Failed, std::memory_order_release);
@@ -368,35 +453,111 @@ namespace Tutones::Hooking
         }
         TUTONES_LOG_DEBUG("hook", "Resolved Present, ResizeBuffers, and ExecuteCommandLists vtable targets");
 
-        const auto createPresent = ::MH_CreateHook(m_PresentTarget, reinterpret_cast<void*>(&PresentDetour), reinterpret_cast<void**>(&m_OriginalPresent));
-        if (createPresent != MH_OK)
+        const auto installVTableFallback = [this]() noexcept -> bool
         {
-            TUTONES_LOG_ERROR("hook", MhFailure("Create Present hook", createPresent));
+            TUTONES_LOG_WARN(
+                "hook",
+                "MinHook could not allocate a trampoline; switching D3D12/DXGI hooks to direct COM vtable fallback");
+
+            m_OriginalPresent = reinterpret_cast<PresentFn>(m_PresentTarget);
+            m_OriginalResizeBuffers = reinterpret_cast<ResizeBuffersFn>(m_ResizeBuffersTarget);
+            m_OriginalExecuteCommandLists = reinterpret_cast<ExecuteCommandListsFn>(m_ExecuteCommandListsTarget);
+
+            const auto presentDetour = reinterpret_cast<void*>(&PresentDetour);
+            const auto resizeDetour = reinterpret_cast<void*>(&ResizeBuffersDetour);
+            const auto executeDetour = reinterpret_cast<void*>(&ExecuteCommandListsDetour);
+
+            if (!ExchangeVTableSlot(m_PresentVTableSlot, m_PresentTarget, presentDetour, "IDXGISwapChain::Present"))
+                return false;
+
+            if (!ExchangeVTableSlot(m_ResizeBuffersVTableSlot, m_ResizeBuffersTarget, resizeDetour, "IDXGISwapChain::ResizeBuffers"))
+            {
+                RestoreVTableSlot(m_PresentVTableSlot, presentDetour, m_PresentTarget, "IDXGISwapChain::Present");
+                return false;
+            }
+
+            if (!ExchangeVTableSlot(m_ExecuteCommandListsVTableSlot, m_ExecuteCommandListsTarget, executeDetour, "ID3D12CommandQueue::ExecuteCommandLists"))
+            {
+                RestoreVTableSlot(m_ResizeBuffersVTableSlot, resizeDetour, m_ResizeBuffersTarget, "IDXGISwapChain::ResizeBuffers");
+                RestoreVTableSlot(m_PresentVTableSlot, presentDetour, m_PresentTarget, "IDXGISwapChain::Present");
+                return false;
+            }
+
+            m_UsingVTableFallback = true;
+            m_Status.store(HookStatus::Installed, std::memory_order_release);
+            TUTONES_LOG_INFO(
+                "hook",
+                "D3D12 Present, ResizeBuffers, and ExecuteCommandLists hooks installed via direct COM vtable fallback");
+            TUTONES_LOG_DEBUG("hook", "Waiting for a validated primary render window and swap chain");
+            return true;
+        };
+
+        const auto failInstall = [this]() noexcept
+        {
             ResetTargets();
             m_Status.store(HookStatus::Failed, std::memory_order_release);
+        };
+
+        const auto createPresent = ::MH_CreateHook(
+            m_PresentTarget,
+            reinterpret_cast<void*>(&PresentDetour),
+            reinterpret_cast<void**>(&m_OriginalPresent));
+        if (createPresent != MH_OK)
+        {
+            if (createPresent == MH_ERROR_MEMORY_ALLOC)
+            {
+                if (installVTableFallback())
+                    return true;
+
+                TUTONES_LOG_ERROR("hook", "Direct COM vtable fallback failed after Present trampoline allocation failure");
+            }
+            else
+            {
+                TUTONES_LOG_ERROR("hook", MhFailure("Create Present hook", createPresent));
+            }
+
+            failInstall();
             return false;
         }
         TUTONES_LOG_DEBUG("hook.present", "Present trampoline created");
 
-        const auto createResize = ::MH_CreateHook(m_ResizeBuffersTarget, reinterpret_cast<void*>(&ResizeBuffersDetour), reinterpret_cast<void**>(&m_OriginalResizeBuffers));
+        const auto createResize = ::MH_CreateHook(
+            m_ResizeBuffersTarget,
+            reinterpret_cast<void*>(&ResizeBuffersDetour),
+            reinterpret_cast<void**>(&m_OriginalResizeBuffers));
         if (createResize != MH_OK)
         {
             TUTONES_LOG_ERROR("hook", MhFailure("Create ResizeBuffers hook", createResize));
             ::MH_RemoveHook(m_PresentTarget);
-            ResetTargets();
-            m_Status.store(HookStatus::Failed, std::memory_order_release);
+
+            if (createResize == MH_ERROR_MEMORY_ALLOC && installVTableFallback())
+                return true;
+
+            if (createResize == MH_ERROR_MEMORY_ALLOC)
+                TUTONES_LOG_ERROR("hook", "Direct COM vtable fallback failed after ResizeBuffers trampoline allocation failure");
+
+            failInstall();
             return false;
         }
         TUTONES_LOG_DEBUG("hook.resize", "ResizeBuffers trampoline created");
 
-        const auto createExecute = ::MH_CreateHook(m_ExecuteCommandListsTarget, reinterpret_cast<void*>(&ExecuteCommandListsDetour), reinterpret_cast<void**>(&m_OriginalExecuteCommandLists));
+        const auto createExecute = ::MH_CreateHook(
+            m_ExecuteCommandListsTarget,
+            reinterpret_cast<void*>(&ExecuteCommandListsDetour),
+            reinterpret_cast<void**>(&m_OriginalExecuteCommandLists));
         if (createExecute != MH_OK)
         {
             TUTONES_LOG_ERROR("hook", MhFailure("Create ExecuteCommandLists hook", createExecute));
             ::MH_RemoveHook(m_ResizeBuffersTarget);
             ::MH_RemoveHook(m_PresentTarget);
-            ResetTargets();
-            m_Status.store(HookStatus::Failed, std::memory_order_release);
+
+            if (createExecute == MH_ERROR_MEMORY_ALLOC && installVTableFallback())
+                return true;
+
+            if (createExecute == MH_ERROR_MEMORY_ALLOC)
+                TUTONES_LOG_ERROR("hook", "Direct COM vtable fallback failed after ExecuteCommandLists trampoline allocation failure");
+
+            failInstall();
             return false;
         }
         TUTONES_LOG_DEBUG("hook.queue", "ExecuteCommandLists trampoline created");
@@ -410,8 +571,7 @@ namespace Tutones::Hooking
             ::MH_RemoveHook(m_ExecuteCommandListsTarget);
             ::MH_RemoveHook(m_ResizeBuffersTarget);
             ::MH_RemoveHook(m_PresentTarget);
-            ResetTargets();
-            m_Status.store(HookStatus::Failed, std::memory_order_release);
+            failInstall();
             return false;
         }
         TUTONES_LOG_DEBUG("hook", "All D3D12/DXGI hooks queued for enabling");
@@ -423,8 +583,7 @@ namespace Tutones::Hooking
             ::MH_RemoveHook(m_ExecuteCommandListsTarget);
             ::MH_RemoveHook(m_ResizeBuffersTarget);
             ::MH_RemoveHook(m_PresentTarget);
-            ResetTargets();
-            m_Status.store(HookStatus::Failed, std::memory_order_release);
+            failInstall();
             return false;
         }
 
@@ -447,15 +606,38 @@ namespace Tutones::Hooking
         m_Status.store(HookStatus::ShuttingDown, std::memory_order_release);
         TUTONES_LOG_INFO("hook", "D3D12 hook manager shutting down");
 
-        TUTONES_LOG_DEBUG("hook", "Queueing hook disable operations");
-        if (m_PresentTarget) ::MH_QueueDisableHook(m_PresentTarget);
-        if (m_ResizeBuffersTarget) ::MH_QueueDisableHook(m_ResizeBuffersTarget);
-        if (m_ExecuteCommandListsTarget) ::MH_QueueDisableHook(m_ExecuteCommandListsTarget);
-        const auto disableStatus = ::MH_ApplyQueued();
-        if (disableStatus != MH_OK)
-            TUTONES_LOG_WARN("hook", MhFailure("Disable D3D12 hooks", disableStatus));
+        if (m_UsingVTableFallback)
+        {
+            TUTONES_LOG_DEBUG("hook.vtable", "Restoring direct D3D12/DXGI COM vtable hooks");
+            RestoreVTableSlot(
+                m_PresentVTableSlot,
+                reinterpret_cast<void*>(&PresentDetour),
+                m_PresentTarget,
+                "IDXGISwapChain::Present");
+            RestoreVTableSlot(
+                m_ResizeBuffersVTableSlot,
+                reinterpret_cast<void*>(&ResizeBuffersDetour),
+                m_ResizeBuffersTarget,
+                "IDXGISwapChain::ResizeBuffers");
+            RestoreVTableSlot(
+                m_ExecuteCommandListsVTableSlot,
+                reinterpret_cast<void*>(&ExecuteCommandListsDetour),
+                m_ExecuteCommandListsTarget,
+                "ID3D12CommandQueue::ExecuteCommandLists");
+            TUTONES_LOG_DEBUG("hook.vtable", "Direct D3D12/DXGI COM vtable hooks restored");
+        }
         else
-            TUTONES_LOG_DEBUG("hook", "D3D12/DXGI detours disabled");
+        {
+            TUTONES_LOG_DEBUG("hook", "Queueing hook disable operations");
+            if (m_PresentTarget) ::MH_QueueDisableHook(m_PresentTarget);
+            if (m_ResizeBuffersTarget) ::MH_QueueDisableHook(m_ResizeBuffersTarget);
+            if (m_ExecuteCommandListsTarget) ::MH_QueueDisableHook(m_ExecuteCommandListsTarget);
+            const auto disableStatus = ::MH_ApplyQueued();
+            if (disableStatus != MH_OK)
+                TUTONES_LOG_WARN("hook", MhFailure("Disable D3D12 hooks", disableStatus));
+            else
+                TUTONES_LOG_DEBUG("hook", "D3D12/DXGI detours disabled");
+        }
 
         Win32Hook::Get().SetMessageHandler(nullptr);
         Win32Hook::Get().Detach();
@@ -469,10 +651,13 @@ namespace Tutones::Hooking
         static_cast<void>(WaitForCallbacksToDrain());
         TUTONES_LOG_DEBUG("hook", "All active hook callbacks drained");
 
-        if (m_PresentTarget) ::MH_RemoveHook(m_PresentTarget);
-        if (m_ResizeBuffersTarget) ::MH_RemoveHook(m_ResizeBuffersTarget);
-        if (m_ExecuteCommandListsTarget) ::MH_RemoveHook(m_ExecuteCommandListsTarget);
-        TUTONES_LOG_DEBUG("hook", "MinHook trampolines removed");
+        if (!m_UsingVTableFallback)
+        {
+            if (m_PresentTarget) ::MH_RemoveHook(m_PresentTarget);
+            if (m_ResizeBuffersTarget) ::MH_RemoveHook(m_ResizeBuffersTarget);
+            if (m_ExecuteCommandListsTarget) ::MH_RemoveHook(m_ExecuteCommandListsTarget);
+            TUTONES_LOG_DEBUG("hook", "MinHook trampolines removed");
+        }
 
         if (auto* queue = m_CommandQueue.exchange(nullptr, std::memory_order_acq_rel))
         {
@@ -599,9 +784,13 @@ namespace Tutones::Hooking
         m_PresentTarget = nullptr;
         m_ResizeBuffersTarget = nullptr;
         m_ExecuteCommandListsTarget = nullptr;
+        m_PresentVTableSlot = nullptr;
+        m_ResizeBuffersVTableSlot = nullptr;
+        m_ExecuteCommandListsVTableSlot = nullptr;
         m_OriginalPresent = nullptr;
         m_OriginalResizeBuffers = nullptr;
         m_OriginalExecuteCommandLists = nullptr;
+        m_UsingVTableFallback = false;
         TUTONES_LOG_TRACE("hook", "Hook target and original-function state reset");
     }
 }
